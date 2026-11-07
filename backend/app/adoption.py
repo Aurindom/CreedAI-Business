@@ -3,12 +3,12 @@ import secrets
 import sqlite3
 from datetime import datetime
 
-from .comparison import compare
+from .comparison import AssignmentError, compare
 from .schemas import AdoptionPlan, Catalog, Comparison, PlanStep, PlanSummary, SavedPlan, Selection
 
 MAX_PLANS = 20
 NOTE = "This plan is guidance. Nothing is bought, connected or set up for you."
-SNAPSHOT_FIELDS = {"steps", "gaps", "connections", "stack"}
+SNAPSHOT_FIELDS = {"steps", "gaps", "connections", "stack", "status", "open_items"}
 
 
 class PlanNotReady(Exception):
@@ -34,7 +34,7 @@ def _steps(catalog: Catalog, result: Comparison) -> list[PlanStep]:
         tool, entry = catalog.tool(line.tool_id), compared[line.tool_id]
         fits = [f for f in entry.tasks if f.problem_id in line.problem_ids]
         setup = next(f for f in entry.facts if f.label == "Setup")
-        to_confirm = [f"{f.title}: {f.reason}" for f in fits if f.standing == "check_first"]
+        to_confirm = [f"{f.title}: {f.reason}" for f in fits if f.coverage != "confirmed"]
         if line.monthly_usd is None:
             to_confirm.append(line.note)
         if tool.entry_billing.known and tool.entry_billing.value == "annual":
@@ -48,6 +48,7 @@ def _steps(catalog: Catalog, result: Comparison) -> list[PlanStep]:
                 tool_id=tool.id,
                 tool_name=tool.name,
                 status=tool.status,
+                coverage="confirmed" if line.confirmed else "possible",
                 problem_ids=line.problem_ids,
                 tasks=[f.title for f in fits],
                 reasons=[f"{f.title}: {f.reason}" for f in fits],
@@ -64,23 +65,32 @@ def _steps(catalog: Catalog, result: Comparison) -> list[PlanStep]:
 
 def build_plan(catalog: Catalog, selection: Selection, plan_id: str, created_at: datetime) -> AdoptionPlan:
     """Built from the same comparison the owner saw, so a saved plan can't quote a price the comparison didn't."""
-    result = compare(catalog, selection.profile, selection.problem_ids, selection.tool_ids)
+    result = compare(catalog, selection.profile, selection.problem_ids, selection.tool_ids, selection.assignments)
     if result.stack is None:
         raise PlanNotReady(result.stack_note)
+    gaps = [s.title for s in result.tasks if s.kind == "gap"]
+    open_items = [f"Nothing chosen covers {g}" for g in gaps]
+    open_items += [f"{s.title}: {s.note}" for s in result.tasks if s.suggested]
+    open_items += [f"Check that {name} fits before relying on it" for name in result.stack.unconfirmed]
+    open_items += [f"{name}'s price for this isn't confirmed" for name in result.stack.unknown_cost_tools]
     return AdoptionPlan(
         id=plan_id,
         selection=selection,
         created_at=created_at,
         steps=_steps(catalog, result),
-        gaps=[s.title for s in result.tasks if s.kind == "gap"],
+        gaps=gaps,
         connections=result.connections,
         stack=result.stack,
         note=NOTE,
+        status="checked" if not open_items else "draft",
+        open_items=open_items,
     )
 
 
 def _request_hash(selection: Selection) -> str:
-    return hashlib.sha256(selection.model_dump_json().encode("utf-8")).hexdigest()
+    """Plans saved before assignments existed keep matching their request_id."""
+    exclude = None if selection.assignments else {"assignments"}
+    return hashlib.sha256(selection.model_dump_json(exclude=exclude).encode("utf-8")).hexdigest()
 
 
 def _existing(conn: sqlite3.Connection, owner: str, request_id: str, request_hash: str) -> AdoptionPlan | None:
@@ -138,7 +148,7 @@ def check_plan(catalog: Catalog, plan: AdoptionPlan) -> SavedPlan:
     saved_on = (plan.refreshed_at or plan.created_at).date().isoformat()
     try:
         fresh = build_plan(catalog, plan.selection, plan.id, plan.created_at)
-    except (KeyError, PlanNotReady) as exc:
+    except (KeyError, PlanNotReady, AssignmentError) as exc:
         reason = exc.args[0] if exc.args else "the catalog changed"
         return SavedPlan(plan=plan, changed=True, change_note=f"Saved on {saved_on}. It can't be rebuilt from today's catalog: {reason}")
     if fresh.model_dump(include=SNAPSHOT_FIELDS) == plan.model_dump(include=SNAPSHOT_FIELDS):

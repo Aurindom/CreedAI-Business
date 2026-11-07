@@ -49,6 +49,7 @@ class Capability(BaseModel):
     addon_monthly_usd: Fact = UNKNOWN
     included_from: Fact = UNKNOWN
     addon_from: Fact = UNKNOWN
+    addon_offer: Fact = UNKNOWN
     facets: dict[str, Fact] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -59,6 +60,8 @@ class Capability(BaseModel):
             raise ValueError(f"{self.capability} names a plan but is not marked included")
         if self.addon_from.known and self.level != "add_on":
             raise ValueError(f"{self.capability} names an add-on plan but is not marked add_on")
+        if self.addon_offer.known and self.level != "add_on":
+            raise ValueError(f"{self.capability} names an add-on offer but is not marked add_on")
         return self
 
     @property
@@ -372,13 +375,15 @@ class StackCheck(BaseModel):
 
 
 Standing = Literal["eligible", "check_first", "set_aside"]
-Role = Literal["fills_gap", "alternative", "no_fit"]
+Role = Literal["fills_gap", "might_fill_gap", "alternative", "not_needed", "no_fit"]
+Coverage = Literal["confirmed", "possible", "excluded"]
 
 
 class TaskFit(BaseModel):
     problem_id: str
     title: str
     standing: Standing
+    coverage: Coverage = "possible"
     reason: str
     route: Route | None = None
     added_monthly_usd: float | None = None
@@ -399,8 +404,11 @@ class TaskSlot(BaseModel):
     problem_id: str
     title: str
     tool_ids: list[str]
-    kind: Literal["covered", "alternatives", "gap"]
+    kind: Literal["covered", "possible", "alternatives", "gap"]
     note: str
+    candidate_ids: list[str] = Field(default_factory=list)
+    assigned_to: str | None = None
+    suggested: bool = False
 
 
 class Connection(BaseModel):
@@ -417,6 +425,7 @@ class StackLine(BaseModel):
     problem_ids: list[str]
     monthly_usd: float | None
     note: str
+    confirmed: bool = False
 
 
 class StackCost(BaseModel):
@@ -426,6 +435,17 @@ class StackCost(BaseModel):
     unknown_cost_tools: list[str]
     assumptions: list[str]
     within_budget: bool | None = None
+    ready: bool = False
+    unconfirmed: list[str] = Field(default_factory=list)
+
+
+class AllInOne(BaseModel):
+    tool_id: str
+    tool_name: str
+    status: ToolStatus
+    coverage: Coverage
+    monthly_usd: float | None
+    note: str
 
 
 class Comparison(BaseModel):
@@ -436,6 +456,8 @@ class Comparison(BaseModel):
     connections: list[Connection]
     stack: StackCost | None
     stack_note: str
+    all_in_one: list[AllInOne] = Field(default_factory=list)
+    all_in_one_note: str = ""
 
 
 class TaskMatch(BaseModel):
@@ -451,6 +473,7 @@ class Selection(BaseModel):
     profile: BusinessProfile = Field(default_factory=BusinessProfile)
     problem_ids: list[str] = Field(min_length=1, max_length=MAX_TASKS)
     tool_ids: list[str] = Field(min_length=1, max_length=MAX_COMPARED)
+    assignments: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("problem_ids", "tool_ids")
     @classmethod
@@ -459,11 +482,19 @@ class Selection(BaseModel):
             raise ValueError("each id can be chosen only once")
         return ids
 
+    @model_validator(mode="after")
+    def assignments_within_selection(self) -> "Selection":
+        for problem_id, tool_id in self.assignments.items():
+            if problem_id not in self.problem_ids or tool_id not in self.tool_ids:
+                raise ValueError(f"assignment {problem_id} -> {tool_id} must use a chosen task and tool")
+        return self
+
 
 class PlanStep(BaseModel):
     tool_id: str
     tool_name: str
     status: ToolStatus
+    coverage: Coverage = "possible"
     problem_ids: list[str]
     tasks: list[str]
     reasons: list[str]
@@ -485,6 +516,8 @@ class AdoptionPlan(BaseModel):
     connections: list[Connection]
     stack: StackCost
     note: str
+    status: Literal["checked", "draft", "legacy"] = "legacy"
+    open_items: list[str] = Field(default_factory=list)
 
 
 class SavedPlan(BaseModel):

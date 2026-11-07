@@ -12,8 +12,10 @@ def fact(value, source_type="vendor"):
     return Fact(status="present", value=value, source_url="https://example.com/p", source_type=source_type, checked="2026-11-06")
 
 
-def cap(name, access="included", addon=None, plan=None):
+def cap(name, access="included", addon=None, plan=None, offer=None):
     extra = {"addon_monthly_usd": fact(addon)} if addon is not None else {}
+    if offer is not None:
+        extra["addon_offer"] = fact(offer)
     if plan is not None:
         extra["addon_from" if access == "add_on" else "included_from"] = fact(plan)
     access_fact = Fact(status="unknown") if access == "unknown" else fact(access)
