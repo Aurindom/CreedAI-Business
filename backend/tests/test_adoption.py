@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -183,3 +185,58 @@ def test_private_writes_can_be_turned_off(client, monkeypatch):
 ])
 def test_bad_plan_requests(client, change, status):
     assert client.post("/api/plans", json={**BODY, **change}, headers=start(client)).status_code == status
+
+
+def test_a_fully_confirmed_plan_is_checked(catalog):
+    plan = adoption.build_plan(catalog, PAIR, "p", NOW)
+    assert plan.status == "checked" and plan.open_items == [] and [s.coverage for s in plan.steps] == ["confirmed", "confirmed"]
+
+
+def test_a_plan_with_an_unknown_price_is_a_draft(catalog):
+    plan = adoption.build_plan(catalog, Selection(profile={"trade": "hvac"}, problem_ids=["calls", "books"], tool_ids=["mystery", "ledger"]), "p", NOW)
+    assert plan.status == "draft" and any("Mystery" in item for item in plan.open_items)
+
+
+def test_a_plan_with_a_pending_tool_is_a_draft_that_says_what_to_check(catalog):
+    catalog.tools[2] = catalog.tools[2].model_copy(update={"status": "pending_review"})
+    plan = adoption.build_plan(catalog, PAIR, "p", NOW)
+    assert plan.status == "draft" and plan.steps[0].coverage == "possible"
+    assert any("Voice" in item for item in plan.open_items) and any("rechecked" in c for c in plan.steps[0].to_confirm)
+
+
+def test_an_assigned_alternative_becomes_a_plan(catalog):
+    selection = Selection(problem_ids=["calls"], tool_ids=["voice", "solo"], assignments={"calls": "solo"})
+    plan = adoption.build_plan(catalog, selection, "p", NOW)
+    assert [s.tool_id for s in plan.steps] == ["solo"] and plan.stack.total_monthly_usd == 60
+
+
+def test_a_plan_saved_before_this_change_still_loads_and_offers_a_refresh(conn, catalog, owner):
+    plan, _ = save(conn, catalog, owner)
+    old = plan.model_dump(mode="json", exclude={"status", "open_items"})
+    for step in old["steps"]:
+        step.pop("coverage")
+    for key in ("ready", "unconfirmed"):
+        old["stack"].pop(key)
+    for line in old["stack"]["lines"]:
+        line.pop("confirmed")
+    old["selection"].pop("assignments")
+    with conn:
+        conn.execute("UPDATE adoption_plan SET doc = ? WHERE id = ?", (json.dumps(old), plan.id))
+    loaded = adoption.load_plan(conn, owner, plan.id)
+    assert loaded.status == "legacy"
+    saved = adoption.check_plan(catalog, loaded)
+    assert saved.changed and saved.plan.stack.total_monthly_usd == 130
+    assert adoption.refresh_plan(conn, catalog, owner, plan.id, NOW).status == "checked"
+
+
+def test_the_request_hash_ignores_empty_assignments():
+    assert "assignments" not in Selection(problem_ids=["calls"], tool_ids=["voice"]).model_dump_json(exclude={"assignments"})
+    plain = adoption._request_hash(Selection(problem_ids=["calls"], tool_ids=["voice"]))
+    legacy = hashlib.sha256(json.dumps({"profile": Selection(problem_ids=["calls"], tool_ids=["voice"]).profile.model_dump(mode="json"), "problem_ids": ["calls"], "tool_ids": ["voice"]}, separators=(",", ":")).encode("utf-8")).hexdigest()
+    assigned = adoption._request_hash(Selection(problem_ids=["calls"], tool_ids=["voice"], assignments={"calls": "voice"}))
+    assert plain == legacy and assigned != plain
+
+
+def test_a_bad_assignment_on_save_is_refused(client):
+    body = {**BODY, "tool_ids": ["jobber", "housecall_pro"], "assignments": {"missed_calls": "nope"}}
+    assert client.post("/api/plans", json=body, headers=start(client)).status_code == 422

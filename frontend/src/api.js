@@ -60,16 +60,17 @@ export const api = {
   toolFacts: (toolId) => request(`/api/tools/${encodeURIComponent(toolId)}/facts`),
   recommend: (profile, problemId) => request('/api/recommend', { method: 'POST', body: JSON.stringify({ profile, problem_id: problemId }) }),
   resolveTask: (text) => request('/api/tasks/resolve', { method: 'POST', body: JSON.stringify({ text }) }),
-  compare: (profile, problemIds, toolIds) => request('/api/compare', { method: 'POST', body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds }) }),
+  compare: (profile, problemIds, toolIds, assignments = {}) =>
+    request('/api/compare', { method: 'POST', body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds, assignments }) }),
   stackCheck: (toolIds) => request('/api/stack/check', { method: 'POST', body: JSON.stringify({ tool_ids: toolIds }) }),
   startSession: () => request('/api/sessions', { method: 'POST' }),
   endSession: (token) => request('/api/sessions/current', { method: 'DELETE', headers: owner(token) }),
   plans: (token) => request('/api/plans', { headers: owner(token) }),
-  savePlan: (token, profile, problemIds, toolIds, requestId) =>
+  savePlan: (token, profile, problemIds, toolIds, requestId, assignments = {}) =>
     request('/api/plans', {
       method: 'POST',
       headers: owner(token),
-      body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds, request_id: requestId }),
+      body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds, request_id: requestId, assignments }),
     }),
   plan: (token, planId) => request(`/api/plans/${encodeURIComponent(planId)}`, { headers: owner(token) }),
   refreshPlan: (token, planId) => request(`/api/plans/${encodeURIComponent(planId)}/refresh`, { method: 'POST', headers: owner(token) }),

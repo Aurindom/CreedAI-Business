@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from . import access, adoption, db
 from .chat import router as chat_router
-from .comparison import compare
+from .comparison import AssignmentError, compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
 from .tasks import resolve_task
@@ -180,9 +180,11 @@ def compare_route(request: Request, body: CompareRequest) -> Comparison:
     """Uses the same task, business, ownership and plan context as /api/recommend, so prices match the cards."""
     catalog = _catalog(request)
     try:
-        return compare(catalog, body.profile, body.problem_ids, body.tool_ids)
+        return compare(catalog, body.profile, body.problem_ids, body.tool_ids, body.assignments)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+    except AssignmentError as exc:
+        raise HTTPException(status_code=422, detail=exc.args[0]) from exc
 
 
 @app.post("/api/tasks/resolve")
@@ -222,6 +224,8 @@ def plan_save(request: Request, response: Response, body: PlanRequest, owner: st
             plan, created = adoption.save_plan(request.app.state.conn, _catalog(request), owner, body.request_id, selection, _now())
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+        except AssignmentError as exc:
+            raise HTTPException(status_code=422, detail=exc.args[0]) from exc
         except (adoption.PlanNotReady, adoption.PlanConflict, adoption.PlanLimit) as exc:
             raise HTTPException(status_code=409, detail=exc.args[0]) from exc
     if not created:
@@ -248,5 +252,5 @@ def plan_refresh(request: Request, plan_id: str, owner: str = Depends(_owner)) -
             raise HTTPException(status_code=404, detail=exc.args[0]) from exc
         except KeyError as exc:
             raise HTTPException(status_code=409, detail=f"This plan can't be rebuilt from today's catalog: {exc.args[0]}") from exc
-        except adoption.PlanNotReady as exc:
+        except (adoption.PlanNotReady, AssignmentError) as exc:
             raise HTTPException(status_code=409, detail=exc.args[0]) from exc

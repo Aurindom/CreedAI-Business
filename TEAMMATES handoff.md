@@ -273,23 +273,38 @@ Request, with the same `profile` you send to `/api/recommend`:
 ```json
 {"profile": {"trade": "hvac", "owned": [{"tool_id": "quickbooks_online", "plan": "Simple Start"}], "budget_monthly_usd": 150},
  "problem_ids": ["job_scheduling", "bookkeeping"],
- "tool_ids": ["jobber", "housecall_pro"]}
+ "tool_ids": ["jobber", "housecall_pro"],
+ "assignments": {"job_scheduling": "jobber"}}
 ```
 Limits: 1 to 5 `problem_ids`, 1 to 3 `tool_ids`, no repeats (422). Unknown ids give 404.
 
+`assignments` is optional (`api.compare(profile, problemIds, toolIds, assignments)`). It maps a chosen task to the chosen tool the owner picked for it. Use it when two tools fit the same task and the owner picks one. A task or tool outside the selection, or a tool that isn't a usable fit for that task, gives `422`.
+
+Readiness, one rule everywhere (W05 fix):
+- `confirmed`: the tool lists the task, the fit applies, and our team has rechecked the tool.
+- `possible`: it might fit, but something still needs checking (pending review or unconfirmed fit). Never show it as checked or ready.
+- `excluded`: set aside. Don't offer it for that task.
+- An unknown price is never 0 and never "within budget".
+
 Response:
 - `tools[]`: one per chosen tool, in the order sent.
-  - `role`: `fills_gap` (the only chosen tool for some task), `alternative` (another chosen tool fits the same tasks) or `no_fit`. Show `role_note`.
-  - `tasks[]`: one per chosen task the tool lists. `standing` is `eligible`, `check_first` (research candidate, say why with `reason`) or `set_aside`. `route`, `added_monthly_usd` and `cost_note` are exactly what that tool's recommendation card shows.
+  - `role`: `fills_gap` (holds a task, confirmed), `might_fill_gap` (holds a task that still needs checking), `alternative` (fits the same task as another chosen tool and nothing is assigned yet), `not_needed` (fits, but the task went to another tool, so it isn't counted) or `no_fit`. Show `role_note`.
+  - `tasks[]`: one per chosen task the tool lists. `standing` is `eligible`, `check_first` (say why with `reason`) or `set_aside`. `coverage` is `confirmed`, `possible` or `excluded`. `route`, `added_monthly_usd` and `cost_note` are exactly what that tool's recommendation card shows.
   - `facts`: the same four display facts as the cards.
-- `tasks[]`: one per chosen task. `kind` is `covered`, `alternatives` or `gap`. Show `note`.
+- `tasks[]`: one per chosen task. `kind` is `covered`, `possible`, `alternatives` or `gap`. Show `note`.
+  - `candidate_ids`: every chosen tool that could take the task. Use these for a "pick one" control.
+  - `assigned_to`: the tool that holds it, or `null` for alternatives and gaps.
+  - `suggested`: `true` when we picked it because that tool is already needed for another task (lowest added cost, then the order sent). Show it as a suggestion the owner can change, not a decision.
 - `overlaps[]`: plain sentences. Shared features are possible overlap, never proof two tools do the same job.
 - `connections[]`: one per pair of chosen tools, plus chosen-to-owned pairs. `state` is `listed` (a vendor's sourced list names the other tool, see `listed_by` and `sources`) or `unverified`. Don't show `unverified` as compatible. Even `listed` doesn't say what data moves or which way, and `note` says so.
-- `stack`: `null` when any task has alternatives, because alternatives are not a bundle. Show `stack_note` instead ("Pick one per task first"). Otherwise:
-  - `lines[]`: one per tool, `monthly_usd` for all its tasks together. A plan or add-on shared by two tasks is charged once. `null` means unknown, with the reason in `note`.
-  - `known_monthly_usd`, `total_monthly_usd` (`null` if anything is unknown, never treated as 0), `unknown_cost_tools`, `within_budget` (`null` if there's no budget or the total is unknown).
+- `stack`: `null` when any task is still `alternatives`, because alternatives are not a bundle. Show `stack_note` instead ("Pick one per task first") and let the owner pick from `candidate_ids`, then call compare again with `assignments`. Otherwise it is built only from the assigned tasks, so each task is paid for once:
+  - `lines[]`: one per tool, `monthly_usd` for all its tasks together. A plan shared by two tasks is charged once. Add-ons are charged once per recorded vendor offer. If we haven't recorded whether two add-ons are one purchase or separate, `monthly_usd` is `null` and `note` says so. `confirmed` is `false` if any of its tasks is only `possible`.
+  - `known_monthly_usd`, `total_monthly_usd` (`null` if anything is unknown, never treated as 0), `unknown_cost_tools`.
+  - `ready`: `true` only when every price is known and every line is confirmed. `unconfirmed[]` names the tools still to check. Don't call a stack "checked" or "ready" unless `ready` is true.
+  - `within_budget`: only set when `ready` is true and a budget was given, otherwise `null`. When not ready, `assumptions` says what the priced parts come to, as a conditional number.
   - `assumptions[]`: show these under the total (fees not included, annual billing, tools still to check).
-- `stack_note`: always present. Lists tasks nothing chosen covers.
+- `stack_note`: always present. Says each task goes to one tool, mentions suggestions, tools still to check and tasks nothing chosen covers.
+- `all_in_one[]`: up to 3 catalog tools that list every chosen task, for comparison only (`tool_id`, `tool_name`, `status`, `coverage`, `monthly_usd`, `note`). They are never swapped into the owner's choice and we never claim they save money. Show `all_in_one_note` with them. When nothing in the catalog lists all the tasks, the list is empty and the note says a wider search isn't available yet. Only filled when 2 or more tasks are chosen.
 
 The adoption plan (W06) takes this structured `stack`, not the prose.
 
@@ -298,12 +313,14 @@ The adoption plan (W06) takes this structured `stack`, not the prose.
 No accounts. `api.js` has `startSession`, `endSession`, `plans`, `savePlan`, `plan`, `refreshPlan` and `newRequestId`. Each private helper takes the token as its first argument.
 
 1. `POST /api/sessions` gives `201 {"token": "...", "expires_at": "..."}` (30 days). The token is shown only once and the server keeps only a hash of it. Send it as `Authorization: Bearer <token>`. Keep it on the device (for example `localStorage`) and tell the owner that clearing the browser loses access. Never put it in a URL, a log or a chat prompt.
-2. `POST /api/plans` with the same body as `/api/compare` plus `request_id` (8 to 100 letters, digits, `-` or `_`). Make one with `newRequestId()` when the owner presses Confirm and reuse it for retries, so a double click returns the same plan (`200`) instead of a second one (`201` the first time).
+2. `POST /api/plans` with the same body as `/api/compare` (including `assignments`, last argument of `savePlan`) plus `request_id` (8 to 100 letters, digits, `-` or `_`). Make one with `newRequestId()` when the owner presses Confirm and reuse it for retries, so a double click returns the same plan (`200`) instead of a second one (`201` the first time).
 3. The response is the saved plan:
    - `steps[]`: one per tool being bought. `tasks`, `reasons`, `monthly_usd` (`null` = unknown) with `cost_note`, `setup` (the sourced setup fact), `facts`, `to_confirm[]` (open questions the owner should ask the vendor) and `to_try[]` (what to test before paying). We have no recorded setup steps, so none are invented.
    - `gaps[]`: chosen tasks nothing in the plan covers. `connections`, `stack` and `note` ("This plan is guidance. Nothing is bought, connected or set up for you."). Show `note`.
+   - `status`: `checked` (nothing left open), `draft` (see `open_items[]`: gaps, suggested assignments, tools to check, unconfirmed prices) or `legacy` (saved before this change). Show a draft as a draft with its open items, never as a checked plan. Each step has `coverage` (`confirmed` or `possible`).
+   - A legacy plan still loads. `GET` reports it as `changed`, and Refresh rebuilds it with a real status.
 4. `GET /api/plans/{id}` returns `{"plan": ..., "changed": bool, "change_note": "...", "current_total_monthly_usd": ...}`. The saved estimate never changes on its own. If `changed` is true, show `change_note` and a Refresh button that calls `POST /api/plans/{id}/refresh`. `GET /api/plans` lists summaries for the session.
-5. Errors: `401` missing, ended or closed session (start a new one). `404` a plan that isn't in this session, including someone else's. `409` alternatives not yet narrowed to one per task, a `request_id` reused for a different selection, the 20-plan cap, or a refresh that today's catalog can't rebuild. `503` private plans are switched off on this server (`PRIVATE_PLANS=off`).
+5. Errors: `422` a bad body, including an assignment outside the selection or to a tool that doesn't fit. `401` missing, ended or closed session (start a new one). `404` a plan that isn't in this session, including someone else's. `409` alternatives not yet narrowed to one per task, a `request_id` reused for a different selection, the 20-plan cap, or a refresh that today's catalog can't rebuild. `503` private plans are switched off on this server (`PRIVATE_PLANS=off`).
 
 ## 6. PROPOSED chat contract (not built, use the mock)
 
