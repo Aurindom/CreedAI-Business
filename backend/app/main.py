@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import db
+from .chat import router as chat_router
 from .facts import tool_facts
 from .matching import check_stack, recommend
 from .tasks import resolve_task
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Main Street AI", lifespan=lifespan)
+app.include_router(chat_router)
 
 
 def _catalog(request: Request) -> Catalog:
