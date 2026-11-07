@@ -1,17 +1,32 @@
 import { api } from '../api.js'
+import { smallTalk } from './smallTalk.js'
 import { detectMentionedTools, detectOwnedTools, detectRuledOutTools, detectTrade, matchProblem, normalize, parseBudget, suggestedProblems } from './matchProblem.js'
 
 const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
 const SOMETHING_ELSE = 'Something else'
 const SKIP = 'Skip these questions'
 const GET_STARTED = 'Start with a few questions'
+const ANOTHER_PROBLEM = 'A different problem'
+const WORDS = (text) => (text ? text.split(' ').length : 0)
+const INTENTS = {
+  thanks: /\b(thanks|thank you|thx|appreciate it)\b|^(great|perfect|awesome|cool|nice|got it|ok great)$/,
+  greeting: /^(hi|hello|hey|hiya|good (morning|afternoon|evening))\b/,
+  yes: /^(yes|yeah|yep|sure|ok|okay|sounds good|please|yes please)$/,
+  no: /^(no|nope|nah|not really|no thanks|not now)$/,
+  another: /\b(another|different|new|other) (problem|issue|thing|question)\b|^a different problem$|^something else$/,
+  compare: /\b(alternatives?|other options?|other tools?|compare|cheaper|instead|something else like)\b/,
+  save: /\b(save|set (it|this|that) up|setup|set up|get started|next steps?)\b/,
+  cost: /\b(cost|costs|price|prices|pricing|how much|expensive|cheap)\b/,
+  question: /\?|^(what|how|does|do|is|can|tell me|what about|any)\b/,
+}
+
 const INTAKE_QUESTIONS = {
   trade: { question: 'First, what kind of business do you run?', choices: ['Coffee shop', 'Restaurant', 'HVAC', 'Landscaping or lawn care', SOMETHING_ELSE, SKIP] },
   software: { question: 'What software do you already pay for? Pick the main one.', choices: ['Square for Restaurants', 'QuickBooks Online', 'Jobber', 'Google Business Profile', 'None of these', SKIP] },
   budget: { question: 'Roughly what could you spend each month on a new tool?', choices: ['Free only', 'Under $25', 'Under $50', 'Under $100', 'Not sure', SKIP] },
 }
 
-export const EMPTY_MEMORY = { trade: null, owned: [], ruled_out: [], budget_monthly_usd: null, background_done: false }
+export const EMPTY_MEMORY = { trade: null, owned: [], ruled_out: [], budget_monthly_usd: null, background_done: false, plans: {} }
 
 function chatMode() {
   const mode = import.meta.env?.VITE_CHAT_MODE
@@ -69,17 +84,32 @@ async function findProblem(message, problems, trade, resolve) {
       if (candidates.length === 1) return { result: 'confident', problem: candidates[0], candidates }
       if (candidates.length) return { result: 'unsure', problem: null, candidates: candidates.slice(0, 3) }
     }
-    if (found.status === 'unsupported') {
-      const exact = matchProblem(message, problems, trade)
-      return exact.result === 'confident' && normalize(exact.problem.title) === normalize(message) ? exact : { result: 'none', problem: null, candidates: [] }
-    }
+    if (found.status === 'unsupported') return matchProblem(message, problems, trade)
   } catch {
     // Fall through to the local match.
   }
   return matchProblem(message, problems, trade)
 }
 
-export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCatalog, resolve = (text) => api.resolveTask(text) } = {}) {
+function factsText(name, facts) {
+  const lines = facts.slice(0, 4).map((fact) => `${fact.label}: ${fact.known ? fact.value : 'unknown'}`)
+  return `Here's what we've checked about ${name}:\n${lines.join('\n')}`
+}
+
+function factSources(name, facts) {
+  return facts
+    .filter((fact) => fact.known && /^https?:\/\//.test(fact.source_url || ''))
+    .slice(0, 3)
+    .map((fact) => ({ title: `${name}: ${fact.label}`, url: fact.source_url, checked: fact.checked || '' }))
+}
+
+export function createMockAdapter({
+  delayMs = 350,
+  slowMs = 9000,
+  load = loadCatalog,
+  resolve = (text) => api.resolveTask(text),
+  facts = (toolId) => api.toolFacts(toolId),
+} = {}) {
   const lastProblems = new Map()
   const intakes = new Map()
   const failures = new Set()
@@ -99,7 +129,7 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
     onEvent({ type: 'done' })
   }
 
-  async function sendMessage({ conversationId, message, profile, memory: given, isRetry = false }, onEvent) {
+  async function sendMessage({ conversationId, message, profile, memory: given, isRetry = false, context = {} }, onEvent) {
     const text = normalize(message)
     onEvent({ type: 'status', text: 'Penny is reading that' })
     await wait()
@@ -186,6 +216,12 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
         await finishIntake(intake)
         return
       }
+      const aside = !learned && !detectMentionedTools(message, data.tools).length && parseBudget(message) === null ? smallTalk(text) : null
+      if (aside) {
+        await say(aside.replace(/ (Want to keep going|What's getting in the way|Tell me what's slowing).*$/, ''), onEvent)
+        await askNext(intake, 'Back to my quick question:')
+        return
+      }
       const step = intake.steps[intake.index]
       if (step === 'software' && text !== 'none of these') {
         memory.owned = [...new Set([...memory.owned, ...detectMentionedTools(message, data.tools)])]
@@ -214,6 +250,14 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
     }
 
     const match = await findProblem(message, data.problems, trade, resolve)
+
+    // Everyday chat gets a friendly reply that leads back to the business, unless it also names a problem.
+    const chatter = match.result === 'confident' || learned ? null : smallTalk(text, context.problemTitle || lastProblem?.title || '')
+    if (chatter) {
+      await say(chatter, onEvent)
+      onEvent({ type: 'done' })
+      return
+    }
     const wantsStart = text === normalize(GET_STARTED)
     if (!memory.background_done && text !== 'slow reply' && (wantsStart || !trade)) {
       const steps = stepsLeft()
@@ -234,25 +278,109 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
       await finishIntake(state)
       return
     }
-    if (match.result === 'confident') {
-      await recommend(conversationId, match.problem, profile, memory, `Sounds like "${match.problem.title}". Let's see what's worth your money.`, onEvent)
-      return
+    const topic = context.problemTitle || lastProblem?.title || ''
+    const words = WORDS(text)
+
+    async function reply(textOut, extra = []) {
+      await say(textOut, onEvent)
+      extra.forEach((event) => onEvent(event))
+      onEvent({ type: 'done' })
     }
+
+    async function showFacts(toolId) {
+      const name = data.tools.find((tool) => tool.id === toolId)?.name || 'that tool'
+      try {
+        const list = await facts(toolId)
+        await reply(factsText(name, list), [{ type: 'sources', items: factSources(name, list) }])
+      } catch {
+        await reply(`I couldn't load what we know about ${name} just now. Try again in a moment.`)
+      }
+    }
+
     if (match.result === 'none' && learned && lastProblem) {
       await recommend(conversationId, lastProblem, profile, memory, "Good to know. I'll check that again with what you just told me.", onEvent)
       return
     }
+    if (INTENTS.no.test(text)) {
+      await reply("No problem. I'm here if anything else comes up. You can describe a new problem anytime.")
+      return
+    }
+    if (match.result !== 'confident' && words <= 6 && INTENTS.thanks.test(text)) {
+      await reply(topic ? `You're welcome! Anything else about "${topic}", or something new on your plate?` : "You're welcome! What else can I help with?")
+      return
+    }
+    if (match.result !== 'confident' && words <= 4 && INTENTS.greeting.test(text)) {
+      await reply(topic ? `Hi again! Still thinking about "${topic}", or is something else getting in the way?` : "Hi! What's getting in the way at your business?")
+      return
+    }
+    if (INTENTS.yes.test(text)) {
+      await reply(topic ? 'Great. Pick one of the options below, or tell me what you want to do next.' : "Great. What's getting in the way at your business?")
+      return
+    }
+    if (match.result !== 'confident' && INTENTS.another.test(text)) {
+      await reply("Sure. What else is getting in the way? Tell me in your own words, and I'll keep what I know about your business.")
+      return
+    }
+
+    const mentioned = detectMentionedTools(message, data.tools).filter((id) => !owned.includes(id) && !ruledOut.includes(id))
+    if (mentioned.length && match.result !== 'confident' && (INTENTS.cost.test(text) || INTENTS.question.test(text) || words <= 4)) {
+      await showFacts(mentioned[0])
+      return
+    }
+    if (context.problemId && match.result !== 'confident' && INTENTS.compare.test(text)) {
+      await reply('Let me pull up other checked tools for this job.', [{ type: 'action', action: 'compare' }])
+      return
+    }
+    if (context.problemId && match.result !== 'confident' && INTENTS.save.test(text)) {
+      if (context.winnerId) await reply(`I'll save a plan with ${context.winnerName || 'that tool'} and its setup steps.`, [{ type: 'action', action: 'save' }])
+      else await reply("I can't save a plan until one tool is confirmed. Want me to compare the options first?")
+      return
+    }
+    if (context.winnerId && match.result !== 'confident' && INTENTS.cost.test(text)) {
+      await showFacts(context.winnerId)
+      return
+    }
+
+    if (match.result === 'confident') {
+      const switching = lastProblem && lastProblem.id !== match.problem.id
+      const intro = switching
+        ? `Got it, let's look at "${match.problem.title}" now. I'll keep what I know about your business.`
+        : `Sounds like "${match.problem.title}". Let's see what's worth your money.`
+      await recommend(conversationId, match.problem, profile, memory, intro, onEvent)
+      return
+    }
     if (match.result === 'none' && learned) {
       await say("Got it, I'll keep that in mind.", onEvent)
+      onEvent({
+        type: 'clarify',
+        question: "What's getting in the way right now? Pick one, or tell me in your own words.",
+        choices: [...suggestedProblems(data.problems, trade).map((p) => p.title), SOMETHING_ELSE],
+      })
+      onEvent({ type: 'done' })
+      return
     }
     if (match.result === 'unsure') {
-      onEvent({ type: 'clarify', question: 'Which of these is closest?', choices: [...match.candidates.map((p) => p.title), SOMETHING_ELSE] })
+      onEvent({ type: 'clarify', question: 'I can help with a few things that sound like that. Which is closest?', choices: [...match.candidates.map((p) => p.title), SOMETHING_ELSE] })
+      onEvent({ type: 'done' })
+      return
+    }
+    if (topic) {
+      await say(`I'm not sure I followed. Is this about "${topic}", or something new?`, onEvent)
+      onEvent({
+        type: 'clarify',
+        question: 'What would help most?',
+        choices: [
+          ...(context.problemId ? ['Compare alternatives'] : []),
+          ...(context.winnerId ? ['Save this plan'] : []),
+          ANOTHER_PROBLEM,
+        ],
+      })
       onEvent({ type: 'done' })
       return
     }
     onEvent({
       type: 'clarify',
-      question: "What's taking up the most of your time?",
+      question: "I'm not sure I followed. Do any of these sound close?",
       choices: [...suggestedProblems(data.problems, trade).map((p) => p.title), SOMETHING_ELSE],
     })
     onEvent({ type: 'done' })

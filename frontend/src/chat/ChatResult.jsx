@@ -47,7 +47,7 @@ function FactRow({ fact }) {
   )
 }
 
-function OptionCard({ option, status, ruledOut }) {
+function OptionCard({ option, status, ruledOut, open = false }) {
   return (
     <article className="msc-option">
       <div className="msc-option-top">
@@ -59,7 +59,10 @@ function OptionCard({ option, status, ruledOut }) {
       <p className="msc-cost">{costText(option)}</p>
       <p className="msc-note">{option.cost_note}</p>
       <p className="msc-note">{option.fit_note}</p>
-      <ul className="msc-facts">{option.facts.map((fact) => <FactRow fact={fact} key={fact.label} />)}</ul>
+      <details className="msc-more" open={open}>
+        <summary>Price, setup and sources</summary>
+        <ul className="msc-facts">{option.facts.map((fact) => <FactRow fact={fact} key={fact.label} />)}</ul>
+      </details>
     </article>
   )
 }
@@ -96,7 +99,7 @@ function ChatResult({ recommendation, statuses, ruledOut = [], onPrint }) {
         {recommendation.tailoring_note && <p className="msc-note">{recommendation.tailoring_note}</p>}
       </div>
 
-      {recommendation.options.map((option) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} key={option.tool_id} />)}
+      {recommendation.options.map((option, index) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} open={index === 0} key={option.tool_id} />)}
 
       {recommendation.check_first.length > 0 && (
         <section>

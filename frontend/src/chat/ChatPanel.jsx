@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, isSingleOffering, newRequestId, planChoices } from '../api'
+import { DraftBuilder, DraftCard } from './AssistantDraft'
 import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
+import { withOwner } from './ownerSession'
+import { AlternativesCard, PlanQuestion, SavedPlanCard } from './ResultExtras'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult from './ChatResult'
 import { clearSession, greetingFor, historyFor, loadSession, newConversationId, saveSession } from './chatSession'
@@ -21,6 +24,34 @@ const MAX_LENGTH = 500
 const SLOW_AFTER_MS = 8000
 const SPEAKING_MS = 1400
 const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
+const WANTS_ASSISTANT = /\b(custom|own|build|make|create|draft)\b.*\b(assistant|helper|bot|chatbot)\b/i
+const PLAN_ROUTES = ['check_plan', 'plan_upgrade']
+
+// Adds plans the owner picked in chat to the tools they already have.
+function withPlans(profile, plans = {}) {
+  return {
+    ...profile,
+    owned: (profile?.owned || []).map((entry) => (plans[entry.tool_id] ? { ...entry, plan: plans[entry.tool_id] } : entry)),
+  }
+}
+
+function latestResult(list) {
+  return [...list].reverse().find((message) => message.kind === 'result' && message.problemId)
+}
+
+// What Penny is talking about right now, so a follow-up like "how much is it?" stays on topic.
+function contextFor(list) {
+  const result = latestResult(list)
+  if (!result) return {}
+  const { recommendation } = result
+  const winner = [...recommendation.options, ...recommendation.check_first].find((option) => option.tool_id === recommendation.winner_tool_id)
+  return {
+    problemId: result.problemId,
+    problemTitle: result.problemTitle,
+    winnerId: recommendation.winner_tool_id || null,
+    winnerName: winner?.tool_name || null,
+  }
+}
 
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
@@ -33,6 +64,7 @@ function Panel({ profile, open, onClose, drag, phone }) {
   const [memory, setMemory] = useState(() => restored?.memory || EMPTY_MEMORY)
   const [resumed, setResumed] = useState(() => Boolean(restored?.messages.length))
   const [names, setNames] = useState({ tools: {}, trades: {} })
+  const [toolsById, setToolsById] = useState({})
   const [live, setLive] = useState(false)
   const [speaking, setSpeaking] = useState(false)
   const [input, setInput] = useState('')
@@ -56,13 +88,20 @@ function Panel({ profile, open, onClose, drag, phone }) {
   useEffect(() => {
     adapter.isLive().then(setLive).catch(() => setLive(false))
     loadCatalog()
-      .then((data) => setNames({
-        tools: Object.fromEntries(data.tools.map((tool) => [tool.id, tool.name])),
-        trades: Object.fromEntries(data.trades.map((trade) => [trade.id, trade.name])),
-      }))
+      .then((data) => {
+        setNames({
+          tools: Object.fromEntries(data.tools.map((tool) => [tool.id, tool.name])),
+          trades: Object.fromEntries(data.trades.map((trade) => [trade.id, trade.name])),
+        })
+        setToolsById(Object.fromEntries(data.tools.map((tool) => [tool.id, tool])))
+      })
       .catch(() => {})
     return () => clearTimeout(speakTimer.current)
   }, [adapter])
+
+  useEffect(() => {
+    if (!input && inputRef.current) inputRef.current.style.height = ''
+  }, [input])
 
   useEffect(() => {
     saveSession({ conversationId, messages, memory })
@@ -119,10 +158,13 @@ function Panel({ profile, open, onClose, drag, phone }) {
     }
   }, [printData])
 
+  const lastResultId = latestResult(messages)?.id
+  const quick = quickReplies()
   const addMessage = (message) => setMessages((current) => [...current, { id: newId('m'), ...message }])
   const replaceMessage = (id, next) => setMessages((current) => current.map((item) => (item.id === id ? { id, ...next } : item)))
 
-  async function fetchRecommendation(problemId, recommendProfile, run, existingId) {
+  async function fetchRecommendation(problemId, givenProfile, run, existingId) {
+    const recommendProfile = withPlans(givenProfile, memoryRef.current.plans)
     const id = existingId || newId('m')
     const loading = { kind: 'loading' }
     if (existingId) replaceMessage(id, loading)
@@ -136,6 +178,8 @@ function Panel({ profile, open, onClose, drag, phone }) {
       replaceMessage(id, {
         kind: 'result',
         recommendation,
+        problemId,
+        profile: recommendProfile,
         problemTitle: data.problems.find((problem) => problem.id === problemId)?.title || 'Your problem',
         statuses: Object.fromEntries(data.tools.map((tool) => [tool.id, tool.status])),
       })
@@ -170,6 +214,13 @@ function Panel({ profile, open, onClose, drag, phone }) {
       return
     }
     if (busyRef.current) return
+    if (!isRetry && WANTS_ASSISTANT.test(text)) {
+      setMessages((current) => [...current, { id: newId('m'), kind: 'user', text }, { id: newId('m'), kind: 'draft-builder', topic: '' }])
+      setInput('')
+      setInputError('')
+      setResumed(false)
+      return
+    }
     const run = begin()
     setInputError('')
     setNotice('')
@@ -177,6 +228,7 @@ function Panel({ profile, open, onClose, drag, phone }) {
     setResumed(false)
 
     const pending = []
+    const actions = []
     let replyId = null
     const history = historyFor(messagesRef.current, { dropLastUser: isRetry })
     if (!isRetry) {
@@ -188,7 +240,7 @@ function Panel({ profile, open, onClose, drag, phone }) {
       if (run !== runRef.current) return
       if (event.type === 'status') setStatus(event.text)
       if (event.type === 'mode') setLive(event.live)
-      if (event.type === 'memory') setMemory({ ...EMPTY_MEMORY, ...event.memory })
+      if (event.type === 'memory') setMemory((current) => ({ ...EMPTY_MEMORY, ...event.memory, plans: { ...current.plans, ...(event.memory.plans || {}) } }))
       if (event.type === 'message_delta') {
         setSpeaking(true)
         clearTimeout(speakTimer.current)
@@ -203,6 +255,7 @@ function Panel({ profile, open, onClose, drag, phone }) {
       }
       if (event.type === 'clarify') addMessage({ kind: 'clarify', text: event.question, choices: event.choices || [], progress: event.progress || '' })
       if (event.type === 'recommendation') pending.push(fetchRecommendation(event.problem_id, event.profile, run))
+      if (event.type === 'action' && ['compare', 'save'].includes(event.action)) actions.push(event.action)
       if (event.type === 'sources') addMessage({ kind: 'sources', items: event.items || [] })
       if (event.type === 'error') {
         addMessage({
@@ -214,12 +267,17 @@ function Panel({ profile, open, onClose, drag, phone }) {
     }
 
     try {
-      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryRef.current, history, isRetry }, onEvent)
+      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryRef.current, history, isRetry, context: contextFor(messagesRef.current) }, onEvent)
     } catch {
       if (run === runRef.current) addMessage({ kind: 'error', text: UNAVAILABLE, retry: { type: 'send', text } })
     }
     await Promise.allSettled(pending)
     finish(run)
+    const target = latestResult(messagesRef.current)
+    if (run === runRef.current && target) {
+      if (actions.includes('compare')) compareAlternatives(target)
+      else if (actions.includes('save') && target.recommendation.winner_tool_id) savePlan(target)
+    }
   }
 
   async function retry(message) {
@@ -250,9 +308,114 @@ function Panel({ profile, open, onClose, drag, phone }) {
     inputRef.current?.focus()
   }
 
+  async function runAction(work) {
+    if (busyRef.current) return
+    const run = begin()
+    try {
+      await work(run)
+    } finally {
+      finish(run)
+    }
+  }
+
+  function pickPlan(message, toolId, plan) {
+    const plans = { ...memoryRef.current.plans, [toolId]: plan || '' }
+    memoryRef.current = { ...memoryRef.current, plans }
+    setMemory((current) => ({ ...current, plans }))
+    const toolName = toolsById[toolId]?.name || 'that tool'
+    addMessage({ kind: 'user', text: plan ? `I'm on ${plan}` : "I don't know my plan" })
+    if (!plan) {
+      addMessage({ kind: 'assistant', text: `No problem. Check your ${toolName} plan before paying for anything new. You can find it in your account or billing settings.` })
+      return
+    }
+    runAction((run) => fetchRecommendation(message.problemId, message.profile, run))
+  }
+
+  function compareAlternatives(message) {
+    runAction(async (run) => {
+      const id = newId('m')
+      setMessages((current) => [...current, { id, kind: 'alternatives', state: 'loading', forResult: message.id }])
+      try {
+        const { recommendation, problemId, profile: currentProfile } = message
+        const winner = recommendation.winner_tool_id
+        const skip = new Set([winner, ...memoryRef.current.ruled_out])
+        const idsFrom = (found) => [...found.options, ...found.check_first].map((option) => option.tool_id).filter((toolId) => !skip.has(toolId))
+        let others = idsFrom(recommendation)
+        if (others.length < 2 && currentProfile.owned.some((entry) => entry.tool_id === winner)) {
+          const asNewBuyer = await api.recommend({ ...currentProfile, owned: currentProfile.owned.filter((entry) => entry.tool_id !== winner) }, problemId)
+          others = [...new Set([...others, ...idsFrom(asNewBuyer)])]
+        }
+        others = others.slice(0, 2)
+        if (run !== runRef.current) return
+        if (!others.length) {
+          replaceMessage(id, { kind: 'alternatives', state: 'none', forResult: message.id })
+          return
+        }
+        const comparison = await api.compare(currentProfile, [problemId], [winner, ...others].filter(Boolean).slice(0, 3))
+        if (run !== runRef.current) return
+        replaceMessage(id, { kind: 'alternatives', state: 'ready', comparison, forResult: message.id })
+      } catch {
+        if (run === runRef.current) replaceMessage(id, { kind: 'error', text: "I couldn't check alternatives just now. Try again in a moment." })
+      }
+    })
+  }
+
+  function savePlan(message) {
+    runAction(async (run) => {
+      const id = newId('m')
+      setMessages((current) => [...current, { id, kind: 'loading' }])
+      try {
+        const requestId = newRequestId()
+        const plan = await withOwner(api, (token) => api.savePlan(token, message.profile, [message.problemId], [message.recommendation.winner_tool_id], requestId))
+        if (run !== runRef.current) return
+        replaceMessage(id, { kind: 'saved-plan', plan, forResult: message.id })
+      } catch {
+        if (run === runRef.current) replaceMessage(id, { kind: 'error', text: "I couldn't save the plan just now. Your results are still here. Try again in a moment." })
+      }
+    })
+  }
+
+  function askAnother() {
+    addMessage({ kind: 'assistant', text: "Sure. What else is getting in the way? Tell me in your own words, and I'll keep what I know about your business." })
+    inputRef.current?.focus()
+  }
+
+  function quickReplies() {
+    if (busy) return []
+    const last = [...messages].reverse().find((message) => message.kind !== 'loading')
+    if (!last || ['clarify', 'draft-builder', 'user'].includes(last.kind)) return []
+    const result = latestResult(messages)
+    if (!result) {
+      return last.kind === 'assistant'
+        ? STARTERS.map((starter) => ({ label: starter, run: () => send(starter) }))
+        : []
+    }
+    const { recommendation } = result
+    const winner = recommendation.winner_tool_id
+    const saved = messages.some((message) => message.kind === 'saved-plan' && message.forResult === result.id)
+    const compared = messages.some((message) => message.kind === 'alternatives' && message.forResult === result.id)
+    const drafted = messages.some((message) => message.kind === 'draft')
+    const choices = recommendation.options.length + recommendation.check_first.length
+    return [
+      winner && !saved && { label: 'Save this plan', run: () => savePlan(result) },
+      !compared && (winner || choices > 1) && { label: 'Compare alternatives', run: () => compareAlternatives(result) },
+      !drafted && { label: 'Build a custom assistant', run: () => openBuilder(result.problemTitle) },
+      { label: 'Ask about another problem', run: askAnother },
+    ].filter(Boolean)
+  }
+
+  function openBuilder(topic) {
+    setMessages((current) => [...current.filter((item) => item.kind !== 'draft-builder'), { id: newId('m'), kind: 'draft-builder', topic }])
+  }
+
+  function buildDraft(builderId, draft) {
+    setMessages((current) => [...current.filter((item) => item.id !== builderId), { id: newId('m'), kind: 'draft', draft }])
+  }
+
   function forget({ field, id }) {
     setMemory((current) => {
       if (id) return { ...current, [field]: current[field].filter((item) => item !== id) }
+      if (field === 'trade') return { ...current, trade: null }
       return { ...current, [field]: null }
     })
   }
@@ -275,9 +438,9 @@ function Panel({ profile, open, onClose, drag, phone }) {
         <header className={`msc-header${phone ? '' : ' msc-drag-handle'}`} {...(phone ? {} : drag.handleProps)}>
           <div className="msc-identity">
             <PennyAvatar size={44} state={busy ? 'thinking' : speaking ? 'speaking' : 'idle'} />
-            <div>
+            <div className="msc-title">
               <h2>Penny</h2>
-              <span className={live ? 'msc-live' : 'msc-demo'}>{live ? 'Live AI' : 'Demo mode'}</span>
+              <p><span className={live ? 'msc-live' : 'msc-demo'}>{live ? 'Live AI' : 'Demo mode'}</span> Your AI guide</p>
             </div>
           </div>
           <div className="msc-header-actions">
@@ -309,7 +472,7 @@ function Panel({ profile, open, onClose, drag, phone }) {
           {messages.map((message) => {
             if (message.kind === 'user') return <div className="msc-row msc-row-user" key={message.id}><p>{message.text}</p></div>
             if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><PennyAvatar size={28} /><p>{message.text}</p></div>
-            if (message.kind === 'loading') return <div className="msc-loading" key={message.id}>Checking the catalog...</div>
+            if (message.kind === 'loading') return null
             if (message.kind === 'clarify') {
               return (
                 <div className="msc-row msc-clarify" key={message.id}>
@@ -336,26 +499,69 @@ function Panel({ profile, open, onClose, drag, phone }) {
                 </div>
               )
             }
+            if (message.kind === 'alternatives') return <AlternativesCard key={message.id} message={message} />
+            if (message.kind === 'saved-plan') return <SavedPlanCard key={message.id} plan={message.plan} />
+            if (message.kind === 'draft') return <DraftCard key={message.id} draft={message.draft} />
+            if (message.kind === 'draft-builder') {
+              return (
+                <DraftBuilder
+                  key={message.id}
+                  topic={message.topic}
+                  disabled={busy}
+                  onBuild={(draft) => buildDraft(message.id, draft)}
+                  onCancel={() => setMessages((current) => current.filter((item) => item.id !== message.id))}
+                />
+              )
+            }
+            if (message.kind !== 'result') return null
+            const latest = message.id === lastResultId
+            const askPlan = latest && message.recommendation.options.concat(message.recommendation.check_first).find((option) => (
+              PLAN_ROUTES.includes(option.route)
+              && !(option.tool_id in memory.plans)
+              && planChoices(toolsById[option.tool_id]).length
+              && !isSingleOffering(toolsById[option.tool_id])
+            ))
             return (
-              <ChatResult
-                key={message.id}
-                recommendation={message.recommendation}
-                statuses={message.statuses}
-                ruledOut={memory.ruled_out}
-                onPrint={() => setPrintData({ ...message, isDemo: !live })}
-              />
+              <div className="msc-result-block" key={message.id}>
+                <ChatResult
+                  recommendation={message.recommendation}
+                  statuses={message.statuses}
+                  ruledOut={memory.ruled_out}
+                  onPrint={() => setPrintData({ ...message, isDemo: !live })}
+                />
+                {askPlan && (
+                  <PlanQuestion
+                    toolName={askPlan.tool_name}
+                    choices={planChoices(toolsById[askPlan.tool_id])}
+                    disabled={busy}
+                    onPick={(plan) => pickPlan(message, askPlan.tool_id, plan)}
+                  />
+                )}
+              </div>
             )
           })}
 
-          {busy && <div className="msc-loading" role="status">{slow ? 'Still working. Thanks for waiting.' : status || 'Working on it...'}</div>}
+          {busy && (
+            <div className="msc-typing" role="status">
+              <PennyAvatar size={28} state="thinking" />
+              <span className="msc-dots" aria-hidden="true"><i /><i /><i /></span>
+              <small>{slow ? 'Still working. Thanks for waiting.' : status || 'Penny is typing'}</small>
+            </div>
+          )}
         </div>
+
+        {quick.length > 0 && (
+          <div className="msc-quick" aria-label="Suggested replies">
+            {quick.map((item) => <button type="button" key={item.label} onClick={item.run}>{item.label}</button>)}
+          </div>
+        )}
 
         <form className="msc-form" onSubmit={submit} noValidate>
           {(inputError || notice) && <p className="msc-input-note" role="alert">{inputError || notice}</p>}
           <div className="msc-input-row">
             <textarea
               ref={inputRef}
-              rows={2}
+              rows={1}
               value={input}
               maxLength={MAX_LENGTH}
               placeholder="Tell Penny what's going on"
@@ -363,6 +569,10 @@ function Panel({ profile, open, onClose, drag, phone }) {
               onChange={(event) => {
                 setInput(event.target.value)
                 setInputError('')
+              }}
+              onInput={(event) => {
+                event.currentTarget.style.height = 'auto'
+                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`
               }}
               onKeyDown={onInputKey}
             />
@@ -378,7 +588,9 @@ function Panel({ profile, open, onClose, drag, phone }) {
               }}
               disabled={busy}
             />
-            <button type="submit" className="msc-send" disabled={busy}>{busy ? 'Working' : 'Send'}</button>
+            <button type="submit" className="msc-send" disabled={busy} aria-label="Send message">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            </button>
           </div>
         </form>
       </section>

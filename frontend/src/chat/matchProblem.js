@@ -115,7 +115,8 @@ export function matchProblem(message, problems, trade = null) {
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
 
-  if (!scored.length) return { result: 'none', problem: null, candidates: [] }
+  // A business type narrows the cards, but it shouldn't hide the owner's problem completely.
+  if (!scored.length) return trade ? matchProblem(message, problems, null) : { result: 'none', problem: null, candidates: [] }
   const [top, second] = scored
   const clearLead = top.score - (second ? second.score : 0) >= 2
   if (top.score >= 3 && clearLead) return { result: 'confident', problem: top.problem, candidates: [top.problem] }
