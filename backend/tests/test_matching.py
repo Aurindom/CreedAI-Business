@@ -1,22 +1,26 @@
 from app.matching import check_stack, recommend
-from app.schemas import BusinessProfile
-from conftest import cap, tool
+from app.schemas import BusinessProfile, OwnedSoftware
+from conftest import cap, fact, tool
 
 
-def run(catalog, problem="calls", owned=(), budget=200, trade="hvac"):
-    profile = BusinessProfile(trade=trade, owned_tool_ids=list(owned), budget_monthly_usd=budget)
+def run(catalog, problem="calls", owned=(), budget=200, trade="hvac", plans=None):
+    if plans:
+        mine = [OwnedSoftware(tool_id=t, plan=plans.get(t)) for t in owned]
+        profile = BusinessProfile(trade=trade, owned=mine, budget_monthly_usd=budget)
+    else:
+        profile = BusinessProfile(trade=trade, owned_tool_ids=list(owned), budget_monthly_usd=budget)
     return recommend(catalog, profile, catalog.problem(problem))
 
 
 def test_owned_tool_that_includes_it_means_no_new_tool(catalog):
-    result = run(catalog, owned=["voice"])
+    result = run(catalog, owned=["voice"], plans={"voice": "Core"})
     assert result.outcome == "no_new_tool"
     assert result.winner_tool_id == "voice"
     assert result.options[0].added_monthly_usd == 0
 
 
 def test_add_on_beats_buying_something_new(catalog):
-    result = run(catalog, owned=["suite"])
+    result = run(catalog, owned=["suite"], plans={"suite": "Base"})
     assert result.outcome == "add_on"
     assert result.options[0].added_monthly_usd == 29
 
@@ -41,7 +45,7 @@ def test_unrelated_owned_tool_is_not_called_a_switch(catalog):
 
 
 def test_overlapping_tool_is_a_switch(catalog):
-    routes = {o.tool_id: o.route for o in run(catalog, owned=["suite"]).options}
+    routes = {o.tool_id: o.route for o in run(catalog, owned=["suite"], plans={"suite": "Base"}).options}
     assert routes["suite"] == "native_add_on"
     catalog.tools = [t for t in catalog.tools if t.id in {"voice", "solo"}]
     routes = {o.tool_id: o.route for o in run(catalog, owned=["voice"]).options}
@@ -70,7 +74,7 @@ def test_rejected_tools_are_excluded(catalog):
 
 
 def general_phone():
-    return tool("anyphone", 20, [cap("phone")], trades=("all",), applicability="cross_industry")
+    return tool("anyphone", 20, [cap("phone", plan="Core")], trades=("all",), applicability="cross_industry", entry_plan=fact("Core"))
 
 
 def test_tool_made_for_another_business_is_set_aside(catalog):
@@ -128,7 +132,7 @@ def test_unconfirmed_audience_is_never_the_winner(catalog):
 
 
 def test_tool_you_already_use_counts_even_if_aimed_elsewhere(catalog):
-    result = run(catalog, owned=["foreign"])
+    result = run(catalog, owned=["foreign"], plans={"foreign": "Core"})
     assert result.outcome == "no_new_tool"
     assert result.options[0].fit == "you_use_it"
 
@@ -160,3 +164,43 @@ def test_stack_total_is_unknown_when_a_price_is_unknown(catalog):
 
 def test_stack_total_when_all_prices_known(catalog):
     assert check_stack(catalog, ["voice", "ledger"]).total_monthly_usd == 130
+
+
+def pending(tool_id, price, **kw):
+    return tool(tool_id, price, [cap("phone")], status="pending_review", **kw)
+
+
+def test_cheap_pending_tool_cannot_beat_a_verified_one(catalog):
+    catalog.tools = [pending("cheap", 1, trades=("all",), applicability="cross_industry"), tool("solo", 60, [cap("phone", plan="Core")], entry_plan=fact("Core"))]
+    result = run(catalog)
+    assert [o.tool_id for o in result.options] == ["solo", "cheap"]
+    assert result.winner_tool_id == "solo"
+    assert result.options[1].status == "pending_review"
+
+
+def test_pending_tool_alone_is_shown_but_never_wins(catalog):
+    catalog.tools = [pending("cheap", 1, trades=("all",), applicability="cross_industry")]
+    result = run(catalog, trade="bakery")
+    assert [o.tool_id for o in result.options] == ["cheap"]
+    assert result.outcome == "verify_with_vendor"
+    assert result.winner_tool_id is None
+    assert "hasn't rechecked" in result.message
+
+
+def test_pending_tool_you_own_is_not_called_no_new_tool(catalog):
+    catalog.tools = [pending("mine", 40, trades=("restaurant",)), tool("solo", 60, [cap("phone")])]
+    result = run(catalog, owned=["mine"])
+    assert result.options[0].tool_id == "mine"
+    assert result.outcome == "verify_with_vendor"
+    assert result.winner_tool_id is None
+
+
+def test_owning_a_tool_does_not_make_it_do_a_new_task(catalog):
+    result = run(catalog, problem="books", owned=["voice"])
+    assert "voice" not in [o.tool_id for o in result.options + result.check_first]
+    assert result.winner_tool_id == "ledger"
+
+
+def test_set_aside_rows_carry_status(catalog):
+    catalog.tools = [t for t in catalog.tools if t.id == "foreign"]
+    assert run(catalog).set_aside[0].status == "verified"

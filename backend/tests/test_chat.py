@@ -76,7 +76,19 @@ def test_recommendation_uses_real_catalog_logic_and_memory(client, monkeypatch):
     assert event["problem_id"] == "bookkeeping"
     assert event["profile"]["owned"] == [{"tool_id": "quickbooks_online", "plan": None}]
     tool_result = json.loads(seen[1][-1]["content"])
-    assert tool_result["outcome"] == "no_new_tool"
+    assert tool_result["outcome"] == "verify_with_vendor"
+
+
+def test_plan_from_the_page_is_kept(client, monkeypatch):
+    seen = script(monkeypatch, calls(("recommend_tools", {"problem_id": "bookkeeping"})), reply("You're already covered."))
+    events = send(
+        client,
+        profile={"trade": "hvac", "owned": [{"tool_id": "quickbooks_online", "plan": "Simple Start"}]},
+        memory={"owned": ["quickbooks_online"]},
+    )
+    event = next(e for e in events if e["type"] == "recommendation")
+    assert event["profile"]["owned"] == [{"tool_id": "quickbooks_online", "plan": "Simple Start"}]
+    assert json.loads(seen[1][-1]["content"])["outcome"] == "no_new_tool"
 
 
 def test_invented_price_is_replaced(client, monkeypatch):

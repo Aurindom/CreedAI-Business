@@ -48,7 +48,38 @@ function mergeProfile(profile, memory) {
   }
 }
 
-export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCatalog } = {}) {
+function appliesTo(problem, trade) {
+  return !trade || !problem.trades || problem.trades.includes('all') || problem.trades.includes(trade)
+}
+
+// Uses the backend's task resolver, so Penny and the search box land on the same problem cards.
+// The local keyword match is only a backup for when the resolver can't be reached.
+async function findProblem(message, problems, trade, resolve) {
+  try {
+    const found = await resolve(String(message).slice(0, 300))
+    const known = (ids) => ids.map((id) => problems.find((problem) => problem.id === id)).filter(Boolean)
+    if (found.status === 'matched' && found.problem_id) {
+      const [problem] = known([found.problem_id])
+      if (problem) return { result: 'confident', problem, candidates: [problem] }
+    }
+    if (found.status === 'ambiguous') {
+      const all = known((found.choices || []).map((choice) => choice.id))
+      const fitting = all.filter((problem) => appliesTo(problem, trade))
+      const candidates = fitting.length ? fitting : all
+      if (candidates.length === 1) return { result: 'confident', problem: candidates[0], candidates }
+      if (candidates.length) return { result: 'unsure', problem: null, candidates: candidates.slice(0, 3) }
+    }
+    if (found.status === 'unsupported') {
+      const exact = matchProblem(message, problems, trade)
+      return exact.result === 'confident' && normalize(exact.problem.title) === normalize(message) ? exact : { result: 'none', problem: null, candidates: [] }
+    }
+  } catch {
+    // Fall through to the local match.
+  }
+  return matchProblem(message, problems, trade)
+}
+
+export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCatalog, resolve = (text) => api.resolveTask(text) } = {}) {
   const lastProblems = new Map()
   const intakes = new Map()
   const failures = new Set()
@@ -159,7 +190,7 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
         if (budget !== null) memory.budget_monthly_usd = budget
       }
       if (!intake.problem) {
-        const answerMatch = matchProblem(message, data.problems, memory.trade || profile?.trade || null)
+        const answerMatch = await findProblem(message, data.problems, memory.trade || profile?.trade || null, resolve)
         if (answerMatch.result === 'confident') intake.problem = answerMatch.problem
       }
       onEvent({ type: 'memory', memory })
@@ -177,7 +208,7 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
       return
     }
 
-    const match = matchProblem(message, data.problems, trade)
+    const match = await findProblem(message, data.problems, trade, resolve)
     const wantsStart = text === normalize(GET_STARTED)
     if (!memory.background_done && text !== 'slow reply' && (wantsStart || !trade)) {
       const steps = stepsLeft()

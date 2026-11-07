@@ -10,13 +10,6 @@ from app.schemas import Catalog
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "catalog.json"
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "test.db"))
-    with TestClient(app) as test_client:
-        yield test_client
-
-
 def test_real_catalog_loads_and_covers_every_problem():
     catalog = db.load_catalog_file(CATALOG_PATH)
     assert 12 <= len(catalog.tools) <= 30
@@ -24,12 +17,18 @@ def test_real_catalog_loads_and_covers_every_problem():
         assert any(t.capability(card.capability) for t in catalog.tools), card.id
 
 
+def confirms(tool, card):
+    """A tool counts for a card only when it has the capability and a sourced fact for every split the card needs."""
+    cap = tool.capability(card.capability)
+    return cap is not None and all(cap.facets.get(f) and cap.facets[f].known and v in cap.facets[f].value for f, v in card.requires.items())
+
+
 def test_original_trades_have_an_eligible_tool_for_their_problems():
     catalog = db.load_catalog_file(CATALOG_PATH)
     for card in catalog.problem_cards:
         for trade in ("restaurant", "coffee_shop", "hvac", "landscaping"):
             if card.common_for(trade):
-                assert any(t.capability(card.capability) and t.fit(trade) in ("made_for", "any_business") for t in catalog.tools), (card.id, trade)
+                assert any(confirms(t, card) and t.fit(trade) in ("made_for", "any_business") for t in catalog.tools), (card.id, trade)
 
 
 def test_catalog_goes_beyond_the_first_four_business_types():
@@ -42,7 +41,7 @@ def test_categories_cover_every_problem(client):
     categories = client.get("/api/categories").json()
     assert len(categories) == 7
     total = sum(len(client.get("/api/problems", params={"category": c["id"]}).json()) for c in categories)
-    assert total == 10
+    assert total == len(client.get("/api/problems").json()) > 0
 
 
 def test_category_tab_lists_tools_whatever_the_business(client):
@@ -97,7 +96,7 @@ def test_problems_list_the_trades_own_first(client):
 def test_unlisted_business_sees_every_problem(client):
     response = client.get("/api/problems", params={"trade": "Pet grooming"})
     assert response.status_code == 200
-    assert len(response.json()) == len(client.get("/api/problems").json()) == 10
+    assert len(response.json()) == len(client.get("/api/problems").json()) > 0
 
 
 def test_unlisted_business_browses_all_tools(client):
@@ -144,11 +143,14 @@ def test_unknown_tool_is_a_404(client):
     assert client.get("/api/tools/nope").status_code == 404
 
 
-def test_jobber_owner_with_missed_calls_gets_the_add_on(client):
+def test_jobber_add_on_waits_until_its_plans_are_sourced(client):
     body = {"profile": {"trade": "hvac", "owned_tool_ids": ["jobber"], "budget_monthly_usd": 100}, "problem_id": "missed_calls"}
     result = client.post("/api/recommend", json=body).json()
-    assert result["outcome"] == "add_on"
-    assert result["options"][0]["added_monthly_usd"] == 29
+    top = result["options"][0]
+    assert top["tool_id"] == "jobber" and top["route"] == "native_add_on"
+    assert top["added_monthly_usd"] is None
+    assert "$29/mo" in top["cost_note"] and "which plans can add it" in top["cost_note"]
+    assert result["outcome"] == "verify_with_vendor"
 
 
 def test_restaurant_missed_calls_has_no_confident_winner(client):

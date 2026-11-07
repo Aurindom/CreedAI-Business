@@ -11,6 +11,7 @@ Route = Literal["already_have", "check_plan", "native_add_on", "plan_upgrade", "
 Outcome = Literal["no_new_tool", "add_on", "new_tool", "verify_with_vendor", "no_match"]
 Applicability = Literal["cross_industry", "restricted", "unknown"]
 Fit = Literal["you_use_it", "made_for", "any_business", "unconfirmed"]
+FactState = Literal["known", "not_checked", "unresolved"]
 ANY_BUSINESS = "all"
 
 
@@ -45,6 +46,8 @@ class Capability(BaseModel):
     access: Fact
     addon_monthly_usd: Fact = UNKNOWN
     included_from: Fact = UNKNOWN
+    addon_from: Fact = UNKNOWN
+    facets: dict[str, Fact] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def check_access(self) -> "Capability":
@@ -52,6 +55,8 @@ class Capability(BaseModel):
             raise ValueError(f"bad access value: {self.access.value}")
         if self.included_from.known and self.level != "included":
             raise ValueError(f"{self.capability} names a plan but is not marked included")
+        if self.addon_from.known and self.level != "add_on":
+            raise ValueError(f"{self.capability} names an add-on plan but is not marked add_on")
         return self
 
     @property
@@ -72,11 +77,53 @@ class Tool(BaseModel):
     entry_plan: Fact = UNKNOWN
     entry_billing: Fact = UNKNOWN
     plan_tiers: Fact = UNKNOWN
+    plan_prices: Fact = UNKNOWN
+    offering: Fact = UNKNOWN
     setup_effort: Fact = UNKNOWN
     privacy: Fact = UNKNOWN
     support_stability: Fact = UNKNOWN
     connects_to: Fact = UNKNOWN
     capabilities: list[Capability] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_plans(self) -> "Tool":
+        """Tier prices share entry_billing's basis and must name sourced tiers, so a price can never float free of its plan."""
+        if self.offering.known and self.offering.value not in ("single", "tiered"):
+            raise ValueError(f"{self.id}: bad offering value: {self.offering.value}")
+        if self.single_offering and self.plan_tiers.known:
+            raise ValueError(f"{self.id}: a single offering cannot list plan tiers")
+        if self.plan_tiers.known:
+            tiers = {str(t).strip().casefold() for t in self.plan_tiers.value}
+            named = [("entry_plan", self.entry_plan)]
+            named += [(f"{c.capability} plan", f) for c in self.capabilities for f in (c.included_from, c.addon_from)]
+            for where, plan in named:
+                if plan.known and str(plan.value).strip().casefold() not in tiers:
+                    raise ValueError(f"{self.id}: {where} {plan.value} is not in plan_tiers")
+        if self.plan_prices.known:
+            prices = self.plan_prices.value
+            if not isinstance(prices, dict) or not self.plan_tiers.known:
+                raise ValueError(f"{self.id}: plan_prices must map sourced plan_tiers to monthly prices")
+            tiers = {str(t).casefold() for t in self.plan_tiers.value}
+            for name, price in prices.items():
+                if str(name).casefold() not in tiers:
+                    raise ValueError(f"{self.id}: priced plan {name} is not in plan_tiers")
+                if isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0:
+                    raise ValueError(f"{self.id}: bad price for plan {name}: {price}")
+        return self
+
+    @property
+    def single_offering(self) -> bool:
+        return self.offering.known and self.offering.value == "single"
+
+    def plan_price(self, plan: str) -> Fact:
+        """The entry plan's own fact wins; other tiers come from plan_prices. Anything else stays unknown."""
+        if self.entry_plan.known and str(self.entry_plan.value).strip().casefold() == plan.strip().casefold():
+            return self.entry_monthly_usd
+        if self.plan_prices.known:
+            for name, price in self.plan_prices.value.items():
+                if str(name).strip().casefold() == plan.strip().casefold():
+                    return self.plan_prices.model_copy(update={"value": price})
+        return Fact(status="unknown", note=f"Price of the {plan} plan not recorded. Verify with the vendor")
 
     def capability(self, name: str) -> Capability | None:
         return next((c for c in self.capabilities if c.capability == name), None)
@@ -108,12 +155,25 @@ class Category(BaseModel):
     capabilities: list[str]
 
 
+class Facet(BaseModel):
+    """A way one capability splits, like the channel a lead arrives on. Values map an id to plain words."""
+    id: str
+    label: str
+    capabilities: list[str]
+    values: dict[str, str]
+
+    def describe(self, value: str) -> str:
+        return self.values.get(value, value)
+
+
 class ProblemCard(BaseModel):
     id: str
     title: str
     plain_words: str
     capability: str
     trades: list[str]
+    requires: dict[str, str] = Field(default_factory=dict)
+    phrases: list[str] = Field(default_factory=list)
 
     def common_for(self, trade: str | None) -> bool:
         return ANY_BUSINESS in self.trades or trade in self.trades
@@ -124,6 +184,7 @@ class Catalog(BaseModel):
     categories: list[Category]
     problem_cards: list[ProblemCard]
     tools: list[Tool]
+    facets: list[Facet] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_references(self) -> "Catalog":
@@ -148,10 +209,47 @@ class Catalog(BaseModel):
         for card in self.problem_cards:
             if card.capability not in homes:
                 raise ValueError(f"{card.id} has no category for {card.capability}")
+        self._check_facets(homes)
         for name, ids in [("tool", [t.id for t in self.tools]), ("category", [c.id for c in self.categories])]:
             if len(ids) != len(set(ids)):
                 raise ValueError(f"duplicate {name} ids in catalog")
         return self
+
+    def _check_facets(self, homes: dict[str, str]) -> None:
+        """Every split is declared once and every tool or card that uses it is checked the same way."""
+        facets: dict[str, Facet] = {}
+        for facet in self.facets:
+            if facet.id in facets:
+                raise ValueError(f"duplicate facet id {facet.id}")
+            if not facet.values:
+                raise ValueError(f"facet {facet.id} has no values")
+            for capability in facet.capabilities:
+                if capability not in homes:
+                    raise ValueError(f"facet {facet.id} names {capability}, which has no category")
+            facets[facet.id] = facet
+
+        def check(where: str, capability: str, facet_id: str, values: list) -> None:
+            facet = facets.get(facet_id)
+            if facet is None:
+                raise ValueError(f"{where} uses unknown facet {facet_id}")
+            if capability not in facet.capabilities:
+                raise ValueError(f"{where}: facet {facet_id} does not apply to {capability}")
+            bad = [v for v in values if v not in facet.values]
+            if bad:
+                raise ValueError(f"{where}: {facet_id} has unknown values {bad}")
+
+        for card in self.problem_cards:
+            for facet_id, value in card.requires.items():
+                check(card.id, card.capability, facet_id, [value])
+        for tool in self.tools:
+            for cap in tool.capabilities:
+                for facet_id, f in cap.facets.items():
+                    if f.known and (not isinstance(f.value, list) or not f.value):
+                        raise ValueError(f"{tool.id} {cap.capability}: {facet_id} must list at least one value")
+                    check(f"{tool.id} {cap.capability}", cap.capability, facet_id, f.value if f.known else [])
+
+    def facet(self, facet_id: str) -> Facet:
+        return next(f for f in self.facets if f.id == facet_id)
 
     def category_of(self, capability: str) -> str | None:
         return next((c.id for c in self.categories if capability in c.capabilities), None)
@@ -208,6 +306,7 @@ class BusinessProfile(BaseModel):
 class ToolFact(BaseModel):
     label: str
     known: bool
+    state: FactState
     value: str
     note: str | None = None
     source_url: HttpUrl | None = None
@@ -218,17 +317,20 @@ class ToolFact(BaseModel):
 class Option(BaseModel):
     tool_id: str
     tool_name: str
+    status: ToolStatus
     route: Route
     fit: Fit
     fit_note: str
     added_monthly_usd: float | None
     cost_note: str
     facts: list[ToolFact]
+    within_budget: bool | None = None
 
 
 class SetAside(BaseModel):
     tool_id: str
     tool_name: str
+    status: ToolStatus
     reason: str
 
 
@@ -242,6 +344,7 @@ class Recommendation(BaseModel):
     message: str
     tailored: bool
     tailoring_note: str | None = None
+    budget_note: str | None = None
 
 
 class StackCheck(BaseModel):
@@ -249,3 +352,10 @@ class StackCheck(BaseModel):
     known_monthly_usd: float
     total_monthly_usd: float | None
     unknown_cost_tools: list[str]
+
+
+class TaskMatch(BaseModel):
+    status: Literal["matched", "ambiguous", "unsupported"]
+    problem_id: str | None = None
+    choices: list[ProblemCard] = Field(default_factory=list)
+    message: str

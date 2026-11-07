@@ -16,20 +16,19 @@ The rules the whole team follows:
 ## 2. What works today, and what doesn't
 
 Works (backend and frontend talk to each other):
-- Business type picker, 7 category tabs, 10 problem cards, a tool directory of 24 tools.
+- Business type picker, 7 category tabs, 12 problem cards, a tool directory of 24 tools.
 - `POST /api/recommend` returns a route per tool (already have it, check your plan, add-on, new tool, and so on), the fit, the added monthly cost and four sourced facts.
 - `POST /api/stack/check` finds overlapping tools and adds up the known monthly cost.
-- 65 backend tests, last run passing on Aurindom's machine.
+- 146 backend tests, last run passing on 2026-11-07.
 
 Not built yet:
 - **No chat UI and no live agent.** The chat contract in section 6 is a proposal.
 - No live discovery, no MCP integration, no custom assistant or setup wizard.
-- No plan picker in the UI. The backend already accepts an owner's plan (see `owned` below).
+- No plan picker in the UI yet. The backend and `api.js` are ready for it (see "Plan picker" below).
 - No saved plans or results tracker.
 
 Known data and logic gaps (Claude is fixing these on the backend, so don't work around them in the UI):
-- 16 of the 24 tools are `pending_review` (8 are `verified`). Their facts haven't been rechecked yet. Today a pending tool can still be the winner, and the card doesn't show the review status yet.
-- The cost of a feature that only comes on a higher plan is still shown at the entry plan price.
+- 16 of the 24 tools are `pending_review` (8 are `verified`). Their facts haven't been rechecked yet. Since 2026-11-07 the backend never makes a pending tool the winner, and every option carries `status`. The card doesn't show it yet (teammate A).
 - Several prices are unknown (Podium, Square, Toast, 7shifts, and the billing period for Slang AI).
 - `PLAN.md` is the product plan. `TEAM_HANDOFF.md` only points here. Where anything disagrees with this file, this file wins.
 
@@ -134,6 +133,7 @@ All endpoints are JSON. Errors come back as `{"detail": "..."}`, for example `40
 | `GET /api/problems?trade=&category=` | Problem cards: `{"id": "bookkeeping", "title": "The books are behind", "plain_words": "...", "capability": "bookkeeping", "trades": ["all"]}` |
 | `GET /api/tools?trade=&capability=&category=` | Full tool records (see below). Business type only changes the order. |
 | `GET /api/tools/{tool_id}` | One tool record |
+| `GET /api/tools/{tool_id}/facts` | The same four display facts a recommendation card shows (see "Display facts"). Use this for the comparison table so cards and comparison read the same. |
 | `POST /api/recommend` | A recommendation (see below) |
 | `POST /api/stack/check` | Overlap and cost check (see below) |
 
@@ -145,7 +145,14 @@ Every fact on a tool looks like this. If `status` is `unknown`, show "unknown", 
  "source_type": "vendor", "checked": "2026-11-06", "note": "..."}
 ```
 
-A tool record has `id, name, url, trades, applicability, applicability_source, status, summary, entry_monthly_usd, entry_plan, entry_billing, plan_tiers, setup_effort, privacy, support_stability, connects_to, capabilities`. `status` is `verified`, `pending_review` or `rejected`. Here `pending_review` means our team hasn't rechecked the facts yet. It has nothing to do with customer reviews.
+A tool record has `id, name, url, trades, applicability, applicability_source, status, summary, entry_monthly_usd, entry_plan, entry_billing, plan_tiers, plan_prices, offering, setup_effort, privacy, support_stability, connects_to, capabilities`. `status` is `verified`, `pending_review` or `rejected`. Here `pending_review` means our team hasn't rechecked the facts yet. It has nothing to do with customer reviews.
+
+Plan facts, all optional and all sourced like any other fact:
+- `plan_tiers`: plan names from cheapest to dearest. `plan_prices`: a map from those names to monthly prices, on the same billing basis as `entry_billing`.
+- `offering`: `single` when the vendor sells one thing with no plans (Google Business Profile). Then no plan warning is shown. A free price alone doesn't count.
+- Each capability can carry `included_from` (the lowest plan that includes it) or, for add-ons, `addon_from` (the lowest plan that can add it).
+
+A new buyer is priced at the plan the feature needs, never the cheapest plan by default. If that plan or its price isn't sourced, `added_monthly_usd` is `null` and `cost_note` says what to check with the vendor.
 
 ### POST /api/recommend
 
@@ -170,28 +177,77 @@ Response (real output, cut down):
   "winner_tool_id": "quickbooks_online",
   "message": "QuickBooks Online covers this but overlaps what you have. Weigh the move first.",
   "tailored": false,
-  "tailoring_note": "Nothing we've checked is built just for your kind of business, so these suit any business.",
+  "tailoring_note": "Nothing we've checked is built just for your kind of business, so these are offered to many kinds of business.",
   "options": [{
     "tool_id": "quickbooks_online",
     "tool_name": "QuickBooks Online",
+    "status": "verified",
     "route": "switch",
     "fit": "any_business",
-    "fit_note": "Works for any kind of business",
+    "fit_note": "The vendor offers this to many kinds of business",
     "added_monthly_usd": 38.0,
-    "cost_note": "Entry plan, before processing or hardware fees",
-    "facts": [{"label": "Entry price", "known": true, "value": "$38/mo, Simple Start plan",
+    "cost_note": "Simple Start plan, before processing or hardware fees",
+    "facts": [{"label": "Entry price", "known": true, "state": "known", "value": "$38/mo, Simple Start plan",
                "note": "...", "source_url": "https://quickbooks.intuit.com/pricing/",
                "source_type": "vendor", "checked": "2026-11-06"}]
   }],
   "check_first": [],
-  "set_aside": [{"tool_id": "...", "tool_name": "...", "reason": "..."}]
+  "set_aside": [{"tool_id": "...", "tool_name": "...", "status": "verified", "reason": "..."}]
 }
 ```
 - `outcome`: `no_new_tool`, `add_on`, `new_tool`, `verify_with_vendor` or `no_match`.
 - `route`: `already_have`, `check_plan`, `native_add_on`, `plan_upgrade`, `compatible_tool`, `separate_tool` or `switch`.
 - `fit`: `you_use_it`, `made_for`, `any_business` or `unconfirmed`.
+- `status`: `verified` or `pending_review`. Show a visible "not yet rechecked" badge on every pending card, in options, check_first and set_aside. A pending option is never the winner, so `winner_tool_id` is `null` when the top option is pending. Don't show a green or "recommended" style on a pending card. For `any_business`, say "offered to many kinds of business", not "works for any business".
 - `added_monthly_usd` can be `null`, which means the cost is unknown. Show "unknown", not $0.
+- `within_budget`: `true`, `false` or `null`. It compares `added_monthly_usd` (what the option adds to the bill, not the total bill) with `budget_monthly_usd`. `null` means no budget was given or the cost is unknown. Show `null` as "cost unknown", never as fitting. When a budget is given, show `budget_note` once near the results so the owner knows what is compared. If the winner goes over budget, `message` already says so.
 - `check_first` holds options we can't confirm yet. Show them apart from the confident options.
+
+### Display facts
+
+Each item in `options[].facts` and in `GET /api/tools/{id}/facts` is `{label, known, state, value, note, source_url, source_type, checked}`. `state` is one of:
+- `known`: sourced. Show the value, a link to `source_url` and the `checked` date.
+- `not_checked`: nobody has looked yet. Show "Not checked yet".
+- `unresolved`: someone looked and couldn't confirm it. Show "Unknown" plus `note` (the reason), and the link and date if present.
+
+Don't merge `not_checked` and `unresolved` into one "unknown" style. Today the comparison builds its own text from the raw tool record and shows "Not checked yet" for both, which is the gap to close.
+
+### Plan picker (W03, for the owner screen)
+
+The backend and `frontend/src/api.js` are ready. The picker itself goes in `App.jsx`.
+- Beside each owned tool, add an optional plan select. Options are `planChoices(tool)` (the sourced `plan_tiers`, cheapest first) plus "I do not know" as the default, value `PLAN_UNKNOWN`.
+- If `isSingleOffering(tool)` is true (Google Business Profile), show no plan input at all. The vendor has no plans, so there's nothing to ask.
+- If `planChoices` is empty for any other tool, don't show a select. A short optional text box for an old or custom plan name is fine, capped at `PLAN_LABEL_MAX` (100) characters. Label it "Not checked by us" and never show a typed name as a checked plan.
+- Keep plans in state keyed by tool id, for example `{jobber: "Core"}`, so changing the trade, tab or problem doesn't wipe them.
+- Build the request with `ownedProfile(trade, ownedIds, plans)`. It sends `owned: [{tool_id, plan}]`, turns blanks into "I do not know", and drops plans for tools that are no longer owned.
+- Re-run the recommendation when a plan changes. The answer depends on it: a Lite owner can get `plan_upgrade` while a Max owner gets `already_have` for the same feature.
+- A missing, unknown or unmatched plan always gives `check_plan` with `added_monthly_usd: null`, even for a feature on the vendor's cheapest plan, because an old plan may predate it. Never show that as $0 or "included".
+- Don't add scores or stars.
+
+### Problem splits (facets, W04)
+
+Some problems split by the kind of work, for example lead replies by channel (phone or website chat) and scheduling by work type (jobs at the customer's place or booked appointments). This is all catalog data, never code:
+- `GET /api/problems` cards may carry `requires`, for example `{"work_type": "appointments"}`, and `phrases` (used by the task search). Nothing to show for either.
+- A tool only counts for a card with `requires` when a sourced fact confirms it handles that value. Otherwise it lands in `check_first` with a `fit_note` like "Not confirmed it handles website chat. Check with the vendor", and it can't win. Show `fit_note` as is.
+- Any new split, card or tool goes through the same rule. Don't special-case a problem or a tool in the UI.
+
+### POST /api/tasks/resolve (W04)
+
+Turns an owner's own words into a problem card, for the search box and the chat. No model call: it only matches the catalog's `phrases`. Use `api.resolveTask(text)`.
+
+Request `{"text": "I need to book appointments online"}` (1 to 300 characters, not blank, otherwise 422). Response:
+```json
+{"status": "matched", "problem_id": "appointment_booking",
+ "choices": [{"id": "appointment_booking", "title": "Booking appointments takes too long", "...": "full problem card"}],
+ "message": "Sounds like: Booking appointments takes too long."}
+```
+- `matched`: one card. Go straight to its recommendation.
+- `ambiguous`: `problem_id` is `null` and `choices` holds the tied cards. Ask the owner to pick one. A bare word like "schedule" gives this on purpose.
+- `unsupported`: `choices` is empty. Show `message` and the normal problem list. Never guess.
+
+### Problem icons
+
+`App.jsx` has a `problemIcons` map keyed by problem id, with a generic fallback. New cards (`appointment_booking`, `website_chat_leads`) get the fallback. To keep the UI free of per-problem code, it's better to key icons by category id (7 fixed tabs) or ask Claude for an `icon` field on the card. Teammate A's call.
 
 ### POST /api/stack/check
 
