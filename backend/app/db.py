@@ -16,6 +16,21 @@ CREATE TABLE IF NOT EXISTS tool (
     doc TEXT NOT NULL,
     origin TEXT NOT NULL DEFAULT 'catalog'
 );
+CREATE TABLE IF NOT EXISTS owner_session (
+    token_hash TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+CREATE TABLE IF NOT EXISTS adoption_plan (
+    id TEXT PRIMARY KEY,
+    owner_hash TEXT NOT NULL REFERENCES owner_session(token_hash),
+    request_id TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    doc TEXT NOT NULL,
+    UNIQUE (owner_hash, request_id)
+);
 """
 CATALOG = "catalog"
 DISCOVERED = "discovered"

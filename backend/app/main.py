@@ -1,16 +1,35 @@
 import os
+import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 
-from . import db
-from .comparison import MAX_COMPARED, MAX_TASKS, compare
+from . import access, adoption, db
+from .comparison import compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
 from .tasks import resolve_task
-from .schemas import BusinessProfile, Catalog, Comparison, Category, ProblemCard, Recommendation, StackCheck, TaskMatch, Tool, ToolFact, Trade
+from .schemas import (
+    AdoptionPlan,
+    BusinessProfile,
+    Catalog,
+    Category,
+    Comparison,
+    OwnerSession,
+    PlanSummary,
+    ProblemCard,
+    Recommendation,
+    SavedPlan,
+    Selection,
+    StackCheck,
+    TaskMatch,
+    Tool,
+    ToolFact,
+    Trade,
+)
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -24,17 +43,12 @@ class StackRequest(BaseModel):
     tool_ids: list[str]
 
 
-class CompareRequest(BaseModel):
-    profile: BusinessProfile = Field(default_factory=BusinessProfile)
-    problem_ids: list[str] = Field(min_length=1, max_length=MAX_TASKS)
-    tool_ids: list[str] = Field(min_length=1, max_length=MAX_COMPARED)
+class CompareRequest(Selection):
+    pass
 
-    @field_validator("problem_ids", "tool_ids")
-    @classmethod
-    def no_repeats(cls, ids: list[str]) -> list[str]:
-        if len(ids) != len(set(ids)):
-            raise ValueError("each id can be chosen only once")
-        return ids
+
+class PlanRequest(Selection):
+    request_id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,100}$")
 
 
 class TaskRequest(BaseModel):
@@ -50,6 +64,8 @@ async def lifespan(app: FastAPI):
     try:
         db.seed(conn, catalog)
         app.state.catalog = db.read_catalog(conn)
+        app.state.conn = conn
+        app.state.lock = threading.Lock()
         yield
     finally:
         conn.close()
@@ -60,6 +76,25 @@ app = FastAPI(title="Main Street AI", lifespan=lifespan)
 
 def _catalog(request: Request) -> Catalog:
     return request.app.state.catalog
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _private_enabled() -> None:
+    """Set PRIVATE_PLANS=off to close every private route, for example on a host without HTTPS."""
+    if os.environ.get("PRIVATE_PLANS", "on").casefold() == "off":
+        raise HTTPException(status_code=503, detail="Saving private plans is turned off on this server")
+
+
+def _owner(request: Request, authorization: str | None = Header(default=None)) -> str:
+    _private_enabled()
+    with request.app.state.lock:
+        try:
+            return access.owner_for(request.app.state.conn, access.bearer(authorization), _now())
+        except access.AccessDenied as exc:
+            raise HTTPException(status_code=401, detail=exc.args[0], headers={"WWW-Authenticate": "Bearer"}) from exc
 
 
 @app.get("/api/health")
@@ -152,3 +187,64 @@ def compare_route(request: Request, body: CompareRequest) -> Comparison:
 def resolve_task_route(request: Request, body: TaskRequest) -> TaskMatch:
     """Free text is matched only against catalog phrases, so the agent and the search box land on the same problem cards."""
     return resolve_task(_catalog(request), body.text)
+
+
+@app.post("/api/sessions", status_code=201)
+def start_session(request: Request) -> OwnerSession:
+    """No account is made. The token is shown once and is the only way back into the plans saved under it."""
+    _private_enabled()
+    with request.app.state.lock:
+        token, expires = access.create_session(request.app.state.conn, _now())
+    return OwnerSession(token=token, expires_at=expires)
+
+
+@app.delete("/api/sessions/current", status_code=204)
+def end_session(request: Request, owner: str = Depends(_owner)) -> Response:
+    with request.app.state.lock:
+        access.revoke(request.app.state.conn, owner, _now())
+    return Response(status_code=204)
+
+
+@app.get("/api/plans")
+def plan_list(request: Request, owner: str = Depends(_owner)) -> list[PlanSummary]:
+    with request.app.state.lock:
+        return adoption.list_plans(request.app.state.conn, owner)
+
+
+@app.post("/api/plans", status_code=201)
+def plan_save(request: Request, response: Response, body: PlanRequest, owner: str = Depends(_owner)) -> AdoptionPlan:
+    """Answers only after the row is written. A repeat of the same request_id returns the first plan with 200."""
+    selection = Selection.model_validate(body.model_dump(exclude={"request_id"}))
+    with request.app.state.lock:
+        try:
+            plan, created = adoption.save_plan(request.app.state.conn, _catalog(request), owner, body.request_id, selection, _now())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+        except (adoption.PlanNotReady, adoption.PlanConflict, adoption.PlanLimit) as exc:
+            raise HTTPException(status_code=409, detail=exc.args[0]) from exc
+    if not created:
+        response.status_code = 200
+    return plan
+
+
+@app.get("/api/plans/{plan_id}")
+def plan_read(request: Request, plan_id: str, owner: str = Depends(_owner)) -> SavedPlan:
+    with request.app.state.lock:
+        try:
+            plan = adoption.load_plan(request.app.state.conn, owner, plan_id)
+        except adoption.PlanNotFound as exc:
+            raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+    return adoption.check_plan(_catalog(request), plan)
+
+
+@app.post("/api/plans/{plan_id}/refresh")
+def plan_refresh(request: Request, plan_id: str, owner: str = Depends(_owner)) -> AdoptionPlan:
+    with request.app.state.lock:
+        try:
+            return adoption.refresh_plan(request.app.state.conn, _catalog(request), owner, plan_id, _now())
+        except adoption.PlanNotFound as exc:
+            raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=409, detail=f"This plan can't be rebuilt from today's catalog: {exc.args[0]}") from exc
+        except adoption.PlanNotReady as exc:
+            raise HTTPException(status_code=409, detail=exc.args[0]) from exc

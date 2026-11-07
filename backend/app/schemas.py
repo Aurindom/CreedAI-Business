@@ -1,7 +1,7 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 FactStatus = Literal["present", "absent", "unknown"]
 SourceType = Literal["vendor", "third_party"]
@@ -13,6 +13,8 @@ Applicability = Literal["cross_industry", "restricted", "unknown"]
 Fit = Literal["you_use_it", "made_for", "any_business", "unconfirmed"]
 FactState = Literal["known", "not_checked", "unresolved"]
 ANY_BUSINESS = "all"
+MAX_COMPARED = 3
+MAX_TASKS = 5
 
 
 class Fact(BaseModel):
@@ -441,3 +443,65 @@ class TaskMatch(BaseModel):
     problem_id: str | None = None
     choices: list[ProblemCard] = Field(default_factory=list)
     message: str
+
+
+class Selection(BaseModel):
+    """The tasks and tools an owner picked. Compare and saved plans share it so their limits can't drift apart."""
+
+    profile: BusinessProfile = Field(default_factory=BusinessProfile)
+    problem_ids: list[str] = Field(min_length=1, max_length=MAX_TASKS)
+    tool_ids: list[str] = Field(min_length=1, max_length=MAX_COMPARED)
+
+    @field_validator("problem_ids", "tool_ids")
+    @classmethod
+    def no_repeats(cls, ids: list[str]) -> list[str]:
+        if len(ids) != len(set(ids)):
+            raise ValueError("each id can be chosen only once")
+        return ids
+
+
+class PlanStep(BaseModel):
+    tool_id: str
+    tool_name: str
+    status: ToolStatus
+    problem_ids: list[str]
+    tasks: list[str]
+    reasons: list[str]
+    monthly_usd: float | None
+    cost_note: str
+    setup: ToolFact
+    facts: list[ToolFact]
+    to_confirm: list[str]
+    to_try: list[str]
+
+
+class AdoptionPlan(BaseModel):
+    id: str
+    selection: Selection
+    created_at: datetime
+    refreshed_at: datetime | None = None
+    steps: list[PlanStep]
+    gaps: list[str]
+    connections: list[Connection]
+    stack: StackCost
+    note: str
+
+
+class SavedPlan(BaseModel):
+    plan: AdoptionPlan
+    changed: bool
+    change_note: str
+    current_total_monthly_usd: float | None = None
+
+
+class PlanSummary(BaseModel):
+    id: str
+    created_at: datetime
+    refreshed_at: datetime | None
+    tool_names: list[str]
+    total_monthly_usd: float | None
+
+
+class OwnerSession(BaseModel):
+    token: str
+    expires_at: datetime

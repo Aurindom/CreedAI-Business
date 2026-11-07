@@ -16,8 +16,6 @@ from .schemas import (
     Tool,
 )
 
-MAX_COMPARED = 3
-MAX_TASKS = 5
 USABLE = ("eligible", "check_first")
 FEES = "Monthly prices before processing, hardware, per-user or usage fees."
 

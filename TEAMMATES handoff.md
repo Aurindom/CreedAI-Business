@@ -20,13 +20,14 @@ Works (backend and frontend talk to each other):
 - `POST /api/recommend` returns a route per tool (already have it, check your plan, add-on, new tool, and so on), the fit, the added monthly cost and four sourced facts.
 - `POST /api/compare` compares up to 3 tools for the chosen tasks, on the same prices as the cards (W05).
 - `POST /api/stack/check` finds overlapping tools and adds up the known entry prices (older, see below).
-- 190 backend tests, last run passing on 2026-11-07.
+- Private saved plans (W06): an owner starts a private session with no account, saves an adoption plan from a comparison, and reopens it later. See "Saved plans (W06)" below.
+- 220 backend tests, last run passing on 2026-11-07.
 
 Not built yet:
 - **No chat UI and no live agent.** The chat contract in section 6 is a proposal.
 - No live discovery, no MCP integration, no custom assistant or setup wizard.
 - No plan picker in the UI yet. The backend and `api.js` are ready for it (see "Plan picker" below).
-- No saved plans or results tracker.
+- No results tracker. No plan screens in the UI yet (the backend and `api.js` are ready).
 
 Known data and logic gaps (Claude is fixing these on the backend, so don't work around them in the UI):
 - 16 of the 24 tools are `pending_review` (8 are `verified`). Their facts haven't been rechecked yet. Since 2026-11-07 the backend never makes a pending tool the winner, and every option carries `status`. The card doesn't show it yet (teammate A).
@@ -138,6 +139,8 @@ All endpoints are JSON. Errors come back as `{"detail": "..."}`, for example `40
 | `POST /api/recommend` | A recommendation (see below) |
 | `POST /api/compare` | Task-aware comparison and stack cost (W05, see below) |
 | `POST /api/stack/check` | Older overlap and entry-price check (see below) |
+| `POST /api/sessions`, `DELETE /api/sessions/current` | Start or close a private session (W06) |
+| `GET /api/plans`, `POST /api/plans`, `GET /api/plans/{id}`, `POST /api/plans/{id}/refresh` | Private saved plans (W06, see below) |
 
 ### Fact shape
 
@@ -288,7 +291,19 @@ Response:
   - `assumptions[]`: show these under the total (fees not included, annual billing, tools still to check).
 - `stack_note`: always present. Lists tasks nothing chosen covers.
 
-The future adoption plan (W06) will take this structured `stack`, not the prose.
+The adoption plan (W06) takes this structured `stack`, not the prose.
+
+### Saved plans (W06)
+
+No accounts. `api.js` has `startSession`, `endSession`, `plans`, `savePlan`, `plan`, `refreshPlan` and `newRequestId`. Each private helper takes the token as its first argument.
+
+1. `POST /api/sessions` gives `201 {"token": "...", "expires_at": "..."}` (30 days). The token is shown only once and the server keeps only a hash of it. Send it as `Authorization: Bearer <token>`. Keep it on the device (for example `localStorage`) and tell the owner that clearing the browser loses access. Never put it in a URL, a log or a chat prompt.
+2. `POST /api/plans` with the same body as `/api/compare` plus `request_id` (8 to 100 letters, digits, `-` or `_`). Make one with `newRequestId()` when the owner presses Confirm and reuse it for retries, so a double click returns the same plan (`200`) instead of a second one (`201` the first time).
+3. The response is the saved plan:
+   - `steps[]`: one per tool being bought. `tasks`, `reasons`, `monthly_usd` (`null` = unknown) with `cost_note`, `setup` (the sourced setup fact), `facts`, `to_confirm[]` (open questions the owner should ask the vendor) and `to_try[]` (what to test before paying). We have no recorded setup steps, so none are invented.
+   - `gaps[]`: chosen tasks nothing in the plan covers. `connections`, `stack` and `note` ("This plan is guidance. Nothing is bought, connected or set up for you."). Show `note`.
+4. `GET /api/plans/{id}` returns `{"plan": ..., "changed": bool, "change_note": "...", "current_total_monthly_usd": ...}`. The saved estimate never changes on its own. If `changed` is true, show `change_note` and a Refresh button that calls `POST /api/plans/{id}/refresh`. `GET /api/plans` lists summaries for the session.
+5. Errors: `401` missing, ended or closed session (start a new one). `404` a plan that isn't in this session, including someone else's. `409` alternatives not yet narrowed to one per task, a `request_id` reused for a different selection, the 20-plan cap, or a refresh that today's catalog can't rebuild. `503` private plans are switched off on this server (`PRIVATE_PLANS=off`).
 
 ## 6. PROPOSED chat contract (not built, use the mock)
 
