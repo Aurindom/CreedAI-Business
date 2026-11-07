@@ -491,3 +491,22 @@ Some vendor pricing pages don't say plainly which number is the monthly price, s
 ### 11.2 What the UI should do
 - Show an estimated price with a small "estimate" label and a link to the fact's `source_url`, never as a confirmed price or within budget.
 - Never call a stack "ready" or a plan "checked" while `stack.estimated` has anything in it. The backend already enforces this.
+
+## 12. Tool discovery, W08 (added 2026-11-07)
+
+The backend can now add tools it finds on vendor sites. Nothing searches the web yet. The real search is the separate discovery worker, and its first scan waits on Aurindom's OK.
+
+### 12.1 New field on every tool
+- `origin`: `"catalog"` for the reviewed list we ship, `"discovered"` for tools found by discovery. Old rows mean `"catalog"`.
+- A discovered tool is always `status: "pending_review"`, so it never wins a recommendation. Its summary is always "Found by discovery on DATE. Not reviewed yet." Its plan access is unknown, and its price is only filled when the vendor's own page lists one US dollar monthly plan.
+- It shows up in `/api/tools`, `/api/tools/{id}`, recommend and compare straight away, with no restart, and it stays after a restart.
+
+### 12.2 What the UI should do
+- Show a small "Found by discovery, not reviewed" badge when `origin` is `"discovered"`, next to the existing pending badge.
+- Don't add a discovery button for owners. The endpoint below is for the operator only.
+
+### 12.3 Endpoint (operator only)
+`POST /api/discover` with `Authorization: Bearer <DISCOVERY_TOKEN>` and a body like `{"capability": "phone_answering", "trade": "hvac", "facets": {}, "max_results": 5, "max_pages": 6, "time_budget_s": 15}`.
+- 503 when `DISCOVERY_TOKEN` isn't set or no finder is connected. That is the state on every server today.
+- 401 for a missing or wrong token, 422 for an unknown task or filter or a cap over the limit (10 results, 16 pages, 30 seconds), 429 while another run is going.
+- 200 returns `{run_id, status, added[], updated[], duplicates[], excluded[], error, notice}`. A failed run (timeout, over budget, broken result) saves nothing.

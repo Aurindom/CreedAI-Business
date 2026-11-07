@@ -2,6 +2,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from .domains import identity
 from .schemas import Catalog, Category, Facet, ProblemCard, Tool, Trade
 
 SCHEMA = """
@@ -53,11 +56,13 @@ def load_catalog_file(path: Path) -> Catalog:
     return Catalog.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def seed(conn: sqlite3.Connection, catalog: Catalog) -> None:
+def seed(conn: sqlite3.Connection, catalog: Catalog) -> list[str]:
     """Catalog file wins on every start, so a corrected vendor fact reaches the app on the next deploy.
 
     Only rows the catalog owns are replaced. Discovered tools survive a restart, and a discovered
-    tool that later appears in the catalog file is taken over by the reviewed catalog entry.
+    tool that later appears in the catalog file is taken over by the reviewed catalog entry, matched by
+    id or by owner domain and name. A discovered tool the new catalog can no longer hold, for example one
+    naming a business type that was removed, is dropped so the app still starts. Returns the dropped ids.
     """
     with conn:
         for table in ("trade", "category", "problem_card", "facet"):
@@ -80,8 +85,25 @@ def seed(conn: sqlite3.Connection, catalog: Catalog) -> None:
         )
         conn.executemany(
             "INSERT OR REPLACE INTO tool (id, name, status, doc, origin) VALUES (?, ?, ?, ?, ?)",
-            [(t.id, t.name, t.status, t.model_dump_json(), CATALOG) for t in catalog.tools],
+            [(t.id, t.name, t.status, _doc(t, CATALOG), CATALOG) for t in catalog.tools],
         )
+        reviewed = {identity(t) for t in catalog.tools}
+        dropped = []
+        for tool_id, doc in conn.execute("SELECT id, doc FROM tool WHERE origin = ?", (DISCOVERED,)).fetchall():
+            try:
+                found = Tool.model_validate_json(doc)
+                Catalog(trades=catalog.trades, categories=catalog.categories, problem_cards=[], tools=[found], facets=catalog.facets)
+            except ValidationError:
+                dropped.append(tool_id)
+                continue
+            if identity(found) in reviewed:
+                dropped.append(tool_id)
+        conn.executemany("DELETE FROM tool WHERE id = ? AND origin = ?", [(i, DISCOVERED) for i in dropped])
+    return dropped
+
+
+def _doc(tool: Tool, origin: str) -> str:
+    return tool.model_copy(update={"origin": origin}).model_dump_json()
 
 
 def add_discovered_tool(conn: sqlite3.Connection, tool: Tool) -> None:
@@ -95,7 +117,7 @@ def add_discovered_tool(conn: sqlite3.Connection, tool: Tool) -> None:
             raise ValueError(f"tool {tool.id!r} is already in the reviewed catalog")
         conn.execute(
             "INSERT OR REPLACE INTO tool (id, name, status, doc, origin) VALUES (?, ?, ?, ?, ?)",
-            (tool.id, tool.name, tool.status, tool.model_dump_json(), DISCOVERED),
+            (tool.id, tool.name, tool.status, _doc(tool, DISCOVERED), DISCOVERED),
         )
 
 
@@ -103,6 +125,6 @@ def read_catalog(conn: sqlite3.Connection) -> Catalog:
     trades = [Trade(id=row[0], name=row[1]) for row in conn.execute("SELECT id, name FROM trade ORDER BY name")]
     categories = [Category(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM category ORDER BY position")]
     cards = [ProblemCard(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM problem_card ORDER BY id")]
-    tools = [Tool(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM tool ORDER BY name")]
+    tools = [Tool(**{**json.loads(doc), "origin": origin}) for doc, origin in conn.execute("SELECT doc, origin FROM tool ORDER BY name")]
     facets = [Facet(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM facet ORDER BY position")]
     return Catalog(trades=trades, categories=categories, problem_cards=cards, tools=tools, facets=facets)

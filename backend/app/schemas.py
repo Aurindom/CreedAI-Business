@@ -7,6 +7,7 @@ FactStatus = Literal["present", "absent", "unknown"]
 SourceType = Literal["vendor", "third_party"]
 Access = Literal["included", "add_on", "unknown"]
 ToolStatus = Literal["verified", "pending_review", "rejected"]
+Origin = Literal["catalog", "discovered"]
 Route = Literal["already_have", "check_plan", "native_add_on", "plan_upgrade", "compatible_tool", "separate_tool", "switch"]
 Outcome = Literal["no_new_tool", "add_on", "new_tool", "verify_with_vendor", "no_match"]
 Applicability = Literal["cross_industry", "restricted", "unknown"]
@@ -80,6 +81,7 @@ class Tool(BaseModel):
     applicability: Applicability = "unknown"
     applicability_source: HttpUrl | None = None
     status: ToolStatus = "pending_review"
+    origin: Origin = "catalog"
     summary: str
     entry_monthly_usd: Fact = UNKNOWN
     entry_plan: Fact = UNKNOWN
