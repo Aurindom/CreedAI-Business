@@ -3,12 +3,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import db
 from .facts import tool_facts
 from .matching import check_stack, recommend
-from .schemas import BusinessProfile, Catalog, Category, ProblemCard, Recommendation, StackCheck, Tool, ToolFact, Trade
+from .tasks import resolve_task
+from .schemas import BusinessProfile, Catalog, Category, ProblemCard, Recommendation, StackCheck, TaskMatch, Tool, ToolFact, Trade
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -20,6 +21,10 @@ class RecommendRequest(BaseModel):
 
 class StackRequest(BaseModel):
     tool_ids: list[str]
+
+
+class TaskRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=300, pattern=r"\S")
 
 
 @asynccontextmanager
@@ -117,3 +122,9 @@ def stack_check(request: Request, body: StackRequest) -> StackCheck:
         return check_stack(_catalog(request), body.tool_ids)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+
+
+@app.post("/api/tasks/resolve")
+def resolve_task_route(request: Request, body: TaskRequest) -> TaskMatch:
+    """Free text is matched only against catalog phrases, so the agent and the search box land on the same problem cards."""
+    return resolve_task(_catalog(request), body.text)

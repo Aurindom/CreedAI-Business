@@ -16,10 +16,10 @@ The rules the whole team follows:
 ## 2. What works today, and what doesn't
 
 Works (backend and frontend talk to each other):
-- Business type picker, 7 category tabs, 10 problem cards, a tool directory of 24 tools.
+- Business type picker, 7 category tabs, 12 problem cards, a tool directory of 24 tools.
 - `POST /api/recommend` returns a route per tool (already have it, check your plan, add-on, new tool, and so on), the fit, the added monthly cost and four sourced facts.
 - `POST /api/stack/check` finds overlapping tools and adds up the known monthly cost.
-- 65 backend tests, last run passing on Aurindom's machine.
+- 146 backend tests, last run passing on 2026-11-07.
 
 Not built yet:
 - **No chat UI and no live agent.** The chat contract in section 6 is a proposal.
@@ -200,6 +200,7 @@ Response (real output, cut down):
 - `fit`: `you_use_it`, `made_for`, `any_business` or `unconfirmed`.
 - `status`: `verified` or `pending_review`. Show a visible "not yet rechecked" badge on every pending card, in options, check_first and set_aside. A pending option is never the winner, so `winner_tool_id` is `null` when the top option is pending. Don't show a green or "recommended" style on a pending card. For `any_business`, say "offered to many kinds of business", not "works for any business".
 - `added_monthly_usd` can be `null`, which means the cost is unknown. Show "unknown", not $0.
+- `within_budget`: `true`, `false` or `null`. It compares `added_monthly_usd` (what the option adds to the bill, not the total bill) with `budget_monthly_usd`. `null` means no budget was given or the cost is unknown. Show `null` as "cost unknown", never as fitting. When a budget is given, show `budget_note` once near the results so the owner knows what is compared. If the winner goes over budget, `message` already says so.
 - `check_first` holds options we can't confirm yet. Show them apart from the confident options.
 
 ### Display facts
@@ -222,6 +223,31 @@ The backend and `frontend/src/api.js` are ready. The picker itself goes in `App.
 - Re-run the recommendation when a plan changes. The answer depends on it: a Lite owner can get `plan_upgrade` while a Max owner gets `already_have` for the same feature.
 - A missing, unknown or unmatched plan always gives `check_plan` with `added_monthly_usd: null`, even for a feature on the vendor's cheapest plan, because an old plan may predate it. Never show that as $0 or "included".
 - Don't add scores or stars.
+
+### Problem splits (facets, W04)
+
+Some problems split by the kind of work, for example lead replies by channel (phone or website chat) and scheduling by work type (jobs at the customer's place or booked appointments). This is all catalog data, never code:
+- `GET /api/problems` cards may carry `requires`, for example `{"work_type": "appointments"}`, and `phrases` (used by the task search). Nothing to show for either.
+- A tool only counts for a card with `requires` when a sourced fact confirms it handles that value. Otherwise it lands in `check_first` with a `fit_note` like "Not confirmed it handles website chat. Check with the vendor", and it can't win. Show `fit_note` as is.
+- Any new split, card or tool goes through the same rule. Don't special-case a problem or a tool in the UI.
+
+### POST /api/tasks/resolve (W04)
+
+Turns an owner's own words into a problem card, for the search box and the chat. No model call: it only matches the catalog's `phrases`. Use `api.resolveTask(text)`.
+
+Request `{"text": "I need to book appointments online"}` (1 to 300 characters, not blank, otherwise 422). Response:
+```json
+{"status": "matched", "problem_id": "appointment_booking",
+ "choices": [{"id": "appointment_booking", "title": "Booking appointments takes too long", "...": "full problem card"}],
+ "message": "Sounds like: Booking appointments takes too long."}
+```
+- `matched`: one card. Go straight to its recommendation.
+- `ambiguous`: `problem_id` is `null` and `choices` holds the tied cards. Ask the owner to pick one. A bare word like "schedule" gives this on purpose.
+- `unsupported`: `choices` is empty. Show `message` and the normal problem list. Never guess.
+
+### Problem icons
+
+`App.jsx` has a `problemIcons` map keyed by problem id, with a generic fallback. New cards (`appointment_booking`, `website_chat_leads`) get the fallback. To keep the UI free of per-problem code, it's better to key icons by category id (7 fixed tabs) or ask Claude for an `icon` field on the card. Teammate A's call.
 
 ### POST /api/stack/check
 

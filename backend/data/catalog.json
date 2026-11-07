@@ -139,6 +139,17 @@
       "capability": "phone_answering",
       "trades": [
         "all"
+      ],
+      "phrases": [
+        "missed calls",
+        "miss calls",
+        "answer phone",
+        "answer calls",
+        "phone rings",
+        "nobody picks up",
+        "receptionist",
+        "answering service",
+        "voicemail"
       ]
     },
     {
@@ -155,6 +166,14 @@
         "handyman",
         "auto",
         "professional_services"
+      ],
+      "phrases": [
+        "leads",
+        "reply leads",
+        "quote requests",
+        "respond inquiries",
+        "follow up leads",
+        "respond faster"
       ]
     },
     {
@@ -176,6 +195,12 @@
         "pet_care",
         "auto",
         "professional_services"
+      ],
+      "phrases": [
+        "more reviews",
+        "get reviews",
+        "ask reviews",
+        "review requests"
       ]
     },
     {
@@ -185,6 +210,12 @@
       "capability": "review_replies",
       "trades": [
         "all"
+      ],
+      "phrases": [
+        "reply reviews",
+        "respond reviews",
+        "answer reviews",
+        "review replies"
       ]
     },
     {
@@ -200,6 +231,19 @@
         "landscaping",
         "handyman",
         "pet_care"
+      ],
+      "requires": {
+        "work_type": "field_jobs"
+      },
+      "phrases": [
+        "schedule",
+        "schedule jobs",
+        "job schedule",
+        "dispatch",
+        "dispatch technicians",
+        "assign technicians",
+        "route jobs",
+        "work orders"
       ]
     },
     {
@@ -218,6 +262,15 @@
         "spa",
         "fitness",
         "medical"
+      ],
+      "phrases": [
+        "schedule",
+        "staff schedule",
+        "schedule staff",
+        "shifts",
+        "shift swaps",
+        "employee schedule",
+        "rota"
       ]
     },
     {
@@ -227,6 +280,15 @@
       "capability": "invoicing",
       "trades": [
         "all"
+      ],
+      "phrases": [
+        "invoices",
+        "send invoices",
+        "get paid",
+        "payments",
+        "billing",
+        "chase payments",
+        "late payments"
       ]
     },
     {
@@ -236,6 +298,13 @@
       "capability": "bookkeeping",
       "trades": [
         "all"
+      ],
+      "phrases": [
+        "books",
+        "bookkeeping",
+        "expenses",
+        "receipts",
+        "accounting"
       ]
     },
     {
@@ -251,6 +320,15 @@
         "bar",
         "retail",
         "salon"
+      ],
+      "phrases": [
+        "point of sale",
+        "register",
+        "pos",
+        "card payments",
+        "take payments",
+        "checkout",
+        "orders"
       ]
     },
     {
@@ -260,6 +338,67 @@
       "capability": "email_marketing",
       "trades": [
         "all"
+      ],
+      "phrases": [
+        "email",
+        "newsletter",
+        "email marketing",
+        "email list",
+        "customers come back",
+        "repeat customers",
+        "past customers"
+      ]
+    },
+    {
+      "id": "appointment_booking",
+      "title": "Booking appointments takes too long",
+      "plain_words": "Customers call or text to book a time and I juggle it by hand.",
+      "capability": "job_scheduling",
+      "trades": [
+        "salon",
+        "spa",
+        "fitness",
+        "medical",
+        "pet_care",
+        "professional_services"
+      ],
+      "requires": {
+        "work_type": "appointments"
+      },
+      "phrases": [
+        "schedule",
+        "appointments",
+        "schedule appointments",
+        "book appointments",
+        "online booking",
+        "booking page",
+        "book meeting"
+      ]
+    },
+    {
+      "id": "website_chat_leads",
+      "title": "Website visitors leave without asking",
+      "plain_words": "People look at my website and leave before anyone answers their questions.",
+      "capability": "lead_response",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman",
+        "auto",
+        "professional_services"
+      ],
+      "requires": {
+        "channel": "website_chat"
+      },
+      "phrases": [
+        "website chat",
+        "live chat",
+        "chat widget",
+        "website visitors",
+        "chat leads"
       ]
     }
   ],
@@ -325,6 +464,18 @@
             "source_type": "vendor",
             "checked": "2026-11-07",
             "note": "Listed in the Core plan on the pricing page. Checked manually in a browser by Aurindom."
+          },
+          "facets": {
+            "work_type": {
+              "status": "present",
+              "value": [
+                "field_jobs"
+              ],
+              "source_url": "https://www.getjobber.com/features/",
+              "source_type": "vendor",
+              "checked": "2026-11-06",
+              "note": "Built for home service jobs at the customer's place."
+            }
           }
         },
         {
@@ -396,6 +547,18 @@
             "source_type": "vendor",
             "checked": "2026-11-06",
             "note": "Same add-on as phone answering."
+          },
+          "facets": {
+            "channel": {
+              "status": "present",
+              "value": [
+                "website_chat"
+              ],
+              "source_url": "https://www.getjobber.com/features/",
+              "source_type": "vendor",
+              "checked": "2026-11-06",
+              "note": "Features page says the receptionist can chat with website visitors."
+            }
           }
         }
       ],
@@ -470,6 +633,18 @@
             "source_type": "vendor",
             "checked": "2026-11-07",
             "note": "Listed in the Basic plan on the pricing page. Checked manually in a browser by Aurindom."
+          },
+          "facets": {
+            "work_type": {
+              "status": "present",
+              "value": [
+                "field_jobs"
+              ],
+              "source_url": "https://www.housecallpro.com/features/",
+              "source_type": "vendor",
+              "checked": "2026-11-06",
+              "note": "Field service software for jobs at the customer's place."
+            }
           }
         },
         {
@@ -581,6 +756,18 @@
             "source_type": "vendor",
             "checked": "2026-11-07",
             "note": "Scheduling is listed on the Starter plan card."
+          },
+          "facets": {
+            "work_type": {
+              "status": "present",
+              "value": [
+                "field_jobs"
+              ],
+              "source_url": "https://granum.com/lmn/pricing/",
+              "source_type": "vendor",
+              "checked": "2026-11-07",
+              "note": "Scheduling for landscaping crews."
+            }
           }
         },
         {
@@ -1197,6 +1384,18 @@
             "source_url": "https://www.setmore.com/pricing",
             "source_type": "vendor",
             "checked": "2026-11-07"
+          },
+          "facets": {
+            "work_type": {
+              "status": "present",
+              "value": [
+                "appointments"
+              ],
+              "source_url": "https://www.setmore.com/pricing",
+              "source_type": "vendor",
+              "checked": "2026-11-07",
+              "note": "Booking page and calendars for appointment-based businesses."
+            }
           }
         },
         {
@@ -1301,6 +1500,18 @@
             "source_url": "https://www.acuityscheduling.com/pricing",
             "source_type": "vendor",
             "checked": "2026-11-07"
+          },
+          "facets": {
+            "work_type": {
+              "status": "present",
+              "value": [
+                "appointments"
+              ],
+              "source_url": "https://www.acuityscheduling.com/pricing",
+              "source_type": "vendor",
+              "checked": "2026-11-07",
+              "note": "The whole product is appointment booking."
+            }
           }
         }
       ]
@@ -1372,6 +1583,18 @@
             "source_url": "https://calendly.com/pricing",
             "source_type": "vendor",
             "checked": "2026-11-07"
+          },
+          "facets": {
+            "work_type": {
+              "status": "present",
+              "value": [
+                "appointments"
+              ],
+              "source_url": "https://calendly.com/pricing",
+              "source_type": "vendor",
+              "checked": "2026-11-07",
+              "note": "Built around booked meetings and appointments."
+            }
           }
         }
       ]
@@ -1686,6 +1909,18 @@
             "source_url": "https://www.smith.ai/pricing",
             "source_type": "vendor",
             "checked": "2026-11-07"
+          },
+          "facets": {
+            "channel": {
+              "status": "present",
+              "value": [
+                "phone"
+              ],
+              "source_url": "https://www.smith.ai/pricing",
+              "source_type": "vendor",
+              "checked": "2026-11-07",
+              "note": "Pricing page covers phone leads only."
+            }
           }
         }
       ]
@@ -1783,6 +2018,18 @@
             "source_url": "https://www.ruby.com/pricing/",
             "source_type": "vendor",
             "checked": "2026-11-07"
+          },
+          "facets": {
+            "channel": {
+              "status": "present",
+              "value": [
+                "phone"
+              ],
+              "source_url": "https://www.ruby.com/pricing/",
+              "source_type": "vendor",
+              "checked": "2026-11-07",
+              "note": "Receptionist plans are phone based. Live chat is a separate plan we have not modeled."
+            }
           }
         }
       ]
@@ -2001,6 +2248,30 @@
           }
         }
       ]
+    }
+  ],
+  "facets": [
+    {
+      "id": "channel",
+      "label": "Where the lead comes in",
+      "capabilities": [
+        "lead_response"
+      ],
+      "values": {
+        "phone": "leads that come in by phone",
+        "website_chat": "chat on your website"
+      }
+    },
+    {
+      "id": "work_type",
+      "label": "What gets scheduled",
+      "capabilities": [
+        "job_scheduling"
+      ],
+      "values": {
+        "field_jobs": "jobs at the customer's place with crews or technicians",
+        "appointments": "customers booking a time slot"
+      }
     }
   ]
 }

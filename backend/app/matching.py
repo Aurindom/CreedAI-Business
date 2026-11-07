@@ -165,6 +165,23 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
     )
 
 
+def _facet_gap(catalog: Catalog, tool: Tool, problem: ProblemCard) -> str | None:
+    """A card that needs a specific channel or kind of work only counts a tool when a sourced fact confirms it."""
+    cap = tool.capability(problem.capability)
+    for facet_id, wanted in problem.requires.items():
+        stated = cap.facets.get(facet_id) if cap else None
+        if not (stated and stated.known and wanted in stated.value):
+            facet = catalog.facet(facet_id)
+            return f"Not confirmed it handles {facet.describe(wanted)}. Check with the vendor"
+    return None
+
+
+def _budget(option: Option, budget: float | None) -> Option:
+    if budget is not None and option.added_monthly_usd is not None:
+        option.within_budget = option.added_monthly_usd <= budget
+    return option
+
+
 def _rank(options: list[Option]) -> list[Option]:
     """Among tools the owner would newly buy, a checked tool outranks an unchecked one before route or price count."""
     return sorted(
@@ -203,13 +220,19 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
         if fit is None:
             set_aside.append(SetAside(tool_id=tool.id, tool_name=tool.name, status=tool.status, reason=fit_note))
             continue
-        option = _option(tool, problem.capability, owned, fit, fit_note, profile.plan_for(tool.id))
-        (uncertain if fit == "unconfirmed" else eligible).append(option)
+        gap = _facet_gap(catalog, tool, problem)
+        option = _option(tool, problem.capability, owned, fit, gap or fit_note, profile.plan_for(tool.id))
+        _budget(option, profile.budget_monthly_usd)
+        (uncertain if fit == "unconfirmed" or gap else eligible).append(option)
     options = _rank(eligible)
     check_first = _rank(uncertain)
     note = _tailoring_note((profile.trade or "").strip(), trade, options)
+    budget = profile.budget_monthly_usd
+    budget_note = None if budget is None else f"Your budget of ${budget:g}/mo is compared with what each option adds to your monthly bill, not your total bill. Options with an unconfirmed cost aren't counted as fitting."
 
     def result(outcome, winner, message):
+        if winner and options[0].within_budget is False:
+            message += f" It adds more than your ${budget:g}/mo budget."
         return Recommendation(
             problem_id=problem.id,
             outcome=outcome,
@@ -220,6 +243,7 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
             message=message,
             tailored=trade is not None and note is None,
             tailoring_note=note,
+            budget_note=budget_note,
         )
 
     if not options and check_first:

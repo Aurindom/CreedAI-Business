@@ -50,5 +50,6 @@ export const api = {
   tools: (trade, category) => request(`/api/tools${query({ trade, category })}`),
   toolFacts: (toolId) => request(`/api/tools/${encodeURIComponent(toolId)}/facts`),
   recommend: (profile, problemId) => request('/api/recommend', { method: 'POST', body: JSON.stringify({ profile, problem_id: problemId }) }),
+  resolveTask: (text) => request('/api/tasks/resolve', { method: 'POST', body: JSON.stringify({ text }) }),
   stackCheck: (toolIds) => request('/api/stack/check', { method: 'POST', body: JSON.stringify({ tool_ids: toolIds }) }),
 }
