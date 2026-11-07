@@ -473,3 +473,21 @@ Not connected yet:
 - Keyboard and phone checks are not done.
 - No Docker, Azure, HTTPS or deployment files. Cloud work is gated.
 - No mock data is involved in any of this.
+
+## 11. Estimated prices (added 2026-11-07)
+
+Some vendor pricing pages don't say plainly which number is the monthly price, so we had to read it with some guessing. Those prices are now marked and never treated as confirmed. Today that's Jobber ($49 Core) and Housecall Pro ($79 Basic).
+
+### 11.1 New fields
+- Any fact can carry `"inferred": true`. It is always `present` and its `note` says what was guessed. Older facts without the field mean `false`.
+- `/api/tools/{id}/facts`: each fact has `inferred`. An estimated price's `value` ends with "(estimate)", like "$49/mo, Core plan (estimate)".
+- `/api/recommend` options and `/api/compare` task fits have `price_estimated`. The price is still shown, `cost_note` ends with "check the vendor's pricing page", and `within_budget` stays `null`.
+- If the top option's price is an estimate, the outcome is `verify_with_vendor` with no winner, and the message names the tool and says to check its pricing page.
+- `/api/compare` stack: each line has `price_estimated`, and `stack.estimated[]` names the tools with estimated prices. The total is still added up, but `ready` is `false`, `within_budget` is `null`, `assumptions` has a line about it and `stack_note` ends with "Prices to check on the vendor's page".
+- `all_in_one[]` entries have `price_estimated`.
+- `/api/stack/check` has `estimated_cost_tools[]`.
+- Saved plans: a plan with an estimated price is a `draft`, with an open item like "Part of Jobber's price is our estimate. Check the vendor's pricing page".
+
+### 11.2 What the UI should do
+- Show an estimated price with a small "estimate" label and a link to the fact's `source_url`, never as a confirmed price or within budget.
+- Never call a stack "ready" or a plan "checked" while `stack.estimated` has anything in it. The backend already enforces this.

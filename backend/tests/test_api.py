@@ -182,4 +182,5 @@ def test_negative_budget_is_rejected(client):
 def test_stack_check_reports_duplicates_and_cost(client):
     result = client.post("/api/stack/check", json={"tool_ids": ["jobber", "housecall_pro"]}).json()
     assert result["total_monthly_usd"] == 128
+    assert result["estimated_cost_tools"] == ["Jobber", "Housecall Pro"]
     assert len(result["duplicates"]) == 2

@@ -454,7 +454,8 @@
         "source_url": "https://www.getjobber.com/pricing/",
         "source_type": "vendor",
         "checked": "2026-11-06",
-        "note": "Core, 1 user, month to month. The order of the three prices shown was inferred."
+        "note": "Core, 1 user, month to month. The order of the three prices shown was inferred.",
+        "inferred": true
       },
       "entry_plan": {
         "status": "present",
@@ -657,7 +658,8 @@
         "source_url": "https://www.housecallpro.com/pricing/",
         "source_type": "vendor",
         "checked": "2026-11-06",
-        "note": "Basic, 1 user, billed monthly. $59 billed annually. The monthly mapping was inferred."
+        "note": "Basic, 1 user, billed monthly. $59 billed annually. The monthly mapping was inferred.",
+        "inferred": true
       },
       "entry_plan": {
         "status": "present",
