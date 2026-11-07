@@ -2,7 +2,7 @@
 .msc-root *, .msc-root *::before, .msc-root *::after { box-sizing: border-box; }
 .msc-root button:focus-visible, .msc-root a:focus-visible, .msc-root textarea:focus-visible, .msc-root summary:focus-visible { outline: 3px solid #8ca9f8; outline-offset: 2px; }
 
-.msc-bubble { position: fixed; right: 24px; bottom: 24px; z-index: 1000; touch-action: none; user-select: none; }
+.msc-bubble { position: fixed; right: 24px; bottom: 104px; z-index: 1000; touch-action: none; user-select: none; }
 .msc-launcher { display: grid; place-items: center; width: 68px; height: 68px; padding: 0; border: 3px solid #fff; border-radius: 50%; background: #184f4c; box-shadow: 0 8px 22px rgba(18, 37, 44, .3); cursor: grab; touch-action: none; transition: transform .15s ease; }
 .msc-launcher:hover { transform: scale(1.05); }
 .msc-launcher:active { cursor: grabbing; }
