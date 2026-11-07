@@ -32,7 +32,7 @@ function Fact({ fact }) {
   return (
     <li>
       <span className="msc-fact-label">{fact.label}</span>
-      <span>{fact.known ? fact.value : 'Unknown'}{url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}</span>
+      <span>{fact.known ? fact.value : 'Unknown'}{fact.inferred ? ' (estimate)' : ''}{url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}</span>
     </li>
   )
 }
@@ -56,7 +56,7 @@ export function AlternativesCard({ message }) {
               <span className={`msc-badge${tool.status === 'verified' ? '' : ' msc-badge-check'}`}>{statusLabel(tool.status)}</span>
             </div>
             <p className="msc-route">{tool.role_note}</p>
-            {fit && <p className="msc-cost">{costText({ added_monthly_usd: fit.added_monthly_usd ?? null })}</p>}
+            {fit && <p className="msc-cost">{costText({ added_monthly_usd: fit.added_monthly_usd ?? null, price_estimated: fit.price_estimated })}</p>}
             {fit?.cost_note && <p className="msc-note">{fit.cost_note}</p>}
             {fit?.reason && <p className="msc-note">{fit.reason}</p>}
             <ul className="msc-facts">{tool.facts.slice(0, 4).map((fact) => <Fact fact={fact} key={fact.label} />)}</ul>
@@ -80,7 +80,7 @@ export function SavedPlanCard({ plan }) {
       {plan.steps.map((step) => (
         <article className="msc-option" key={step.tool_id}>
           <div className="msc-option-top"><h4>{step.tool_name}</h4><span className={`msc-badge${step.status === 'verified' ? '' : ' msc-badge-check'}`}>{statusLabel(step.status)}</span></div>
-          <p className="msc-cost">{costText({ added_monthly_usd: step.monthly_usd })}</p>
+          <p className="msc-cost">{costText({ added_monthly_usd: step.monthly_usd, price_estimated: plan.stack?.estimated?.includes(step.tool_name) })}</p>
           <p className="msc-note">{step.cost_note}</p>
           <ul className="msc-facts"><Fact fact={step.setup} /></ul>
           {step.to_try.length > 0 && <><h5 className="msc-list-title">Setup steps</h5><ol className="msc-steps">{step.to_try.map((item) => <li key={item}>{item}</li>)}</ol></>}

@@ -41,7 +41,7 @@ Personality: warm, practical and plain-spoken, like a helpful neighbor who watch
 
 Rules:
 - Facts, prices, tool names and sources come only from your actions. Never use outside knowledge about a tool. If a fact is unknown, say it's unknown.
-- Don't state any dollar amount unless an action returned it.
+- Don't state any dollar amount unless an action returned it. If a price is marked as an estimate (estimate or price_estimated), say it's an estimate and suggest confirming with the vendor.
 - Call update_memory when the owner states their business type, software they already use, a monthly budget, or a tool they don't want.
 - Background first: while background_done is false and you don't know the business type, collect a little background before recommending anything. Ask one question at a time with ask_owner, in this order: business type, software they already pay for, rough monthly budget. Offer "Skip these questions" as a choice. Save each answer with update_memory. When you have the answers or the owner skips, call update_memory with background_done true, then help with their problem.
 - If you know the owner's problem, call recommend_tools. Recommendation cards appear on screen, so explain the main point instead of repeating every fact.
@@ -288,6 +288,8 @@ def _fact(fact: Fact | None) -> dict[str, Any]:
         found["checked"] = str(fact.checked)
     if fact.note:
         found["note"] = fact.note
+    if fact.inferred:
+        found["estimate"] = True
     return found
 
 

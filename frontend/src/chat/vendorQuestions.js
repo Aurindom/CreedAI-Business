@@ -13,6 +13,9 @@ export function vendorQuestions(recommendation) {
 
   return options
     .map((option) => {
+      const confirm = option.facts
+        .filter((fact) => fact.known && fact.inferred)
+        .map((fact) => `Can you confirm the ${fact.label.toLowerCase()} for ${option.tool_name}? Ours is an estimate: ${fact.value}.`)
       const questions = option.facts
         .filter((fact) => !fact.known)
         .map((fact) => (QUESTIONS[fact.label]
@@ -22,7 +25,7 @@ export function vendorQuestions(recommendation) {
       if (option.added_monthly_usd === null && !priceAsked) {
         questions.unshift(`What would ${option.tool_name} add to my monthly bill?`)
       }
-      return { toolId: option.tool_id, toolName: option.tool_name, questions }
+      return { toolId: option.tool_id, toolName: option.tool_name, questions: [...confirm, ...questions] }
     })
     .filter((group) => group.questions.length)
 }

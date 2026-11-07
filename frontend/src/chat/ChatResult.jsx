@@ -26,8 +26,9 @@ export function statusLabel(status) {
 }
 
 export function costText(option) {
-  if (option.added_monthly_usd === null) return 'Cost unknown'
-  return `$${Number(option.added_monthly_usd).toLocaleString()} more each month`
+  if (option.added_monthly_usd === null || option.added_monthly_usd === undefined) return 'Cost unknown'
+  const amount = `$${Number(option.added_monthly_usd).toLocaleString()} more each month`
+  return option.price_estimated ? `About ${amount} (estimate)` : amount
 }
 
 export function safeUrl(url) {
@@ -41,6 +42,7 @@ function FactRow({ fact }) {
       <span className="msc-fact-label">{fact.label}</span>
       <span>
         {fact.known ? fact.value : 'Unknown'}
+        {fact.inferred && <span className="msc-estimate"> (estimate)</span>}
         {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
       </span>
     </li>

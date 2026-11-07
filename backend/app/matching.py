@@ -88,50 +88,58 @@ def _check_plan_note(tool: Tool, capability: str) -> str:
     return "Not confirmed whether your plan includes this. Check your plan"
 
 
-def _monthly_cost(tool: Tool, capability: str, route: Route, plan: str | None = None) -> tuple[float | None, str]:
+ESTIMATE_NOTE = "Part of this price is our estimate, so check the vendor's pricing page"
+
+
+def estimated(note: str, inferred: bool) -> tuple[str, bool]:
+    """A price read with some inference is still shown, but it is labelled and kept out of confirmed totals."""
+    return (f"{note}. {ESTIMATE_NOTE}" if inferred else note), inferred
+
+
+def _monthly_cost(tool: Tool, capability: str, route: Route, plan: str | None = None) -> tuple[float | None, str, bool]:
     cap = tool.capability(capability)
     addon = float(cap.addon_monthly_usd.value) if cap and cap.addon_monthly_usd.known else None
 
     if route == "already_have":
-        return 0.0, "Included in what you already pay for"
+        return 0.0, "Included in what you already pay for", False
     if route == "check_plan":
-        return None, _check_plan_note(tool, capability)
+        return None, _check_plan_note(tool, capability), False
     if route == "plan_upgrade":
         if cap.level == "add_on":
-            return None, f"Your {plan} plan can't add this. The add-on needs the {_needed_plan(cap)} plan"
-        return None, f"Your {plan} plan does not include this. It starts on the {_needed_plan(cap)} plan"
+            return None, f"Your {plan} plan can't add this. The add-on needs the {_needed_plan(cap)} plan", False
+        return None, f"Your {plan} plan does not include this. It starts on the {_needed_plan(cap)} plan", False
     if route == "native_add_on":
         if addon is None:
-            return None, "Add-on price or plan not confirmed. Verify with the vendor"
+            return None, "Add-on price or plan not confirmed. Verify with the vendor", False
         if not tool.single_offering and not cap.addon_from.known:
-            return None, f"The add-on is ${addon:g}/mo, but which plans can add it isn't confirmed. Check with the vendor"
-        return addon, "Add-on to what you already pay for"
+            return None, f"The add-on is ${addon:g}/mo, but which plans can add it isn't confirmed. Check with the vendor", False
+        return addon, *estimated("Add-on to what you already pay for", cap.addon_monthly_usd.inferred)
     return _new_buyer_cost(tool, cap, addon)
 
 
-def _new_buyer_cost(tool: Tool, cap: Capability | None, addon: float | None) -> tuple[float | None, str]:
+def _new_buyer_cost(tool: Tool, cap: Capability | None, addon: float | None) -> tuple[float | None, str, bool]:
     """A new buyer pays for the plan the feature needs, so the cheapest plan's price is never borrowed for a higher tier."""
     if not tool.entry_monthly_usd.known and not tool.plan_prices.known:
-        return None, tool.entry_monthly_usd.note or "Price not published. Verify with the vendor"
+        return None, tool.entry_monthly_usd.note or "Price not published. Verify with the vendor", False
     if cap is None or cap.level == "unknown":
-        return None, "Not confirmed which plan includes this. Verify with the vendor"
+        return None, "Not confirmed which plan includes this. Verify with the vendor", False
     if cap.level == "add_on" and addon is None:
-        return None, "Add-on price not published. Verify with the vendor"
+        return None, "Add-on price not published. Verify with the vendor", False
     if tool.single_offering:
         price, label = tool.entry_monthly_usd, "The vendor's only offering"
     else:
         needed = _needed_plan(cap)
         if needed is None:
             what = "which plans can add this" if cap.level == "add_on" else "which plan includes this"
-            return None, f"Not confirmed {what}. Verify with the vendor"
+            return None, f"Not confirmed {what}. Verify with the vendor", False
         price, label = tool.plan_price(needed), f"{needed} plan"
     if not price.known:
-        return None, price.note or "Price not published. Verify with the vendor"
+        return None, price.note or "Price not published. Verify with the vendor", False
     billing = ", billed annually" if tool.entry_billing.known and tool.entry_billing.value == "annual" else ""
     base = float(price.value)
     if cap.level == "add_on":
-        return base + addon, f"{label} plus the add-on{billing}, before processing or hardware fees"
-    return base, f"{label}{billing}, before processing or hardware fees"
+        return base + addon, *estimated(f"{label} plus the add-on{billing}, before processing or hardware fees", price.inferred or cap.addon_monthly_usd.inferred)
+    return base, *estimated(f"{label}{billing}, before processing or hardware fees", price.inferred)
 
 
 def _fit(catalog: Catalog, tool: Tool, trade: str | None, owned: list[Tool]) -> tuple[Fit | None, str]:
@@ -151,7 +159,7 @@ def _fit(catalog: Catalog, tool: Tool, trade: str | None, owned: list[Tool]) -> 
 
 def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: str, plan: str | None = None) -> Option:
     route = _route(tool, capability, owned, plan)
-    cost, note = _monthly_cost(tool, capability, route, plan)
+    cost, note, is_estimate = _monthly_cost(tool, capability, route, plan)
     return Option(
         tool_id=tool.id,
         tool_name=tool.name,
@@ -162,6 +170,7 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
         added_monthly_usd=cost,
         cost_note=note,
         facts=tool_facts(tool),
+        price_estimated=is_estimate,
     )
 
 
@@ -177,7 +186,7 @@ def _facet_gap(catalog: Catalog, tool: Tool, problem: ProblemCard) -> str | None
 
 
 def _budget(option: Option, budget: float | None) -> Option:
-    if budget is not None and option.added_monthly_usd is not None:
+    if budget is not None and option.added_monthly_usd is not None and not option.price_estimated:
         option.within_budget = option.added_monthly_usd <= budget
     return option
 
@@ -263,6 +272,8 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
         return result("verify_with_vendor", None, f"Your {top.tool_name} plan does not include this. Compare an upgrade with the other options.")
     if top.added_monthly_usd is None:
         return result("verify_with_vendor", None, "No clear winner until the vendor confirms the price or plan.")
+    if top.price_estimated:
+        return result("verify_with_vendor", None, f"{top.tool_name} looks like the best fit, but part of its price is our estimate. Check the vendor's pricing page before paying.")
     if top.route == "native_add_on":
         return result("add_on", top.tool_id, f"Add this to {top.tool_name}, which you already use.")
     if top.route == "switch":
@@ -283,9 +294,11 @@ def check_stack(catalog: Catalog, tool_ids: list[str]) -> StackCheck:
             first_seen.setdefault(cap.capability, tool.name)
     unknown = [tool.name for tool in tools if not tool.entry_monthly_usd.known]
     known = sum(float(tool.entry_monthly_usd.value) for tool in tools if tool.entry_monthly_usd.known)
+    estimates = [tool.name for tool in tools if tool.entry_monthly_usd.known and tool.entry_monthly_usd.inferred]
     return StackCheck(
         duplicates=duplicates,
         known_monthly_usd=known,
         total_monthly_usd=None if unknown else known,
         unknown_cost_tools=unknown,
+        estimated_cost_tools=estimates,
     )

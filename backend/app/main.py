@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import access, adoption, db
+from . import access, adoption, db, web
 from .chat import router as chat_router
 from .comparison import AssignmentError, compare
 from .facts import tool_facts
@@ -74,6 +74,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Main Street AI", lifespan=lifespan)
 app.include_router(chat_router)
+web.install(app)
 
 
 def _catalog(request: Request) -> Catalog:

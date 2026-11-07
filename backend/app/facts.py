@@ -11,11 +11,13 @@ def _from_fact(label: str, fact: Fact, text: str | None = None) -> ToolFact:
         if fact.note:
             return ToolFact(label=label, known=False, state="unresolved", value=UNKNOWN, note=fact.note, source_url=fact.source_url, checked=fact.checked)
         return ToolFact(label=label, known=False, state="not_checked", value=NOT_CHECKED)
+    value = text or LEVEL_WORDS.get(str(fact.value), str(fact.value))
     return ToolFact(
         label=label,
         known=True,
         state="known",
-        value=text or LEVEL_WORDS.get(str(fact.value), str(fact.value)),
+        value=f"{value} (estimate)" if fact.inferred else value,
+        inferred=fact.inferred,
         note=fact.note,
         source_url=fact.source_url,
         source_type=fact.source_type,

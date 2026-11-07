@@ -1,7 +1,7 @@
 from itertools import combinations
 
 from .facts import tool_facts
-from .matching import _facet_gap, _fit, _monthly_cost, _needed_plan, _option, _route
+from .matching import _facet_gap, _fit, _monthly_cost, _needed_plan, _option, _route, estimated
 from .schemas import (
     AllInOne,
     BusinessProfile,
@@ -54,48 +54,50 @@ def _task_fit(catalog: Catalog, tool: Tool, problem: ProblemCard, profile: Busin
         route=option.route,
         added_monthly_usd=option.added_monthly_usd,
         cost_note=option.cost_note,
+        price_estimated=option.price_estimated,
     )
 
 
-def _addon_total(addons: list[Capability]) -> tuple[float | None, str | None]:
+def _addon_total(addons: list[Capability]) -> tuple[float | None, str | None, bool]:
     """Add-ons are charged once per sourced offer. Without a recorded offer we can't tell one pack from two, so the total stays unknown."""
     if any(not c.addon_monthly_usd.known for c in addons):
-        return None, "An add-on price is not published. Verify with the vendor"
+        return None, "An add-on price is not published. Verify with the vendor", False
+    inferred = any(c.addon_monthly_usd.inferred for c in addons)
     if len(addons) < 2:
-        return sum(float(c.addon_monthly_usd.value) for c in addons), None
+        return sum(float(c.addon_monthly_usd.value) for c in addons), None, inferred
     if any(not c.addon_offer.known for c in addons):
-        return None, "Not recorded whether these add-ons are one purchase or separate ones. Verify with the vendor"
+        return None, "Not recorded whether these add-ons are one purchase or separate ones. Verify with the vendor", False
     offers: dict[str, set[float]] = {}
     for c in addons:
         offers.setdefault(str(c.addon_offer.value), set()).add(float(c.addon_monthly_usd.value))
     if any(len(prices) > 1 for prices in offers.values()):
-        return None, "The same add-on is recorded at different prices. Verify with the vendor"
-    return sum(next(iter(prices)) for prices in offers.values()), None
+        return None, "The same add-on is recorded at different prices. Verify with the vendor", False
+    return sum(next(iter(prices)) for prices in offers.values()), None, inferred
 
 
-def _combined_new_cost(tool: Tool, capabilities: list[str]) -> tuple[float | None, str]:
+def _combined_new_cost(tool: Tool, capabilities: list[str]) -> tuple[float | None, str, bool]:
     """A new buyer pays one plan that covers every chosen task plus each distinct add-on once, never one plan per task."""
     caps = [tool.capability(c) for c in capabilities]
     if any(c.level == "unknown" for c in caps):
-        return None, "Not confirmed which plan includes all of these. Verify with the vendor"
-    addon_cost, addon_note = _addon_total([c for c in caps if c.level == "add_on"])
+        return None, "Not confirmed which plan includes all of these. Verify with the vendor", False
+    addon_cost, addon_note, addon_inferred = _addon_total([c for c in caps if c.level == "add_on"])
     if addon_cost is None:
-        return None, addon_note
+        return None, addon_note, False
     if tool.single_offering:
         price, label = tool.entry_monthly_usd, "The vendor's only offering"
     else:
         needed = [_needed_plan(c) for c in caps]
         if any(n is None for n in needed):
-            return None, "Not confirmed which plan covers all of these. Verify with the vendor"
+            return None, "Not confirmed which plan covers all of these. Verify with the vendor", False
         ranks = [tool.plan_rank(n) for n in needed]
         if len({n.casefold() for n in needed}) > 1 and any(r is None for r in ranks):
-            return None, f"These need the {_names(needed)} plans and their order isn't recorded. Verify with the vendor"
+            return None, f"These need the {_names(needed)} plans and their order isn't recorded. Verify with the vendor", False
         top = needed[ranks.index(max(ranks))] if all(r is not None for r in ranks) else needed[0]
         price, label = tool.plan_price(top), f"{top} plan"
     if not price.known:
-        return None, price.note or "Price not published. Verify with the vendor"
+        return None, price.note or "Price not published. Verify with the vendor", False
     total = float(price.value) + addon_cost
-    return total, f"{label}{' plus add-ons' if addon_cost else ''} covers all of these"
+    return total, *estimated(f"{label}{' plus add-ons' if addon_cost else ''} covers all of these", price.inferred or addon_inferred)
 
 
 def _line(tool: Tool, fits: list[TaskFit], catalog: Catalog, profile: BusinessProfile, owned: list[Tool]) -> StackLine:
@@ -107,18 +109,19 @@ def _line(tool: Tool, fits: list[TaskFit], catalog: Catalog, profile: BusinessPr
         "confirmed": all(f.coverage == "confirmed" for f in fits),
     }
     if len(capabilities) == 1:
-        return StackLine(**base, monthly_usd=fits[0].added_monthly_usd, note=fits[0].cost_note or "")
+        return StackLine(**base, monthly_usd=fits[0].added_monthly_usd, note=fits[0].cost_note or "", price_estimated=fits[0].price_estimated)
     if tool in owned:
         plan = profile.plan_for(tool.id)
         routes = {c: _route(tool, c, owned, plan) for c in capabilities}
         costs = [_monthly_cost(tool, c, r, plan) for c, r in routes.items()]
-        missing = next((note for cost, note in costs if cost is None), None)
+        missing = next((note for cost, note, _ in costs if cost is None), None)
         if missing:
             return StackLine(**base, monthly_usd=None, note=missing)
-        cost, note = _addon_total([tool.capability(c) for c, r in routes.items() if r == "native_add_on"])
-        return StackLine(**base, monthly_usd=cost, note=note or "Added to what you already pay for")
-    cost, note = _combined_new_cost(tool, capabilities)
-    return StackLine(**base, monthly_usd=cost, note=note)
+        cost, note, inferred = _addon_total([tool.capability(c) for c, r in routes.items() if r == "native_add_on"])
+        note, inferred = estimated(note or "Added to what you already pay for", inferred and cost is not None)
+        return StackLine(**base, monthly_usd=cost, note=note, price_estimated=inferred)
+    cost, note, inferred = _combined_new_cost(tool, capabilities)
+    return StackLine(**base, monthly_usd=cost, note=note, price_estimated=inferred)
 
 
 def _connections(catalog: Catalog, chosen: list[Tool], owned: list[Tool]) -> list[Connection]:
@@ -244,7 +247,7 @@ def _all_in_one(catalog: Catalog, profile: BusinessProfile, problems: list[Probl
         coverage = "confirmed" if all(f.coverage == "confirmed" for f in fits) else "possible"
         line = _line(t, fits, catalog, profile, owned)
         note = line.note if coverage == "confirmed" else f"{line.note}. Its fit for some of these still needs checking"
-        found.append(AllInOne(tool_id=t.id, tool_name=t.name, status=t.status, coverage=coverage, monthly_usd=line.monthly_usd, note=note))
+        found.append(AllInOne(tool_id=t.id, tool_name=t.name, status=t.status, coverage=coverage, monthly_usd=line.monthly_usd, note=note, price_estimated=line.price_estimated))
     found.sort(key=lambda a: a.coverage != "confirmed")
     if not found:
         return [], "No single tool in our catalog lists all of these tasks. A wider search isn't available yet"
@@ -285,10 +288,16 @@ def compare(
         unconfirmed = [line.tool_name for line in lines if not line.confirmed]
         known = sum(line.monthly_usd for line in lines if line.monthly_usd is not None)
         total = None if unknown else known
-        ready = not unknown and not unconfirmed
+        uncovered = [s.title for s in slots if s.kind == "gap"]
+        estimates = [line.tool_name for line in lines if line.price_estimated]
+        ready = not unknown and not unconfirmed and not uncovered and not estimates
         assumptions = [FEES]
         assumptions += [f"{t.name} is billed annually." for t in buying if t.entry_billing.known and t.entry_billing.value == "annual"]
         assumptions += [f"{t.name} still needs checking: {f.reason}." for t in buying for f in assigned[t.id] if f.coverage == "possible"]
+        if estimates:
+            assumptions.append(f"Part of the price for {_names(estimates)} is our estimate. Check the vendor's pricing page before relying on this total.")
+        if uncovered:
+            assumptions.append(f"This only prices the tasks your chosen tools cover. Nothing chosen covers {_names(uncovered)} yet, so it isn't the full cost.")
         budget = profile.budget_monthly_usd
         if budget is not None and not ready:
             assumptions.append(f"Your budget is ${budget:g}/mo. The parts we could price come to ${known:g}/mo, but that isn't a confirmed total yet.")
@@ -301,13 +310,17 @@ def compare(
             within_budget=total <= budget if ready and budget is not None else None,
             ready=ready,
             unconfirmed=unconfirmed,
+            uncovered=uncovered,
+            estimated=estimates,
         )
-        gaps = [s.title for s in slots if s.kind == "gap"]
+        gaps = uncovered
         stack_note = "Each task goes to one tool."
         if any(s.suggested for s in slots):
             stack_note += " Some tasks went to a tool you already need for another task. You can change that."
         if unconfirmed:
             stack_note += f" Still to check: {_names(unconfirmed)}."
+        if estimates:
+            stack_note += f" Prices to check on the vendor's page: {_names(estimates)}."
         if gaps:
             stack_note += f" Nothing chosen covers: {_names(gaps)}."
     all_in_one, all_in_one_note = _all_in_one(catalog, profile, problems, chosen, owned)

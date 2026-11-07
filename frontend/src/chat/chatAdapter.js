@@ -92,7 +92,7 @@ async function findProblem(message, problems, trade, resolve) {
 }
 
 function factsText(name, facts) {
-  const lines = facts.slice(0, 4).map((fact) => `${fact.label}: ${fact.known ? fact.value : 'unknown'}`)
+  const lines = facts.slice(0, 4).map((fact) => `${fact.label}: ${fact.known ? fact.value : 'unknown'}${fact.inferred ? ' (estimate, confirm with the vendor)' : ''}`)
   return `Here's what we've checked about ${name}:\n${lines.join('\n')}`
 }
 
