@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import access, adoption, db
+from . import access, adoption, db, web
 from .comparison import AssignmentError, compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
@@ -72,6 +72,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Main Street AI", lifespan=lifespan)
+web.install(app)
 
 
 def _catalog(request: Request) -> Catalog:
