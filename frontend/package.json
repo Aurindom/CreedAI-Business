@@ -1,0 +1,23 @@
+{
+  "name": "main-street-ai-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build --outDir ../../sandbox/frontend-build --emptyOutDir",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "tailwindcss": "^4.3.5",
+    "vite": "~7.3.7"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

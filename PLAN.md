@@ -1,100 +1,70 @@
-# MVP plan
+# Product plan
 
-Working name: Main Street AI (placeholder)
+Working name: Main Street AI (placeholder). Updated 2026-11-07.
+
+For setup, contracts and who owns what, read [`TEAMMATES handoff.md`](TEAMMATES%20handoff.md). If this file and the handoff disagree, the handoff wins.
 
 ## Goal
 
-A website that helps non-technical small business owners choose, compare, adopt, and measure AI tools. It covers coffee shops, restaurants, HVAC, and landscaping.
+A marketplace that helps small business owners who aren't technical find, compare and adopt AI tools. It's organized by task, like missed calls, scheduling or bookkeeping. Any kind of business can use it. Business type is an optional filter, and the business types in the catalog are examples, not a gate.
 
-**Submission deadline:** Sunday, November 8, 2026 (video and prototype link)
-**Final presentations:** November 17 (winning teams)
+The app may honestly answer "you don't need a new tool". It never invents facts, prices or scores.
 
-## User journey
+**Submission:** Sunday 2026-11-08, 11:59pm. A 10-minute video plus a prototype link judges can test.
+**Finalists notified:** 2026-11-16, 12pm.
+**In-person finals:** 2026-11-17, 5-8pm.
 
-| Step | MVP feature |
+## Owner journey
+
+| Step | What the owner gets |
 |---|---|
-| Describe the business | Trade selection and a short guided chat about size, budget, and current software |
-| Identify a problem | Plain-English problem cards, plus "Not sure? Tell us about your week" |
-| Find suitable tools | Personal stack of 2-3 tools, the directory, and live discovery |
-| Compare evidence and costs | Trust Scores with source links, prices, payback estimates, and side-by-side comparison |
-| Get help adopting them | Setup steps for each tool, or an instant custom assistant when nothing fits |
-| Measure results | A private plan link with an estimate-versus-actual tracker and assistant usage counts |
+| Describe the business | Optional business type, budget and the software they already pay for |
+| Pick a problem | Plain-language problem cards grouped into category tabs |
+| See eligible tools | Tools that do the job, labeled "made for your business", "works for any business" or "check first" |
+| Compare | Four sourced facts per tool (entry price, setup effort, privacy, support), each with a link and the date it was checked |
+| Build a stack | Only complementary tools. A second tool is added only when it fills a real gap, works with the first, and the total cost makes sense. Duplicates are flagged |
+| Adopt | Setup steps for the chosen tool |
 
-## MVP features
+Browsing works without any AI. An agent chat is a second way in: it turns a plain-language need into the same search and comparison, cites sources, and asks a clarifying question when it isn't sure.
 
-### Core flow
-- Problem cards for all four trades
-- "Not sure? Tell us about your week": the owner describes their week and the chatbot suggests the likely problem
-- Guided chat about budget, software, and comfort with technology
-- Personal plan with tools, Trust Scores, total monthly cost, payback estimate, and reasons for each pick
+## Decisions in force
 
-### Custom assistant (signature feature)
-- Owner answers a few questions and adds details such as recipes or routines
-- A working assistant is generated, saved, and shared by link, with no setup
-- Example: a barista trainer staff can open on a phone
-- Usage is counted, for example "Your staff asked 42 questions this week"
+- **No single tool score this release.** Cards show a list of sourced facts instead. Reviews, star ratings and sentiment are future work after the app is stable, and only from sources we're allowed to use.
+- **A fact counts only with a source and a date.** Otherwise the card says it's unknown.
+- **Plan aware.** A feature counts as already paid for only when a sourced plan covers it. Otherwise the answer is "check your plan" or "upgrade".
+- **`pending_review`** means our team hasn't rechecked a tool's facts yet. It has nothing to do with customer reviews.
+- **AI calls go through OpenRouter only**, with the key kept on the server and one shared spending cap.
 
-### Directory and comparison
-- About 30 real tools, around 6-8 per trade, with some shared across trades
-- Side-by-side comparison of 2-3 tools: cost, setup time, Trust Score, and what each connects to
+## Build order
 
-### Trust Score
-AI drafts each score from public pages with source links, and the team spot-checks it.
+1. Intake, catalog match, sourced comparison. Done.
+2. Non-duplicate stack check. Done in the API.
+3. Plan picker, pending-review labels, correct higher-plan pricing. In progress.
+4. Agent chat with a mock adapter first, then the real endpoint.
+5. Adoption plan.
+6. One bounded live discovery scan: a time limit, saved results to fall back on, a run limit, and a review step so web content never goes straight into the catalog.
 
-| Factor | Weight |
-|---|---|
-| Fit for the trade | 25% |
-| Ease of setup | 25% |
-| True cost | 20% |
-| Privacy | 15% |
-| Support and company stability | 15% |
+After the core path: the custom assistant and the results tracker.
 
-### Live discovery
-A button finds a new tool and writes it up as "Pending review". Safeguards:
-- A time limit
-- Saved results to fall back on
-- A limit on how often it can run
-- A review step, so web content is never published straight to the directory
+## Stack
 
-### Results tracking
-- Each plan gets a private link, so owners can return without an account
-- A simple form logs results such as hours saved or calls answered
-- The plan page shows the estimate next to the actual result
-- The demo uses clearly labeled sample data, since nobody will have 30 days of results by Sunday
+- Backend: FastAPI and Pydantic, SQLite seeded from `backend/data/catalog.json`.
+- Frontend: React 19, Vite 7, Tailwind 4.
+- AI: OpenRouter only.
+- Hosting: an Azure VM with Docker and Caddy. Nothing is provisioned yet, and Aurindom approves each step.
 
-## Out of scope for the MVP
-- User accounts and payments
-- Real integrations with tools such as Square
-- Hands-on testing of every tool
-- Automated 30-day check-in reminders
+## Team
 
-These belong in the 16-week plan.
+- Aurindom leads and makes the final call.
+- Teammate A owns the owner-facing UI.
+- Teammate B owns the agent chat in the website.
+- Claude builds the backend and the API client. Codex reviews and tests.
 
-## Tech stack
-- App: Next.js, hosted on Vercel
-- Saved plans, assistants, results, and tool data: Supabase
-- AI: OpenRouter, with the key kept on the server and a spending limit set
-- Code sharing: GitHub
-- Web search for discovery: try OpenRouter's search first and confirm it works early in the build
+## Future work
 
-## Team split
-- Person 1: builds the app with Claude Code
-- Person 2: verifies tools and scores, and talks to the business owner
-- Person 3: handles the 16-week plan, script, and slides, and tests as a non-technical user
+- Custom assistant: the owner answers a few questions and gets a shareable text assistant, like a barista trainer.
+- Results tracker: a private plan link and an estimate-versus-actual log.
+- Customer reviews and ratings from permitted sources.
+- User accounts, payments, real integrations with tools like Square, and automated check-in reminders. These go in the 16-week continuation plan.
 
-## Timeline
-
-| When | Goal |
-|---|---|
-| Friday night | Set up accounts and get a basic version online |
-| Saturday | Finish the core flow, assistant generator, tool data, live discovery, comparison, and results tracking |
-| Sunday morning | Stop adding features, fix bugs, and test on a phone |
-| Sunday afternoon | Record the video and submit, with time to spare |
-
-If time runs short, cut in this order: live discovery falls back to saved results, then comparison, then "Tell us about your week". Keep the custom assistant and a simple results tracker.
-
-## Still needed
-- Free Vercel and Supabase accounts
-- OpenRouter key ready to add securely (don't paste it into chat)
-- A 10-minute conversation with one business owner on Saturday, with a short clip if they agree
-- Published small business research to support the evidence section
+If time runs short, cut in this order: live discovery falls back to saved results, then the adoption plan detail, then chat polish. Browsing and comparison stay.

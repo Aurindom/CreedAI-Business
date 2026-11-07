@@ -1,0 +1,1885 @@
+{
+  "trades": [
+    {
+      "id": "restaurant",
+      "name": "Restaurant"
+    },
+    {
+      "id": "coffee_shop",
+      "name": "Coffee shop"
+    },
+    {
+      "id": "bakery",
+      "name": "Bakery"
+    },
+    {
+      "id": "food_truck",
+      "name": "Food truck"
+    },
+    {
+      "id": "bar",
+      "name": "Bar or brewery"
+    },
+    {
+      "id": "retail",
+      "name": "Retail shop"
+    },
+    {
+      "id": "salon",
+      "name": "Salon or barber"
+    },
+    {
+      "id": "spa",
+      "name": "Spa or wellness"
+    },
+    {
+      "id": "fitness",
+      "name": "Gym or fitness studio"
+    },
+    {
+      "id": "medical",
+      "name": "Clinic or vet"
+    },
+    {
+      "id": "pet_care",
+      "name": "Pet care"
+    },
+    {
+      "id": "auto",
+      "name": "Auto shop"
+    },
+    {
+      "id": "professional_services",
+      "name": "Professional services"
+    },
+    {
+      "id": "cleaning",
+      "name": "Cleaning"
+    },
+    {
+      "id": "hvac",
+      "name": "HVAC"
+    },
+    {
+      "id": "plumbing",
+      "name": "Plumbing"
+    },
+    {
+      "id": "electrical",
+      "name": "Electrical"
+    },
+    {
+      "id": "landscaping",
+      "name": "Landscaping or lawn care"
+    },
+    {
+      "id": "handyman",
+      "name": "Handyman or repair"
+    }
+  ],
+  "categories": [
+    {
+      "id": "calls_messages",
+      "name": "Calls and messages",
+      "capabilities": [
+        "phone_answering",
+        "lead_response"
+      ]
+    },
+    {
+      "id": "reviews",
+      "name": "Reviews and reputation",
+      "capabilities": [
+        "review_requests",
+        "review_replies"
+      ]
+    },
+    {
+      "id": "scheduling",
+      "name": "Scheduling and jobs",
+      "capabilities": [
+        "job_scheduling"
+      ]
+    },
+    {
+      "id": "staff",
+      "name": "Staff and shifts",
+      "capabilities": [
+        "staff_scheduling"
+      ]
+    },
+    {
+      "id": "money",
+      "name": "Billing and bookkeeping",
+      "capabilities": [
+        "invoicing",
+        "bookkeeping"
+      ]
+    },
+    {
+      "id": "sales",
+      "name": "Sales and point of sale",
+      "capabilities": [
+        "point_of_sale"
+      ]
+    },
+    {
+      "id": "marketing",
+      "name": "Marketing and email",
+      "capabilities": [
+        "email_marketing"
+      ]
+    }
+  ],
+  "problem_cards": [
+    {
+      "id": "missed_calls",
+      "title": "Calls go unanswered",
+      "plain_words": "The phone rings while everyone is busy and nobody picks up.",
+      "capability": "phone_answering",
+      "trades": [
+        "all"
+      ]
+    },
+    {
+      "id": "slow_lead_replies",
+      "title": "New customers wait too long",
+      "plain_words": "People ask for a quote and go elsewhere before I get back to them.",
+      "capability": "lead_response",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman",
+        "auto",
+        "professional_services"
+      ]
+    },
+    {
+      "id": "review_requests",
+      "title": "Too few reviews",
+      "plain_words": "Happy customers never leave a review because I forget to ask.",
+      "capability": "review_requests",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman",
+        "salon",
+        "spa",
+        "fitness",
+        "medical",
+        "pet_care",
+        "auto",
+        "professional_services"
+      ]
+    },
+    {
+      "id": "review_replies",
+      "title": "Reviews go unanswered",
+      "plain_words": "I never get around to replying to reviews.",
+      "capability": "review_replies",
+      "trades": [
+        "all"
+      ]
+    },
+    {
+      "id": "job_scheduling",
+      "title": "Scheduling jobs is a mess",
+      "plain_words": "Jobs live in my head, on paper and in text messages.",
+      "capability": "job_scheduling",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman",
+        "pet_care"
+      ]
+    },
+    {
+      "id": "staff_scheduling",
+      "title": "Building the staff schedule takes too long",
+      "plain_words": "Every week I lose hours to shifts and swaps.",
+      "capability": "staff_scheduling",
+      "trades": [
+        "restaurant",
+        "coffee_shop",
+        "bakery",
+        "food_truck",
+        "bar",
+        "retail",
+        "salon",
+        "spa",
+        "fitness",
+        "medical"
+      ]
+    },
+    {
+      "id": "invoicing",
+      "title": "Getting paid is slow",
+      "plain_words": "Invoices go out late and I chase people for payment.",
+      "capability": "invoicing",
+      "trades": [
+        "all"
+      ]
+    },
+    {
+      "id": "bookkeeping",
+      "title": "The books are behind",
+      "plain_words": "I sort receipts and expenses at the end of the month, if at all.",
+      "capability": "bookkeeping",
+      "trades": [
+        "all"
+      ]
+    },
+    {
+      "id": "point_of_sale",
+      "title": "The register does not do enough",
+      "plain_words": "Orders, payments and reports do not come together in one place.",
+      "capability": "point_of_sale",
+      "trades": [
+        "restaurant",
+        "coffee_shop",
+        "bakery",
+        "food_truck",
+        "bar",
+        "retail",
+        "salon"
+      ]
+    },
+    {
+      "id": "email_marketing",
+      "title": "Past customers do not come back",
+      "plain_words": "I have a customer list and never send it anything.",
+      "capability": "email_marketing",
+      "trades": [
+        "all"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "id": "jobber",
+      "name": "Jobber",
+      "url": "https://www.getjobber.com/",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman",
+        "pet_care"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://www.getjobber.com/industries/",
+      "status": "verified",
+      "summary": "Job scheduling, quotes and invoicing for home service companies.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 49,
+        "source_url": "https://www.getjobber.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Core, 1 user, month to month. The order of the three prices shown was inferred."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Core",
+        "source_url": "https://www.getjobber.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "connects_to": {
+        "status": "present",
+        "value": [
+          "quickbooks_online",
+          "mailchimp"
+        ],
+        "source_url": "https://www.getjobber.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "capabilities": [
+        {
+          "capability": "job_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.getjobber.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Listed on the features page. Which plan was not checked."
+          }
+        },
+        {
+          "capability": "invoicing",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.getjobber.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Listed on the features page. Which plan was not checked."
+          }
+        },
+        {
+          "capability": "review_requests",
+          "access": {
+            "status": "present",
+            "value": "add_on",
+            "source_url": "https://www.getjobber.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Reviews is available as an add-on to most Jobber plans."
+          },
+          "addon_monthly_usd": {
+            "status": "unknown",
+            "note": "Price not captured from the vendor page."
+          }
+        },
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "present",
+            "value": "add_on",
+            "source_url": "https://www.getjobber.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06"
+          },
+          "addon_monthly_usd": {
+            "status": "present",
+            "value": 29,
+            "source_url": "https://www.getjobber.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Jobber AI Receptionist. Any usage limit was not confirmed."
+          }
+        },
+        {
+          "capability": "lead_response",
+          "access": {
+            "status": "present",
+            "value": "add_on",
+            "source_url": "https://www.getjobber.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Receptionist can chat with visitors, answer questions and book jobs."
+          },
+          "addon_monthly_usd": {
+            "status": "present",
+            "value": 29,
+            "source_url": "https://www.getjobber.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Same add-on as phone answering."
+          }
+        }
+      ]
+    },
+    {
+      "id": "housecall_pro",
+      "name": "Housecall Pro",
+      "url": "https://www.housecallpro.com/",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://www.housecallpro.com/industries/",
+      "status": "verified",
+      "summary": "Field service software covering scheduling, estimates, invoicing and payments.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 79,
+        "source_url": "https://www.housecallpro.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Basic, 1 user, billed monthly. $59 billed annually. The monthly mapping was inferred."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Basic",
+        "source_url": "https://www.housecallpro.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "connects_to": {
+        "status": "present",
+        "value": [
+          "quickbooks_online"
+        ],
+        "source_url": "https://www.housecallpro.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "capabilities": [
+        {
+          "capability": "job_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.housecallpro.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Listed on the features page. Which plan was not checked."
+          }
+        },
+        {
+          "capability": "invoicing",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.housecallpro.com/features/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Listed on the features page. Which plan was not checked."
+          }
+        },
+        {
+          "capability": "review_requests",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.housecallpro.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Review management is listed in the Basic plan on the pricing page."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Basic",
+            "source_url": "https://www.housecallpro.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Review management is listed in the Basic plan on the pricing page."
+          }
+        },
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "present",
+            "value": "add_on",
+            "source_url": "https://www.housecallpro.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "CSR AI answers calls and books jobs."
+          },
+          "addon_monthly_usd": {
+            "status": "unknown",
+            "note": "CSR AI price is not shown on the pricing page."
+          }
+        }
+      ]
+    },
+    {
+      "id": "lmn",
+      "name": "LMN by Granum",
+      "url": "https://granum.com/lmn/",
+      "trades": [
+        "landscaping"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://granum.com/lmn/",
+      "status": "pending_review",
+      "summary": "Business software for landscaping companies.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 297,
+        "source_url": "https://granum.com/lmn/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Starter, billed monthly, after a one-time onboarding fee whose amount is not shown."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "LMN Starter",
+        "source_url": "https://granum.com/lmn/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "connects_to": {
+        "status": "present",
+        "value": [
+          "quickbooks_online"
+        ],
+        "source_url": "https://granum.com/lmn/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Starter connects to QuickBooks Online only."
+      },
+      "capabilities": [
+        {
+          "capability": "job_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://granum.com/lmn/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Scheduling is listed on the Starter plan card."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "LMN Starter",
+            "source_url": "https://granum.com/lmn/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Scheduling is listed on the Starter plan card."
+          }
+        },
+        {
+          "capability": "invoicing",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://granum.com/lmn/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Invoicing and payments are listed on the Starter plan card."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "LMN Starter",
+            "source_url": "https://granum.com/lmn/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Invoicing and payments are listed on the Starter plan card."
+          }
+        }
+      ]
+    },
+    {
+      "id": "podium",
+      "name": "Podium",
+      "url": "https://www.podium.com/",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman",
+        "spa",
+        "retail",
+        "auto"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://www.podium.com/",
+      "status": "pending_review",
+      "summary": "AI Employee that responds to leads and books appointments.",
+      "entry_monthly_usd": {
+        "status": "unknown",
+        "note": "No prices published. Sales contact only."
+      },
+      "capabilities": [
+        {
+          "capability": "lead_response",
+          "access": {
+            "status": "present",
+            "value": "add_on",
+            "source_url": "https://www.podium.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "AI Employee is an add-on to any plan."
+          },
+          "addon_monthly_usd": {
+            "status": "unknown",
+            "note": "Add-on price not stated."
+          }
+        },
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "unknown",
+            "note": "The pages read do not say which channels it covers."
+          }
+        },
+        {
+          "capability": "review_requests",
+          "access": {
+            "status": "unknown",
+            "note": "Not stated on the pages read."
+          }
+        }
+      ]
+    },
+    {
+      "id": "nicejob",
+      "name": "NiceJob",
+      "url": "https://get.nicejob.com/",
+      "trades": [
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman",
+        "auto",
+        "salon",
+        "spa",
+        "professional_services"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://get.nicejob.com/",
+      "status": "verified",
+      "summary": "Automated review requests by text and email.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 95,
+        "source_url": "https://get.nicejob.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Starter. 14-day free trial."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Starter",
+        "source_url": "https://get.nicejob.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Pricing page points to an app marketplace without naming apps."
+      },
+      "capabilities": [
+        {
+          "capability": "review_requests",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://get.nicejob.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Starter lists SMS and email review requests."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Starter",
+            "source_url": "https://get.nicejob.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Starter lists SMS and email review requests."
+          }
+        }
+      ]
+    },
+    {
+      "id": "slang_ai",
+      "name": "Slang AI",
+      "url": "https://www.slang.ai/",
+      "trades": [
+        "restaurant"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://www.slang.ai/",
+      "status": "verified",
+      "summary": "Voice AI that answers restaurant phone calls and manages reservations.",
+      "entry_monthly_usd": {
+        "status": "unknown",
+        "note": "Page says Core starts at $399 per location but does not state the billing period. Verify with the vendor."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Core",
+        "source_url": "https://www.slang.ai/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "setup_effort": {
+        "status": "present",
+        "value": "low",
+        "source_url": "https://www.slang.ai/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Vendor says setup takes less than 30 minutes and provides a new phone number."
+      },
+      "capabilities": [
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.slang.ai/",
+            "source_type": "vendor",
+            "checked": "2026-11-06"
+          }
+        }
+      ]
+    },
+    {
+      "id": "square_restaurants",
+      "name": "Square for Restaurants",
+      "url": "https://squareup.com/us/en/point-of-sale/restaurants",
+      "trades": [
+        "restaurant",
+        "coffee_shop"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://squareup.com/us/en/point-of-sale/restaurants",
+      "status": "pending_review",
+      "summary": "Restaurant point of sale with AI features built in.",
+      "entry_monthly_usd": {
+        "status": "unknown",
+        "note": "US plan prices were not captured from the vendor page. Verify with the vendor."
+      },
+      "capabilities": [
+        {
+          "capability": "point_of_sale",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://squareup.com/us/en/point-of-sale/restaurants/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-06"
+          }
+        },
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "unknown",
+            "note": "Square AI lists AI-powered voice ordering, in beta. No plan or price is stated."
+          }
+        }
+      ]
+    },
+    {
+      "id": "toast",
+      "name": "Toast",
+      "url": "https://pos.toasttab.com/",
+      "trades": [
+        "restaurant",
+        "coffee_shop"
+      ],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Restaurant point of sale.",
+      "entry_monthly_usd": {
+        "status": "unknown",
+        "note": "Toast pages refused automated reading. Check by hand or verify with the vendor."
+      },
+      "capabilities": [
+        {
+          "capability": "point_of_sale",
+          "access": {
+            "status": "unknown",
+            "note": "Plan details could not be read from Toast pages."
+          }
+        }
+      ]
+    },
+    {
+      "id": "seven_shifts",
+      "name": "7shifts",
+      "url": "https://www.7shifts.com/",
+      "trades": [
+        "restaurant",
+        "coffee_shop"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://www.7shifts.com/",
+      "status": "pending_review",
+      "summary": "Restaurant scheduling, HR and payroll tools.",
+      "entry_monthly_usd": {
+        "status": "unknown",
+        "note": "Vendor page did not load for reading. Verify with the vendor."
+      },
+      "capabilities": [
+        {
+          "capability": "staff_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.7shifts.com/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Stated in the page title only."
+          }
+        }
+      ]
+    },
+    {
+      "id": "homebase",
+      "name": "Homebase",
+      "url": "https://www.joinhomebase.com/",
+      "trades": [
+        "restaurant",
+        "coffee_shop",
+        "bakery",
+        "food_truck",
+        "bar",
+        "retail",
+        "salon",
+        "spa",
+        "medical",
+        "cleaning",
+        "hvac",
+        "plumbing",
+        "electrical",
+        "landscaping",
+        "handyman"
+      ],
+      "applicability": "restricted",
+      "applicability_source": "https://joinhomebase.com/",
+      "status": "verified",
+      "summary": "Staff scheduling and time tracking for hourly teams.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 0,
+        "source_url": "https://www.joinhomebase.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Basic is free for 1 location with up to 10 employees. Essentials is $30 per location."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Basic",
+        "source_url": "https://www.joinhomebase.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Page says point-of-sale integration without naming vendors."
+      },
+      "capabilities": [
+        {
+          "capability": "staff_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.joinhomebase.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Basic lists building the weekly schedule."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Basic",
+            "source_url": "https://www.joinhomebase.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Basic lists building the weekly schedule."
+          }
+        }
+      ]
+    },
+    {
+      "id": "quickbooks_online",
+      "name": "QuickBooks Online",
+      "url": "https://quickbooks.intuit.com/",
+      "trades": [
+        "all"
+      ],
+      "applicability": "cross_industry",
+      "applicability_source": "https://quickbooks.intuit.com/",
+      "status": "verified",
+      "summary": "Accounting with invoicing and automated bookkeeping.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 38,
+        "source_url": "https://quickbooks.intuit.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Simple Start, 1 user. Taken as the price after the 3-month 50% offer, which the page does not label. A Free plan sends 2 invoices a month."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Simple Start",
+        "source_url": "https://quickbooks.intuit.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "capabilities": [
+        {
+          "capability": "invoicing",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://quickbooks.intuit.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-06"
+          }
+        },
+        {
+          "capability": "bookkeeping",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://quickbooks.intuit.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Simple Start lists automated bookkeeping."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Simple Start",
+            "source_url": "https://quickbooks.intuit.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-06",
+            "note": "Simple Start lists automated bookkeeping."
+          }
+        }
+      ]
+    },
+    {
+      "id": "google_business_profile",
+      "name": "Google Business Profile",
+      "url": "https://business.google.com/us/business-profile/",
+      "trades": [
+        "all"
+      ],
+      "applicability": "cross_industry",
+      "applicability_source": "https://business.google.com/us/business-profile/",
+      "status": "verified",
+      "summary": "Free business listing on Google, including replying to reviews.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 0,
+        "source_url": "https://business.google.com/us/business-profile/",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Creating a Business Profile is free."
+      },
+      "capabilities": [
+        {
+          "capability": "review_replies",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://business.google.com/us/business-profile/",
+            "source_type": "vendor",
+            "checked": "2026-11-06"
+          }
+        }
+      ]
+    },
+    {
+      "id": "mailchimp",
+      "name": "Mailchimp",
+      "url": "https://mailchimp.com/",
+      "trades": [
+        "all"
+      ],
+      "applicability": "cross_industry",
+      "applicability_source": "https://mailchimp.com/",
+      "status": "verified",
+      "summary": "Email marketing with a free plan for small lists.",
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 0,
+        "source_url": "https://mailchimp.com/pricing/marketing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06",
+        "note": "Free plan: up to 250 contacts and 500 sends a month. Regular paid prices were not captured."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Free",
+        "source_url": "https://mailchimp.com/pricing/marketing/",
+        "source_type": "vendor",
+        "checked": "2026-11-06"
+      },
+      "capabilities": [
+        {
+          "capability": "email_marketing",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://mailchimp.com/pricing/marketing/",
+            "source_type": "vendor",
+            "checked": "2026-11-06"
+          }
+        }
+      ]
+    },
+    {
+      "id": "setmore",
+      "name": "Setmore",
+      "url": "https://www.setmore.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Online booking page, calendars and reminders for appointment-based businesses, with a free plan.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "present",
+        "value": [
+          "mailchimp"
+        ],
+        "source_url": "https://www.setmore.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Free plan lists Mailchimp, HubSpot, Zapier and Google Analytics. Only Mailchimp is in this catalog."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 0,
+        "source_url": "https://www.setmore.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Free plan for up to 4 users. Paid Pro is shown as $5 per user billed annually and about $12 monthly (the $12 was not labeled on the page)."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Free",
+        "source_url": "https://www.setmore.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Free",
+          "Pro"
+        ],
+        "source_url": "https://www.setmore.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "job_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.setmore.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Free plan lists unlimited appointments, a custom booking page and individual staff calendars."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Free",
+            "source_url": "https://www.setmore.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        },
+        {
+          "capability": "review_requests",
+          "access": {
+            "status": "unknown",
+            "note": "Page lists Google review requests under Pro only, not the Free plan, so the entry plan does not clearly include it."
+          }
+        },
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "present",
+            "value": "add_on",
+            "source_url": "https://www.setmore.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Live Receptionist, a separate plan, US only."
+          },
+          "addon_monthly_usd": {
+            "status": "present",
+            "value": 99,
+            "source_url": "https://www.setmore.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Live Receptionist $99 a month on either plan. Usage limits not read."
+          }
+        }
+      ]
+    },
+    {
+      "id": "acuity_scheduling",
+      "name": "Acuity Scheduling",
+      "url": "https://www.acuityscheduling.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Online appointment booking with payments, forms and reminders.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 20,
+        "source_url": "https://www.acuityscheduling.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Starter, $20 billed monthly or $16 a month billed annually. No free plan, 7-day free trial."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Starter",
+        "source_url": "https://www.acuityscheduling.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "entry_billing": {
+        "status": "present",
+        "value": "monthly",
+        "source_url": "https://www.acuityscheduling.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Starter",
+          "Standard",
+          "Premium"
+        ],
+        "source_url": "https://www.acuityscheduling.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "job_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.acuityscheduling.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Starter lists 1 calendar, email reminders, client forms and payments. The page does not spell out online booking for Starter, but the whole product is appointment scheduling."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Starter",
+            "source_url": "https://www.acuityscheduling.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "calendly",
+      "name": "Calendly",
+      "url": "https://calendly.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Meeting and appointment booking links with calendar sync.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 0,
+        "source_url": "https://calendly.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Free plan has one event type and one calendar. Paid Standard shows $10 per seat but the page does not say if that is monthly or annual billing."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Free",
+        "source_url": "https://calendly.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Free",
+          "Standard",
+          "Teams"
+        ],
+        "source_url": "https://calendly.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "job_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://calendly.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Free plan lists a customizable booking page and one-on-one scheduling. Built around meetings, so a weaker fit for on-site jobs. Reminders are not on Free."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Free",
+            "source_url": "https://calendly.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "when_i_work",
+      "name": "When I Work",
+      "url": "https://wheniwork.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Employee shift scheduling, open shifts and swaps, with an optional time clock.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 2.5,
+        "source_url": "https://wheniwork.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Essentials, per user per month. The page also gives a conflicting FAQ line about single versus multi-location pricing. Billing period not confirmed. Time clock is an extra toggle with no price shown."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Essentials",
+        "source_url": "https://wheniwork.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Essentials",
+          "Pro",
+          "Premium"
+        ],
+        "source_url": "https://wheniwork.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "staff_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://wheniwork.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Scheduling is included in all plans."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Essentials",
+            "source_url": "https://wheniwork.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "deputy",
+      "name": "Deputy",
+      "url": "https://www.deputy.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Shift scheduling, timesheets and time clocking for hourly teams.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 5,
+        "source_url": "https://www.deputy.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Lite, per user per month, with a $30 monthly minimum per invoice. The page does not label which billing period the $5 is for (annual saves 10%)."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Lite",
+        "source_url": "https://www.deputy.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Lite",
+          "Core",
+          "Pro"
+        ],
+        "source_url": "https://www.deputy.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "staff_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.deputy.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Lite lists basic scheduling, timesheets and time clocking."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Lite",
+            "source_url": "https://www.deputy.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "connecteam",
+      "name": "Connecteam",
+      "url": "https://www.connecteam.com/",
+      "trades": [
+        "all"
+      ],
+      "applicability": "cross_industry",
+      "applicability_source": "https://www.connecteam.com/industries/",
+      "status": "pending_review",
+      "summary": "Employee scheduling, time clock and team communication, free for small teams.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 0,
+        "source_url": "https://www.connecteam.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Small Business Plan is free for life for up to 10 users. Paid Basic is $29 or $35 a month per hub depending on billing, the page does not label which is which."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Small Business",
+        "source_url": "https://www.connecteam.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Small Business",
+          "Basic",
+          "Advanced",
+          "Expert"
+        ],
+        "source_url": "https://www.connecteam.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Order inferred from the price table; Small Business is the free plan."
+      },
+      "capabilities": [
+        {
+          "capability": "staff_scheduling",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.connecteam.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Free plan includes all hubs and features, with a single schedule."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Small Business",
+            "source_url": "https://www.connecteam.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "smith_ai",
+      "name": "Smith.ai",
+      "url": "https://www.smith.ai/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Human receptionists who answer calls and screen leads.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 300,
+        "source_url": "https://www.smith.ai/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Starter, 30 calls a month, extra calls $11.50 each."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Starter",
+        "source_url": "https://www.smith.ai/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "entry_billing": {
+        "status": "present",
+        "value": "monthly",
+        "source_url": "https://www.smith.ai/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Starter",
+          "Basic",
+          "Pro"
+        ],
+        "source_url": "https://www.smith.ai/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.smith.ai/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Call answering is the core service. Page lists lead screening, qualification and intake in every plan."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Starter",
+            "source_url": "https://www.smith.ai/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        },
+        {
+          "capability": "lead_response",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.smith.ai/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Covers phone leads only. Website chat is not confirmed on the page."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Starter",
+            "source_url": "https://www.smith.ai/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ruby_receptionists",
+      "name": "Ruby",
+      "url": "https://www.ruby.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Live virtual receptionists for calls, with optional live chat.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 250,
+        "source_url": "https://www.ruby.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "50 minutes a month. Listed as monthly plans."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "50 minutes",
+        "source_url": "https://www.ruby.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "entry_billing": {
+        "status": "present",
+        "value": "monthly",
+        "source_url": "https://www.ruby.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "50 minutes",
+          "100 minutes",
+          "200 minutes",
+          "500 minutes"
+        ],
+        "source_url": "https://www.ruby.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.ruby.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "24/7 live call answering in the receptionist plans."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "50 minutes",
+            "source_url": "https://www.ruby.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        },
+        {
+          "capability": "lead_response",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.ruby.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Receptionist plans list lead qualification and intake. Live chat is a separate plan from $143 a month."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "50 minutes",
+            "source_url": "https://www.ruby.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "goodcall",
+      "name": "Goodcall",
+      "url": "https://www.goodcall.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "AI phone agent that answers calls, takes details and texts them to the owner.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 79,
+        "source_url": "https://www.goodcall.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Starter, up to 100 unique customers a month, extra customers 79 cents each. Annual pricing not listed."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Starter",
+        "source_url": "https://www.goodcall.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "entry_billing": {
+        "status": "present",
+        "value": "monthly",
+        "source_url": "https://www.goodcall.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Starter",
+          "Growth",
+          "Scale"
+        ],
+        "source_url": "https://www.goodcall.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "phone_answering",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.goodcall.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "All plans include a local number or forwarding from your own number."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Starter",
+            "source_url": "https://www.goodcall.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        },
+        {
+          "capability": "lead_response",
+          "access": {
+            "status": "unknown",
+            "note": "Home page says it captures lead details and texts them to the owner. That is lead capture, not a reply to the customer."
+          }
+        }
+      ]
+    },
+    {
+      "id": "tidio",
+      "name": "Tidio",
+      "url": "https://www.tidio.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Website live chat with an optional AI chatbot add-on.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 0,
+        "source_url": "https://www.tidio.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Free plan includes live chat. Starter is shown as $24.17 but the page does not label the billing period."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Free",
+        "source_url": "https://www.tidio.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Free",
+          "Starter",
+          "Growth",
+          "Plus",
+          "Premium"
+        ],
+        "source_url": "https://www.tidio.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "lead_response",
+          "access": {
+            "status": "unknown",
+            "note": "Free plan has live chat, but automatic replies need the Lyro AI add-on (from $32.50) and lead capture per plan was not stated."
+          }
+        }
+      ]
+    },
+    {
+      "id": "reviewnudger",
+      "name": "ReviewNudger",
+      "url": "https://www.reviewnudger.com/",
+      "trades": [],
+      "applicability": "unknown",
+      "status": "pending_review",
+      "summary": "Sends automatic text and email requests asking customers for reviews.",
+      "setup_effort": {
+        "status": "unknown",
+        "note": "Setup effort not stated on the pages read."
+      },
+      "privacy": {
+        "status": "unknown",
+        "note": "Privacy terms not read."
+      },
+      "support_stability": {
+        "status": "unknown",
+        "note": "Support and stability not checked."
+      },
+      "connects_to": {
+        "status": "unknown",
+        "note": "Integrations not confirmed from a page read."
+      },
+      "entry_monthly_usd": {
+        "status": "present",
+        "value": 29,
+        "source_url": "https://www.reviewnudger.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Per location, month to month. Yearly is $290 a year. 14-day trial with a card."
+      },
+      "entry_plan": {
+        "status": "present",
+        "value": "Monthly",
+        "source_url": "https://www.reviewnudger.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Both plans include every feature; they differ only in billing period."
+      },
+      "entry_billing": {
+        "status": "present",
+        "value": "monthly",
+        "source_url": "https://www.reviewnudger.com/pricing",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "capabilities": [
+        {
+          "capability": "review_requests",
+          "access": {
+            "status": "present",
+            "value": "included",
+            "source_url": "https://www.reviewnudger.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Automatic requests by text or email with follow-ups. Unlimited messages."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Monthly",
+            "source_url": "https://www.reviewnudger.com/pricing",
+            "source_type": "vendor",
+            "checked": "2026-11-07"
+          }
+        }
+      ]
+    }
+  ]
+}
