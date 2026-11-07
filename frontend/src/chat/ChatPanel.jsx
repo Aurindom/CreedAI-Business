@@ -3,7 +3,7 @@ import { api } from '../api'
 import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult from './ChatResult'
-import { clearSession, greetingFor, historyFor, loadSession, newConversationId, saveSession } from './chatSession'
+import { clearSession, historyFor, loadSession, newConversationId, saveSession } from './chatSession'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
 import PennyMemory from './PennyMemory'
@@ -24,7 +24,7 @@ const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and co
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
 
-function Panel({ profile, open, onClose }) {
+function Panel({ profile, open, onClose, onActivityChange }) {
   const adapter = useMemo(() => createChatAdapter(), [])
   const [restored] = useState(() => loadSession(EMPTY_MEMORY))
   const [conversationId, setConversationId] = useState(() => restored?.conversationId || newConversationId())
@@ -115,6 +115,9 @@ function Panel({ profile, open, onClose }) {
       document.body.classList.remove('msc-printing')
     }
   }, [printData])
+
+  const avatarState = speaking ? 'speaking' : busy ? 'thinking' : input.trim() ? 'listening' : 'idle'
+  useEffect(() => { onActivityChange(avatarState) }, [avatarState, onActivityChange])
 
   const addMessage = (message) => setMessages((current) => [...current, { id: newId('m'), ...message }])
   const replaceMessage = (id, next) => setMessages((current) => current.map((item) => (item.id === id ? { id, ...next } : item)))
@@ -268,17 +271,18 @@ function Panel({ profile, open, onClose }) {
 
   return (
     <>
-      <section className="msc-panel" role="dialog" aria-label="Chat with Penny" hidden={!open}>
+      <section className="msc-panel" id="penny-chat-panel" role="dialog" aria-label="Chat with Penny" hidden={!open}>
         <header className="msc-header">
           <div className="msc-identity">
-            <PennyAvatar size={44} state={busy ? 'thinking' : speaking ? 'speaking' : 'idle'} />
-            <div>
+            <span className="penny-panel-mark" data-state={avatarState} aria-hidden="true">P<span /></span>
+            <div className="penny-panel-heading">
+              <span className="penny-panel-eyebrow">MAIN STREET / ASSISTANT</span>
               <h2>Penny</h2>
               <span className={live ? 'msc-live' : 'msc-demo'}>{live ? 'Live AI' : 'Demo mode'}</span>
             </div>
           </div>
           <div className="msc-header-actions">
-            <button type="button" className="msc-text-button" onClick={startOver}>Start over</button>
+            <button type="button" className="msc-text-button" onClick={startOver}>New chat</button>
             <button type="button" className="msc-close" onClick={onClose} aria-label="Close chat">×</button>
           </div>
         </header>
@@ -288,10 +292,10 @@ function Panel({ profile, open, onClose }) {
         <div className="msc-log" ref={logRef} role="log" aria-live="polite" aria-busy={busy}>
           {messages.length === 0 && (
             <div className="msc-welcome">
-              <h3>{greetingFor(conversationId)}</h3>
-              <p>Tell me about your business or what's getting in the way. I'm an AI guide: I'll ask a few questions first, then check real tools and show where each fact came from.</p>
+              <p className="penny-welcome-kicker">A LITTLE CLARITY GOES A LONG WAY</p><h3>Your business.<br />A clearer next step.</h3>
+              <p>Explore tools, check what your current plan includes, or work through a business challenge. Answers stay grounded in the catalog and its sources.</p>
               <div className="msc-starters">
-                {STARTERS.map((starter) => <button type="button" key={starter} onClick={() => send(starter)}>{starter}</button>)}
+                {STARTERS.map((starter) => <button type="button" key={starter} onClick={() => send(starter)}><span>{starter}</span><span className="penny-starter-arrow" aria-hidden="true">&#8599;</span></button>)}
               </div>
             </div>
           )}
@@ -300,13 +304,13 @@ function Panel({ profile, open, onClose }) {
 
           {messages.map((message) => {
             if (message.kind === 'user') return <div className="msc-row msc-row-user" key={message.id}><p>{message.text}</p></div>
-            if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><PennyAvatar size={28} /><p>{message.text}</p></div>
+            if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><span className="penny-message-mark" aria-hidden="true">P</span><p>{message.text}</p></div>
             if (message.kind === 'loading') return <div className="msc-loading" key={message.id}>Checking the catalog...</div>
             if (message.kind === 'clarify') {
               return (
                 <div className="msc-row msc-clarify" key={message.id}>
                   {message.progress && <span className="msc-progress">{message.progress}</span>}
-                  <div className="msc-clarify-question"><PennyAvatar size={28} /><p>{message.text}</p></div>
+                  <div className="msc-clarify-question"><span className="penny-message-mark" aria-hidden="true">P</span><p>{message.text}</p></div>
                   <div className="msc-choices">
                     {message.choices.map((choice) => <button type="button" key={choice} onClick={() => send(choice)} disabled={busy}>{choice}</button>)}
                   </div>
@@ -350,7 +354,7 @@ function Panel({ profile, open, onClose }) {
               rows={2}
               value={input}
               maxLength={MAX_LENGTH}
-              placeholder="Tell Penny what's going on"
+              placeholder="Ask about a tool or business task..."
               aria-label="Tell Penny what's going on"
               onChange={(event) => {
                 setInput(event.target.value)
@@ -372,6 +376,7 @@ function Panel({ profile, open, onClose }) {
             />
             <button type="submit" className="msc-send" disabled={busy}>{busy ? 'Working' : 'Send'}</button>
           </div>
+          <p className="penny-composer-note">Catalog-backed guidance. Verify details before subscribing.</p>
         </form>
       </section>
       <ChatSummary data={printData} />
@@ -381,6 +386,7 @@ function Panel({ profile, open, onClose }) {
 
 function ChatPanelInner({ profile }) {
   const [open, setOpen] = useState(false)
+  const [activity, setActivity] = useState('idle')
   const launcher = useRef(null)
   const wasOpen = useRef(false)
   const close = useMemo(() => () => setOpen(false), [])
@@ -393,12 +399,13 @@ function ChatPanelInner({ profile }) {
   return (
     <div className="msc-root">
       {!open && (
-        <button type="button" className="msc-launcher" ref={launcher} onClick={() => setOpen(true)}>
-          <PennyAvatar size={40} />
-          Talk to Penny
+        <button type="button" className={`msc-launcher penny-character-launcher penny-is-${activity}`} ref={launcher} onClick={() => setOpen(true)} aria-label="Talk to Penny" aria-expanded={open} aria-controls="penny-chat-panel">
+          <span className="penny-speech"><strong>Hi, I'm Penny.</strong><span>{activity === 'thinking' ? 'Checking the catalog...' : activity === 'speaking' ? 'Your answer is coming in' : 'Your business. A little backup.'}</span></span>
+          <span className="penny-character-stage"><span className="penny-stage-glow" aria-hidden="true" /><PennyAvatar size={130} variant="figure" state={activity} /></span>
+          <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Penny <span aria-hidden="true">&#8599;</span></span>
         </button>
       )}
-      <Panel profile={profile} open={open} onClose={close} />
+      <Panel profile={profile} open={open} onClose={close} onActivityChange={setActivity} />
     </div>
   )
 }

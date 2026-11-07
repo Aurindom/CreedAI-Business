@@ -11,8 +11,8 @@ function PennyMemory({ memory, names, onRemove }) {
   if (!items.length) return null
 
   return (
-    <details className="msc-memory" open>
-      <summary>What Penny remembers ({items.length})</summary>
+    <details className="msc-memory">
+      <summary>Business context ({items.length})</summary>
       <ul className="msc-memory-list">
         {items.map((item) => (
           <li key={item.key}>

@@ -23,7 +23,7 @@ const businesses = [
 
 ]
 
-export default function BusinessCarousel({ paused = false, onChooseBusiness }) {
+export default function BusinessCarousel({ paused = false, onChooseBusiness, onCompare, onSceneChange }) {
   const [active, setActive] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [engaged, setEngaged] = useState(false)
@@ -51,6 +51,11 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness }) {
       observer.disconnect()
     }
   }, [])
+
+  useEffect(() => {
+    const business = businesses[active]
+    onSceneChange?.({ image: business.image, type: business.type, theme: business.theme })
+  }, [active, onSceneChange])
 
   const autoPlaying = playing && !paused && !reduced
   useEffect(() => {
@@ -87,7 +92,7 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness }) {
             <h1>{business.title}<br /><em>{business.accent}</em></h1>
             <p className="business-story">{business.copy}</p>
             <button className="business-start" type="button" onClick={() => onChooseBusiness(business.type)}>Find tools for my business <span aria-hidden="true">&#8599;</span></button>
-            <a className="business-explore" href="#product-story">Meet the tools <span aria-hidden="true">&#8595;</span></a>
+            <button className="business-explore business-compare-shortcut" type="button" onClick={onCompare}>Already subscribed? Compare tools <span aria-hidden="true">&#8599;</span></button>
           </div>
           <div className="business-day"><span className="day-label">SOUND FAMILIAR?</span>{business.challenges.map((challenge) => <span className="day-challenge" key={challenge}><span aria-hidden="true">&#10022;</span>{challenge}</span>)}</div>
           <a className="photo-credit" href={business.source} target="_blank" rel="noopener noreferrer">Photo / Unsplash</a>

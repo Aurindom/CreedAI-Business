@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, ownedProfile, planChoices, isSingleOffering, PLAN_UNKNOWN, PLAN_LABEL_MAX } from './api'
 import ProductShowcase from './components/ProductShowcase'
+import QuickCompare from './components/QuickCompare'
+import MainStreetBrand from './components/MainStreetBrand'
+import StreetHeaderScene from './components/StreetHeaderScene'
+import ComparisonWorkspace from './components/ComparisonWorkspace'
+import ChatPanel from './chat/ChatPanel'
 
 const stages = [
   { number: '01', title: 'Your business', detail: 'Give us a little context', anchor: 'business' },
@@ -169,6 +174,7 @@ function App() {
   const [categories, setCategories] = useState([])
   const [allTools, setAllTools] = useState([])
   const [problems, setProblems] = useState([])
+  const [allProblems, setAllProblems] = useState([])
   const [directory, setDirectory] = useState([])
   const [loadError, setLoadError] = useState('')
 
@@ -185,13 +191,14 @@ function App() {
   const [isRecommending, setIsRecommending] = useState(false)
   const [showDirectory, setShowDirectory] = useState(false)
   const [selectedTools, setSelectedTools] = useState([])
-  const [stack, setStack] = useState(null)
   const [taskText, setTaskText] = useState('')
   const [taskResolution, setTaskResolution] = useState(null)
   const [taskError, setTaskError] = useState('')
   const [isResolving, setIsResolving] = useState(false)
   const taskRequest = useRef(0)
   const [motionPaused, setMotionPaused] = useState(false)
+  const [quickCompare, setQuickCompare] = useState(false)
+  const [baseline, setBaseline] = useState('')
 
   const typedTrade = useDebounced(businessType.trim(), 300)
   const tradeId = resolveTrade(trades, typedTrade)
@@ -201,11 +208,12 @@ function App() {
   const activeCategory = categories.find((c) => c.id === category) || null
 
   useEffect(() => {
-    Promise.all([api.trades(), api.categories(), api.tools()])
-      .then(([tradeList, categoryList, toolList]) => {
+    Promise.all([api.trades(), api.categories(), api.tools(), api.problems()])
+      .then(([tradeList, categoryList, toolList, problemList]) => {
         setTrades(tradeList)
         setCategories(categoryList)
         setAllTools(toolList)
+        setAllProblems(problemList)
       })
       .catch((error) => setLoadError(error.message))
   }, [])
@@ -238,16 +246,6 @@ function App() {
       .finally(() => { if (current) setIsRecommending(false) })
     return () => { current = false }
   }, [selectedProblem, typedTrade, owned, ownedPlans, budget])
-
-  useEffect(() => {
-    let current = true
-    setStack(null)
-    if (selectedTools.length === 0) return
-    api.stackCheck(selectedTools)
-      .then((result) => { if (current) setStack(result) })
-      .catch(() => { if (current) setStack(null) })
-    return () => { current = false }
-  }, [selectedTools])
 
   useEffect(() => {
     let current = true
@@ -287,11 +285,21 @@ function App() {
   }
 
   const comparison = selectedTools.map((id) => toolsById[id]).filter(Boolean)
-  const ranked = [...(recommendation?.options || []), ...(recommendation?.check_first || [])]
-  const optionsById = Object.fromEntries(ranked.map((o) => [o.tool_id, o]))
   const full = selectedTools.length >= 3
 
+  function openQuickCompare() {
+    setQuickCompare(true)
+    window.requestAnimationFrame(() => stageAnchor('quick-compare'))
+  }
+
+  function selectBaseline(id) {
+    setBaseline(id)
+    setSelectedTools((current) => id ? [id, ...current.filter((toolId) => toolId !== id && toolId !== baseline).slice(0, 2)] : current.filter((toolId) => toolId !== baseline))
+    if (id) setOwned((current) => current.includes(id) ? current : [...current, id])
+  }
+
   function toggleCompare(toolId) {
+    if (toolId === baseline && selectedTools.includes(toolId)) setBaseline('')
     setSelectedTools((current) => {
       if (current.includes(toolId)) return current.filter((id) => id !== toolId)
       if (current.length >= 3) return current
@@ -335,23 +343,22 @@ function App() {
     : recommendation ? plural(recommendation.options.length, 'ranked option') : 'No task chosen'
 
   return (
-    <div className={`site-shell${motionPaused ? ' motion-paused' : ''}`}>
-      <aside className="sidebar">
-        <div className="brand" role="img" aria-label="Main Street AI">
-          <div className="brand-mark"><span /><span /><span /><span /></div>
-          <div className="brand-wordmark">main<span>street</span><b>ai</b></div>
-        </div>
+    <div className={`site-shell${motionPaused ? ' motion-paused' : ''}${quickCompare ? ' quick-compare-mode' : ''}`}>
+      <aside className="sidebar street-header">
+        <StreetHeaderScene />
+        <MainStreetBrand />
         <div className="sidebar-group">
-          <div className="sidebar-label">YOUR JOURNEY</div>
+          <div className="sidebar-label">YOUR NEXT STOP</div>
           <nav className="stage-list" aria-label="Page sections">
             {stages.map((stage) => (
-              <button className="stage" key={stage.number} type="button" onClick={() => stageAnchor(stage.anchor)}>
+              <button className="stage" key={stage.number} type="button" onClick={() => { if (stage.anchor === 'compare') openQuickCompare(); else { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor(stage.anchor)) } }}>
                 <span className="stage-number">{stage.number}</span>
-                <span className="stage-copy"><strong>{stage.title}</strong><small>{stage.detail}</small></span>
+                <span className="stage-copy"><strong>{stage.title}</strong><small>{stage.detail}</small></span><span className="street-nav-arrow" aria-hidden="true">&#8599;</span>
               </button>
             ))}
           </nav>
         </div>
+        <button className="nav-quick-compare" type="button" onClick={openQuickCompare}>Compare tools <ArrowIcon size={15} /></button>
         <div className="sidebar-bottom">
           <div className="sidebar-tip-icon">✳</div>
           <strong>A calmer way to choose AI.</strong>
@@ -379,15 +386,15 @@ function App() {
         <div className="content">
           {loadError && <div className="error-banner" role="alert"><strong>We couldn't reach the catalog service.</strong> {loadError}</div>}
 
-          <ProductShowcase tools={allTools} paused={motionPaused} onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }} />
+          {quickCompare ? <QuickCompare tools={allTools} baseline={baseline} selected={selectedTools} plans={ownedPlans} onBaseline={selectBaseline} onPlan={(id, plan) => setOwnedPlans((current) => ({ ...current, [id]: plan }))} onToggle={toggleCompare} onBack={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('business')) }} /> : <ProductShowcase tools={allTools} paused={motionPaused} onCompare={openQuickCompare} onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }} />}
 
-          <div className="metrics-row">
+          <div className="metrics-row" hidden={quickCompare}>
             <div><strong>{allTools.length}</strong><span>tools in the catalog</span></div>
             <div><strong>{categories.length}</strong><span>categories of everyday work</span></div>
             <div><strong>{trades.length}</strong><span>business types in the catalog</span></div>
           </div>
 
-          <section className="section-block" id="business">
+          <section className="section-block" id="business" hidden={quickCompare}>
             <div className="section-heading"><div><div className="section-kicker">STEP 01 <span /> GET ORIENTED</div><h2>Tell us about your business</h2><p>A little context helps us find relevant options. Every field is optional.</p></div><div className="section-counter">01 / 04</div></div>
             <div className="form-card">
               <label className="field"><span>Business name <small>optional</small></span><input type="text" value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="e.g. Northside Coffee" maxLength={80} /></label>
@@ -417,7 +424,7 @@ function App() {
             </div>
           </section>
 
-          <section className="section-block" id="challenge">
+          <section className="section-block" id="challenge" hidden={quickCompare}>
             <div className="section-heading"><div><div className="section-kicker">STEP 02 <span /> NAME THE PROBLEM</div><h2>What would you like help with?</h2><p>Browse by category, then pick a task.</p></div><div className="section-counter">02 / 04</div></div>
             <div className="category-tabs" role="tablist" aria-label="Categories">
               <button type="button" role="tab" aria-selected={category === ''} className={`tab ${category === '' ? 'tab-on' : ''}`} onClick={() => chooseCategory('')}>All</button>
@@ -442,7 +449,7 @@ function App() {
             </div>
           </section>
 
-          <section className="section-block" id="explore">
+          <section className="section-block" id="explore" hidden={quickCompare}>
             <div className="section-heading"><div><div className="section-kicker">STEP 03 <span /> YOUR OPTIONS</div><h2>{exploreHeading}</h2><p>{exploreLead}</p></div><div className="section-counter">03 / 04</div></div>
             <div className="explore-toolbar">
               <div><strong>{exploreCount}</strong><span>{tradeLabel ? ` · ${tradeLabel}` : ' · Any business'}</span></div>
@@ -483,31 +490,15 @@ function App() {
           </section>
 
           <section className="section-block compare-section" id="compare">
-            <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>Compare your shortlist</h2><p>Put up to three tools side by side. We leave unknown facts visible.</p></div><div className="section-counter">04 / 04</div></div>
-            {comparison.length === 0 ? <div className="comparison-empty"><div className="comparison-empty-art"><span>▤</span><span>▤</span><span>▤</span></div><strong>Your comparison starts here</strong><p>Use the “Compare +” button on a tool above. You can add up to three.</p></div> : <>
-              <div className="comparison-wrap"><table className="comparison-table"><thead><tr><th>What to check</th>{comparison.map((tool) => <th key={tool.id}>{tool.name}<button type="button" onClick={() => toggleCompare(tool.id)} aria-label={`Remove ${tool.name}`}>×</button></th>)}</tr></thead><tbody>
-                <tr><td>Who it is built for</td>{comparison.map((tool) => <td key={tool.id}>{optionsById[tool.id]?.fit_note || audienceOf(tool, trades, tradeId).text}</td>)}</tr>
-                <tr><td>Entry price</td>{comparison.map((tool) => <td key={tool.id}>{comparisonFact(tool, 'Entry price')}</td>)}</tr>
-                <tr><td>Cost for this task</td>{comparison.map((tool) => {
-                  const option = optionsById[tool.id]
-                  if (!option) return <td key={tool.id}>{activeProblem ? 'Not ranked for this task' : 'Choose a task'}</td>
-                  return <td key={tool.id}>{option.added_monthly_usd === null ? `Unknown. ${option.cost_note}` : `${dollars(option.added_monthly_usd)} / mo`}</td>
-                })}</tr>
-                {['Setup', 'Privacy', 'Support'].map((label) => (
-                  <tr key={label}><td>{label}</td>{comparison.map((tool) => <td key={tool.id}>{comparisonFact(tool, label)}</td>)}</tr>
-                ))}
-                <tr><td>Catalog status</td>{comparison.map((tool) => <td key={tool.id}>{tool.status === 'verified' ? 'Source checked' : 'Pending review'}</td>)}</tr>
-              </tbody></table></div>
-              {stack?.duplicates.length > 0 && <div className="answer-banner answer-check compare-overlap"><strong>These overlap.</strong><p>{stack.duplicates.join('. ')}. You may not need both.</p></div>}
-              <div className="plan-preview"><div><span className="plan-icon">↗</span><div><strong>Early plan preview</strong><p>{businessName.trim() || 'Your business'} · {activeProblem?.title || 'Choose a challenge'} · {plural(comparison.length, 'tool')} shortlisted</p></div></div><div className="plan-cost"><small>Known entry prices add up to</small><strong>{stack ? `${dollars(stack.known_monthly_usd)}${stack.total_monthly_usd === null ? ' + unknowns' : ' / mo'}` : '...'}</strong></div></div>
-              <p className="comparison-footnote">Entry prices only, before processing, hardware or add-on fees.{stack?.unknown_cost_tools.length ? ` No published price for ${stack.unknown_cost_tools.join(', ')}.` : ''}</p>
-            </>}
+            <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We leave unknown facts visible.'}</p></div><div className="section-counter">04 / 04</div></div>
+            <ComparisonWorkspace tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
           </section>
 
-          <section className="next-panel"><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Saved adoption plans are coming next.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>
+          <section className="next-panel" hidden={quickCompare}><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Confirm task assignments and save a private adoption plan for your next steps.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>
           <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>
         </div>
       </main>
+      <ChatPanel profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
     </div>
   )
 }
