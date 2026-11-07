@@ -41,9 +41,8 @@ def _needed_plan(cap: Capability) -> str | None:
 
 
 def _covers(tool: Tool, needed: str, plan: str | None) -> bool | None:
-    """None means the owner's plan can't be placed against the needed tier, so nobody gets told yes or no."""
-    if tool.entry_plan.known and _same(needed, tool.entry_plan.value):
-        return True
+    """None means the owner's plan can't be placed against the needed tier, so nobody gets told yes or no.
+    Even an entry-plan feature needs a recognised plan, because a missing or legacy plan may predate it."""
     if plan and _same(plan, needed):
         return True
     need, have = tool.plan_rank(needed), tool.plan_rank(plan)

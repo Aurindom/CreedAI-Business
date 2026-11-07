@@ -91,6 +91,13 @@ class Tool(BaseModel):
             raise ValueError(f"{self.id}: bad offering value: {self.offering.value}")
         if self.single_offering and self.plan_tiers.known:
             raise ValueError(f"{self.id}: a single offering cannot list plan tiers")
+        if self.plan_tiers.known:
+            tiers = {str(t).strip().casefold() for t in self.plan_tiers.value}
+            named = [("entry_plan", self.entry_plan)]
+            named += [(f"{c.capability} plan", f) for c in self.capabilities for f in (c.included_from, c.addon_from)]
+            for where, plan in named:
+                if plan.known and str(plan.value).strip().casefold() not in tiers:
+                    raise ValueError(f"{self.id}: {where} {plan.value} is not in plan_tiers")
         if self.plan_prices.known:
             prices = self.plan_prices.value
             if not isinstance(prices, dict) or not self.plan_tiers.known:

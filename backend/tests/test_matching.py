@@ -1,22 +1,26 @@
 from app.matching import check_stack, recommend
-from app.schemas import BusinessProfile
+from app.schemas import BusinessProfile, OwnedSoftware
 from conftest import cap, fact, tool
 
 
-def run(catalog, problem="calls", owned=(), budget=200, trade="hvac"):
-    profile = BusinessProfile(trade=trade, owned_tool_ids=list(owned), budget_monthly_usd=budget)
+def run(catalog, problem="calls", owned=(), budget=200, trade="hvac", plans=None):
+    if plans:
+        mine = [OwnedSoftware(tool_id=t, plan=plans.get(t)) for t in owned]
+        profile = BusinessProfile(trade=trade, owned=mine, budget_monthly_usd=budget)
+    else:
+        profile = BusinessProfile(trade=trade, owned_tool_ids=list(owned), budget_monthly_usd=budget)
     return recommend(catalog, profile, catalog.problem(problem))
 
 
 def test_owned_tool_that_includes_it_means_no_new_tool(catalog):
-    result = run(catalog, owned=["voice"])
+    result = run(catalog, owned=["voice"], plans={"voice": "Core"})
     assert result.outcome == "no_new_tool"
     assert result.winner_tool_id == "voice"
     assert result.options[0].added_monthly_usd == 0
 
 
 def test_add_on_beats_buying_something_new(catalog):
-    result = run(catalog, owned=["suite"])
+    result = run(catalog, owned=["suite"], plans={"suite": "Base"})
     assert result.outcome == "add_on"
     assert result.options[0].added_monthly_usd == 29
 
@@ -41,7 +45,7 @@ def test_unrelated_owned_tool_is_not_called_a_switch(catalog):
 
 
 def test_overlapping_tool_is_a_switch(catalog):
-    routes = {o.tool_id: o.route for o in run(catalog, owned=["suite"]).options}
+    routes = {o.tool_id: o.route for o in run(catalog, owned=["suite"], plans={"suite": "Base"}).options}
     assert routes["suite"] == "native_add_on"
     catalog.tools = [t for t in catalog.tools if t.id in {"voice", "solo"}]
     routes = {o.tool_id: o.route for o in run(catalog, owned=["voice"]).options}
@@ -128,7 +132,7 @@ def test_unconfirmed_audience_is_never_the_winner(catalog):
 
 
 def test_tool_you_already_use_counts_even_if_aimed_elsewhere(catalog):
-    result = run(catalog, owned=["foreign"])
+    result = run(catalog, owned=["foreign"], plans={"foreign": "Core"})
     assert result.outcome == "no_new_tool"
     assert result.options[0].fit == "you_use_it"
 

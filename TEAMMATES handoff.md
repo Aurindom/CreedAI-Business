@@ -24,12 +24,11 @@ Works (backend and frontend talk to each other):
 Not built yet:
 - **No chat UI and no live agent.** The chat contract in section 6 is a proposal.
 - No live discovery, no MCP integration, no custom assistant or setup wizard.
-- No plan picker in the UI. The backend already accepts an owner's plan (see `owned` below).
+- No plan picker in the UI yet. The backend and `api.js` are ready for it (see "Plan picker" below).
 - No saved plans or results tracker.
 
 Known data and logic gaps (Claude is fixing these on the backend, so don't work around them in the UI):
 - 16 of the 24 tools are `pending_review` (8 are `verified`). Their facts haven't been rechecked yet. Since 2026-11-07 the backend never makes a pending tool the winner, and every option carries `status`. The card doesn't show it yet (teammate A).
-- The cost of a feature that only comes on a higher plan is still shown at the entry plan price.
 - Several prices are unknown (Podium, Square, Toast, 7shifts, and the billing period for Slang AI).
 - `PLAN.md` is the product plan. `TEAM_HANDOFF.md` only points here. Where anything disagrees with this file, this file wins.
 
@@ -216,11 +215,12 @@ Don't merge `not_checked` and `unresolved` into one "unknown" style. Today the c
 
 The backend and `frontend/src/api.js` are ready. The picker itself goes in `App.jsx`.
 - Beside each owned tool, add an optional plan select. Options are `planChoices(tool)` (the sourced `plan_tiers`, cheapest first) plus "I do not know" as the default, value `PLAN_UNKNOWN`.
-- If `planChoices` is empty (no sourced tiers, or a single offering like Google Business Profile), don't show a select. A short optional text box for an old or custom plan name is fine, capped at `PLAN_LABEL_MAX` (100) characters. Never present a typed label as checked.
+- If `isSingleOffering(tool)` is true (Google Business Profile), show no plan input at all. The vendor has no plans, so there's nothing to ask.
+- If `planChoices` is empty for any other tool, don't show a select. A short optional text box for an old or custom plan name is fine, capped at `PLAN_LABEL_MAX` (100) characters. Label it "Not checked by us" and never show a typed name as a checked plan.
 - Keep plans in state keyed by tool id, for example `{jobber: "Core"}`, so changing the trade, tab or problem doesn't wipe them.
 - Build the request with `ownedProfile(trade, ownedIds, plans)`. It sends `owned: [{tool_id, plan}]`, turns blanks into "I do not know", and drops plans for tools that are no longer owned.
 - Re-run the recommendation when a plan changes. The answer depends on it: a Lite owner can get `plan_upgrade` while a Max owner gets `already_have` for the same feature.
-- An unknown or unmatched plan always gives `check_plan` with `added_monthly_usd: null`. Never show that as $0 or "included".
+- A missing, unknown or unmatched plan always gives `check_plan` with `added_monthly_usd: null`, even for a feature on the vendor's cheapest plan, because an old plan may predate it. Never show that as $0 or "included".
 - Don't add scores or stars.
 
 ### POST /api/stack/check

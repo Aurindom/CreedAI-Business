@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.matching import recommend
 from app.facts import tool_facts
 from app.schemas import BusinessProfile, OwnedSoftware
@@ -28,9 +31,33 @@ def test_included_without_a_plan_fact_is_not_claimed_as_owned(catalog):
     assert "not on which plans" in top.cost_note
 
 
-def test_included_on_entry_plan_means_every_owner_has_it(catalog):
-    result = owner_result(catalog, tiered(plan="Lite"))
+def test_entry_plan_feature_is_owned_only_on_a_recognised_plan(catalog):
+    result = owner_result(catalog, tiered(plan="Lite"), plan="Pro")
     assert result.outcome == "no_new_tool" and result.options[0].added_monthly_usd == 0
+
+
+@pytest.mark.parametrize("plan", [None, "", "Legacy 2019"])
+def test_entry_plan_feature_with_missing_or_legacy_plan_checks_plan(catalog, plan):
+    top = owner_result(catalog, tiered(plan="Lite"), plan=plan).options[0]
+    assert top.route == "check_plan" and top.added_monthly_usd is None
+    assert "Included from the Lite plan" in top.cost_note
+
+
+@pytest.mark.parametrize("plan, route, cost", [(None, "check_plan", None), ("Legacy 2019", "check_plan", None), ("lite", "native_add_on", 15)])
+def test_entry_plan_add_on_needs_a_recognised_plan(catalog, plan, route, cost):
+    top = owner_result(catalog, tiered(access="add_on", addon=15, plan="Lite"), plan=plan).options[0]
+    assert top.route == route and top.added_monthly_usd == cost
+
+
+@pytest.mark.parametrize("fields", [
+    {"entry_plan": fact("Basic")},
+    {"capabilities": [cap("phone", plan="Ultra")]},
+    {"capabilities": [cap("phone", "add_on", 10, plan="Ultra")]},
+])
+def test_plan_names_must_be_listed_tiers(fields):
+    base = {"entry_plan": fact("Lite"), "plan_tiers": fact(["Lite", "Pro"]), "capabilities": [], **fields}
+    with pytest.raises(ValidationError):
+        tool("crm", 40, base.pop("capabilities"), **base)
 
 
 def test_owner_plan_at_or_above_the_tier_has_it(catalog):

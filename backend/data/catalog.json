@@ -304,7 +304,8 @@
         ],
         "source_url": "https://www.getjobber.com/pricing/",
         "source_type": "vendor",
-        "checked": "2026-11-06"
+        "checked": "2026-11-07",
+        "note": "QuickBooks Online sync is listed on the Connect plan. Checked manually in a browser by Aurindom."
       },
       "capabilities": [
         {
@@ -316,6 +317,14 @@
             "source_type": "vendor",
             "checked": "2026-11-06",
             "note": "Listed on the features page. Which plan was not checked."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Core",
+            "source_url": "https://www.getjobber.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Listed in the Core plan on the pricing page. Checked manually in a browser by Aurindom."
           }
         },
         {
@@ -327,6 +336,14 @@
             "source_type": "vendor",
             "checked": "2026-11-06",
             "note": "Listed on the features page. Which plan was not checked."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Core",
+            "source_url": "https://www.getjobber.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Listed in the Core plan on the pricing page. Checked manually in a browser by Aurindom."
           }
         },
         {
@@ -381,7 +398,19 @@
             "note": "Same add-on as phone answering."
           }
         }
-      ]
+      ],
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Core",
+          "Connect",
+          "Grow"
+        ],
+        "source_url": "https://www.getjobber.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Connect lists 'All Core features, plus' and Grow lists 'All Connect features, plus'. Checked manually in a browser by Aurindom."
+      }
     },
     {
       "id": "housecall_pro",
@@ -433,6 +462,14 @@
             "source_type": "vendor",
             "checked": "2026-11-06",
             "note": "Listed on the features page. Which plan was not checked."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Basic",
+            "source_url": "https://www.housecallpro.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Listed in the Basic plan on the pricing page. Checked manually in a browser by Aurindom."
           }
         },
         {
@@ -444,6 +481,14 @@
             "source_type": "vendor",
             "checked": "2026-11-06",
             "note": "Listed on the features page. Which plan was not checked."
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Basic",
+            "source_url": "https://www.housecallpro.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Listed in the Basic plan on the pricing page. Checked manually in a browser by Aurindom."
           }
         },
         {
@@ -891,8 +936,8 @@
         "value": 38,
         "source_url": "https://quickbooks.intuit.com/pricing/",
         "source_type": "vendor",
-        "checked": "2026-11-06",
-        "note": "Simple Start, 1 user. Taken as the price after the 3-month 50% offer, which the page does not label. A Free plan sends 2 invoices a month."
+        "checked": "2026-11-07",
+        "note": "Simple Start, 1 user, regular monthly price. The labeled promo is 50% off for 3 months. A Free plan also exists. Checked manually in a browser by Aurindom."
       },
       "entry_plan": {
         "status": "present",
@@ -931,7 +976,34 @@
             "note": "Simple Start lists automated bookkeeping."
           }
         }
-      ]
+      ],
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Free",
+          "Simple Start",
+          "Essentials",
+          "Plus",
+          "Advanced"
+        ],
+        "source_url": "https://quickbooks.intuit.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Each plan lists 'Everything in' the plan below it. Checked manually in a browser by Aurindom."
+      },
+      "plan_prices": {
+        "status": "present",
+        "value": {
+          "Simple Start": 38,
+          "Essentials": 85,
+          "Plus": 140,
+          "Advanced": 340
+        },
+        "source_url": "https://quickbooks.intuit.com/pricing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Regular monthly prices. The page's labeled promo is 50% off for 3 months. Users: 1, 3, 5 and 25. Checked manually in a browser by Aurindom."
+      }
     },
     {
       "id": "google_business_profile",

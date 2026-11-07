@@ -28,6 +28,10 @@ export function planChoices(tool) {
   return tiers.value.map(String)
 }
 
+export function isSingleOffering(tool) {
+  return tool?.offering?.status === 'present' && tool.offering.value === 'single'
+}
+
 // Plans for tools the owner no longer has are dropped here, so a stale plan never reaches the recommendation.
 export function ownedProfile(trade, ownedIds, plans = {}) {
   return {
