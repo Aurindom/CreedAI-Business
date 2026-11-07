@@ -8,6 +8,7 @@ import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
 import PennyMemory from './PennyMemory'
 import SpeechInput from './SpeechInput'
+import { useDraggable, useIsPhone } from './useDraggable'
 import './chat.css'
 
 const STARTERS = [
@@ -24,7 +25,7 @@ const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and co
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
 
-function Panel({ profile, open, onClose }) {
+function Panel({ profile, open, onClose, drag, phone }) {
   const adapter = useMemo(() => createChatAdapter(), [])
   const [restored] = useState(() => loadSession(EMPTY_MEMORY))
   const [conversationId, setConversationId] = useState(() => restored?.conversationId || newConversationId())
@@ -68,8 +69,10 @@ function Panel({ profile, open, onClose }) {
   }, [conversationId, messages, memory])
 
   useEffect(() => {
-    if (open) inputRef.current?.focus()
-  }, [open])
+    if (!open) return
+    inputRef.current?.focus()
+    drag.reclamp()
+  }, [open, drag])
 
   useEffect(() => {
     if (!open) return undefined
@@ -268,8 +271,8 @@ function Panel({ profile, open, onClose }) {
 
   return (
     <>
-      <section className="msc-panel" role="dialog" aria-label="Chat with Penny" hidden={!open}>
-        <header className="msc-header">
+      <section className="msc-panel" role="dialog" aria-label="Chat with Penny" hidden={!open} ref={drag.ref} style={phone ? undefined : drag.style}>
+        <header className={`msc-header${phone ? '' : ' msc-drag-handle'}`} {...(phone ? {} : drag.handleProps)}>
           <div className="msc-identity">
             <PennyAvatar size={44} state={busy ? 'thinking' : speaking ? 'speaking' : 'idle'} />
             <div>
@@ -278,6 +281,11 @@ function Panel({ profile, open, onClose }) {
             </div>
           </div>
           <div className="msc-header-actions">
+            {!phone && (
+              <button type="button" className="msc-move" data-drag-ok onKeyDown={drag.onKeyDown} aria-label="Move chat window with arrow keys" title="Drag the top bar, or use arrow keys here">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>
+              </button>
+            )}
             <button type="button" className="msc-text-button" onClick={startOver}>Start over</button>
             <button type="button" className="msc-close" onClick={onClose} aria-label="Close chat">×</button>
           </div>
@@ -379,10 +387,25 @@ function Panel({ profile, open, onClose }) {
   )
 }
 
+const GREETING_KEY = 'main-street-penny-greeting-closed-v1'
+
+function greetingClosed() {
+  try {
+    return window.sessionStorage.getItem(GREETING_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 function ChatPanelInner({ profile }) {
   const [open, setOpen] = useState(false)
+  const [showGreeting, setShowGreeting] = useState(() => !greetingClosed())
+  const phone = useIsPhone()
+  const bubble = useDraggable({ storageKey: 'main-street-penny-bubble-v1' })
+  const chatWindow = useDraggable({ storageKey: 'main-street-penny-window-v1', enabled: !phone })
   const launcher = useRef(null)
   const wasOpen = useRef(false)
+  const anchor = useRef(null)
   const close = useMemo(() => () => setOpen(false), [])
 
   useEffect(() => {
@@ -390,15 +413,59 @@ function ChatPanelInner({ profile }) {
     wasOpen.current = open
   }, [open])
 
+  useEffect(() => {
+    if (!open || chatWindow.position || !bubble.position || !anchor.current) return undefined
+    const frame = requestAnimationFrame(() => chatWindow.placeNear(anchor.current))
+    return () => cancelAnimationFrame(frame)
+  }, [open, chatWindow, bubble.position])
+
+  function hideGreeting() {
+    setShowGreeting(false)
+    try {
+      window.sessionStorage.setItem(GREETING_KEY, '1')
+    } catch {
+      // Not remembering this only means the greeting shows again.
+    }
+  }
+
+  function openChat() {
+    if (bubble.wasDragged()) return
+    anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+    hideGreeting()
+    setOpen(true)
+  }
+
+  const spot = bubble.position
+  const nearTop = spot ? spot.y < 170 : false
+  const nearLeft = spot ? spot.x < 260 : false
+
   return (
     <div className="msc-root">
       {!open && (
-        <button type="button" className="msc-launcher" ref={launcher} onClick={() => setOpen(true)}>
-          <PennyAvatar size={40} />
-          Talk to Penny
-        </button>
+        <div className="msc-bubble" ref={bubble.ref} style={bubble.style} {...bubble.handleProps}>
+          {showGreeting && (
+            <div className={`msc-greeting${nearTop ? ' msc-greeting-below' : ''}${nearLeft ? ' msc-greeting-right' : ''}`}>
+              <button type="button" className="msc-greeting-text" onClick={openChat}>
+                Hi, I'm Penny. How can I help you today?
+              </button>
+              <button type="button" className="msc-greeting-close" onClick={hideGreeting} aria-label="Hide Penny's greeting">×</button>
+            </div>
+          )}
+          <button
+            type="button"
+            className="msc-launcher"
+            data-drag-ok
+            ref={launcher}
+            onClick={openChat}
+            onKeyDown={bubble.onKeyDown}
+            aria-label="Chat with Penny. Drag to move, or use arrow keys."
+            title="Chat with Penny. Drag to move."
+          >
+            <PennyAvatar size={56} />
+          </button>
+        </div>
       )}
-      <Panel profile={profile} open={open} onClose={close} />
+      <Panel profile={profile} open={open} onClose={close} drag={chatWindow} phone={phone} />
     </div>
   )
 }

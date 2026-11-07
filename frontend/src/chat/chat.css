@@ -2,11 +2,23 @@
 .msc-root *, .msc-root *::before, .msc-root *::after { box-sizing: border-box; }
 .msc-root button:focus-visible, .msc-root a:focus-visible, .msc-root textarea:focus-visible, .msc-root summary:focus-visible { outline: 3px solid #8ca9f8; outline-offset: 2px; }
 
-.msc-launcher { position: fixed; right: 24px; bottom: 24px; z-index: 1000; display: flex; align-items: center; gap: 9px; min-height: 56px; padding: 0 20px 0 8px; border: 0; border-radius: 26px; background: #184f4c; color: #fff; font-size: 15px; font-weight: 700; box-shadow: 0 8px 22px rgba(18, 37, 44, .28); }
-.msc-launcher:hover { background: #0f3e3c; }
+.msc-bubble { position: fixed; right: 24px; bottom: 24px; z-index: 1000; touch-action: none; user-select: none; }
+.msc-launcher { display: grid; place-items: center; width: 68px; height: 68px; padding: 0; border: 3px solid #fff; border-radius: 50%; background: #184f4c; box-shadow: 0 8px 22px rgba(18, 37, 44, .3); cursor: grab; touch-action: none; transition: transform .15s ease; }
+.msc-launcher:hover { transform: scale(1.05); }
+.msc-launcher:active { cursor: grabbing; }
+.msc-greeting { position: absolute; right: 0; bottom: 80px; display: flex; align-items: flex-start; width: 230px; border: 1px solid #dfe3db; border-radius: 14px 14px 4px 14px; background: #fff; box-shadow: 0 8px 24px rgba(18, 37, 44, .18); animation: msc-pop .25s ease-out; }
+.msc-greeting-below { top: 80px; bottom: auto; border-radius: 14px 4px 14px 14px; }
+.msc-greeting-right { left: 0; right: auto; border-radius: 14px 14px 14px 4px; }
+.msc-greeting-below.msc-greeting-right { border-radius: 4px 14px 14px 14px; }
+.msc-greeting-text { flex: 1; padding: 12px 4px 12px 14px; border: 0; background: transparent; color: #17303a; font-size: 15px; font-weight: 600; line-height: 1.4; text-align: left; }
+.msc-greeting-close { flex: none; width: 36px; height: 36px; border: 0; background: transparent; color: #4d6365; font-size: 20px; line-height: 1; }
+@keyframes msc-pop { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: none; } }
 
 .msc-panel[hidden] { display: none; }
-.msc-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1000; width: min(440px, 100vw); display: flex; flex-direction: column; background: #fbfaf7; border-left: 1px solid #dfe3db; box-shadow: -10px 0 30px rgba(18, 37, 44, .16); }
+.msc-panel { position: fixed; right: 24px; bottom: 24px; z-index: 1000; width: min(400px, calc(100vw - 32px)); height: min(640px, calc(100dvh - 48px)); display: flex; flex-direction: column; overflow: hidden; background: #fbfaf7; border: 1px solid #dfe3db; border-radius: 16px; box-shadow: 0 18px 50px rgba(18, 37, 44, .28); animation: msc-pop .2s ease-out; }
+.msc-drag-handle { cursor: grab; touch-action: none; user-select: none; }
+.msc-drag-handle:active { cursor: grabbing; }
+.msc-move { display: grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: 8px; background: transparent; color: #dcebe2; cursor: grab; }
 .msc-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; background: #12252c; color: #fff; }
 .msc-identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .msc-identity > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
@@ -102,6 +114,7 @@
 @keyframes msc-dot { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 @keyframes msc-talk { from { transform: scaleY(.7); } to { transform: scaleY(1.45); } }
 @media (prefers-reduced-motion: reduce) {
+  .msc-greeting, .msc-panel, .msc-launcher { animation: none; transition: none; }
   .msc-avatar *, .msc-avatar-thinking .msc-dots circle, .msc-avatar-speaking .msc-mouth { animation: none; }
 }
 
@@ -112,8 +125,9 @@
 .msc-print { display: none; }
 
 @media (max-width: 640px) {
-  .msc-panel { top: 0; left: 0; width: 100%; height: 100dvh; border-left: 0; }
-  .msc-launcher { right: 16px; bottom: 16px; }
+  .msc-panel { top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100dvh; border: 0; border-radius: 0; }
+  .msc-bubble { right: 16px; bottom: 16px; }
+  .msc-greeting { width: 200px; }
 }
 
 @media print {
