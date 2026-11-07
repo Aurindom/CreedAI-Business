@@ -3,13 +3,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import db
+from .comparison import MAX_COMPARED, MAX_TASKS, compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
 from .tasks import resolve_task
-from .schemas import BusinessProfile, Catalog, Category, ProblemCard, Recommendation, StackCheck, TaskMatch, Tool, ToolFact, Trade
+from .schemas import BusinessProfile, Catalog, Comparison, Category, ProblemCard, Recommendation, StackCheck, TaskMatch, Tool, ToolFact, Trade
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -21,6 +22,19 @@ class RecommendRequest(BaseModel):
 
 class StackRequest(BaseModel):
     tool_ids: list[str]
+
+
+class CompareRequest(BaseModel):
+    profile: BusinessProfile = Field(default_factory=BusinessProfile)
+    problem_ids: list[str] = Field(min_length=1, max_length=MAX_TASKS)
+    tool_ids: list[str] = Field(min_length=1, max_length=MAX_COMPARED)
+
+    @field_validator("problem_ids", "tool_ids")
+    @classmethod
+    def no_repeats(cls, ids: list[str]) -> list[str]:
+        if len(ids) != len(set(ids)):
+            raise ValueError("each id can be chosen only once")
+        return ids
 
 
 class TaskRequest(BaseModel):
@@ -120,6 +134,16 @@ def recommend_route(request: Request, body: RecommendRequest) -> Recommendation:
 def stack_check(request: Request, body: StackRequest) -> StackCheck:
     try:
         return check_stack(_catalog(request), body.tool_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+
+
+@app.post("/api/compare")
+def compare_route(request: Request, body: CompareRequest) -> Comparison:
+    """Uses the same task, business, ownership and plan context as /api/recommend, so prices match the cards."""
+    catalog = _catalog(request)
+    try:
+        return compare(catalog, body.profile, body.problem_ids, body.tool_ids)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=exc.args[0]) from exc
 

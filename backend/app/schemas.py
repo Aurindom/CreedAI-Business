@@ -153,6 +153,14 @@ class Category(BaseModel):
     id: str
     name: str
     capabilities: list[str]
+    labels: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def check_labels(self) -> "Category":
+        stray = set(self.labels) - set(self.capabilities)
+        if stray:
+            raise ValueError(f"{self.id} labels capabilities it does not hold: {sorted(stray)}")
+        return self
 
 
 class Facet(BaseModel):
@@ -250,6 +258,13 @@ class Catalog(BaseModel):
 
     def facet(self, facet_id: str) -> Facet:
         return next(f for f in self.facets if f.id == facet_id)
+
+    def capability_label(self, capability: str) -> str:
+        """Owners read plain words, so a missing label falls back to the id with its underscores spaced out."""
+        for category in self.categories:
+            if capability in category.labels:
+                return category.labels[capability]
+        return capability.replace("_", " ")
 
     def category_of(self, capability: str) -> str | None:
         return next((c.id for c in self.categories if capability in c.capabilities), None)
@@ -352,6 +367,73 @@ class StackCheck(BaseModel):
     known_monthly_usd: float
     total_monthly_usd: float | None
     unknown_cost_tools: list[str]
+
+
+Standing = Literal["eligible", "check_first", "set_aside"]
+Role = Literal["fills_gap", "alternative", "no_fit"]
+
+
+class TaskFit(BaseModel):
+    problem_id: str
+    title: str
+    standing: Standing
+    reason: str
+    route: Route | None = None
+    added_monthly_usd: float | None = None
+    cost_note: str | None = None
+
+
+class ComparedTool(BaseModel):
+    tool_id: str
+    tool_name: str
+    status: ToolStatus
+    role: Role
+    role_note: str
+    tasks: list[TaskFit]
+    facts: list[ToolFact]
+
+
+class TaskSlot(BaseModel):
+    problem_id: str
+    title: str
+    tool_ids: list[str]
+    kind: Literal["covered", "alternatives", "gap"]
+    note: str
+
+
+class Connection(BaseModel):
+    tool_ids: list[str]
+    state: Literal["listed", "unverified"]
+    listed_by: list[str]
+    note: str
+    sources: list[HttpUrl] = Field(default_factory=list)
+
+
+class StackLine(BaseModel):
+    tool_id: str
+    tool_name: str
+    problem_ids: list[str]
+    monthly_usd: float | None
+    note: str
+
+
+class StackCost(BaseModel):
+    lines: list[StackLine]
+    known_monthly_usd: float
+    total_monthly_usd: float | None
+    unknown_cost_tools: list[str]
+    assumptions: list[str]
+    within_budget: bool | None = None
+
+
+class Comparison(BaseModel):
+    problem_ids: list[str]
+    tools: list[ComparedTool]
+    tasks: list[TaskSlot]
+    overlaps: list[str]
+    connections: list[Connection]
+    stack: StackCost | None
+    stack_note: str
 
 
 class TaskMatch(BaseModel):

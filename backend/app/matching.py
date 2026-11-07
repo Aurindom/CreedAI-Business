@@ -279,7 +279,7 @@ def check_stack(catalog: Catalog, tool_ids: list[str]) -> StackCheck:
             if cap.level != "included":
                 continue
             if cap.capability in first_seen:
-                duplicates.append(f"{first_seen[cap.capability]} and {tool.name} both cover {cap.capability}")
+                duplicates.append(f"{first_seen[cap.capability]} and {tool.name} both cover {catalog.capability_label(cap.capability)}")
             first_seen.setdefault(cap.capability, tool.name)
     unknown = [tool.name for tool in tools if not tool.entry_monthly_usd.known]
     known = sum(float(tool.entry_monthly_usd.value) for tool in tools if tool.entry_monthly_usd.known)

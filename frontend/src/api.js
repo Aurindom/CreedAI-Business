@@ -51,5 +51,6 @@ export const api = {
   toolFacts: (toolId) => request(`/api/tools/${encodeURIComponent(toolId)}/facts`),
   recommend: (profile, problemId) => request('/api/recommend', { method: 'POST', body: JSON.stringify({ profile, problem_id: problemId }) }),
   resolveTask: (text) => request('/api/tasks/resolve', { method: 'POST', body: JSON.stringify({ text }) }),
+  compare: (profile, problemIds, toolIds) => request('/api/compare', { method: 'POST', body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds }) }),
   stackCheck: (toolIds) => request('/api/stack/check', { method: 'POST', body: JSON.stringify({ tool_ids: toolIds }) }),
 }

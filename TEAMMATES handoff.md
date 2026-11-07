@@ -18,8 +18,9 @@ The rules the whole team follows:
 Works (backend and frontend talk to each other):
 - Business type picker, 7 category tabs, 12 problem cards, a tool directory of 24 tools.
 - `POST /api/recommend` returns a route per tool (already have it, check your plan, add-on, new tool, and so on), the fit, the added monthly cost and four sourced facts.
-- `POST /api/stack/check` finds overlapping tools and adds up the known monthly cost.
-- 162 backend tests, last run passing on 2026-11-07.
+- `POST /api/compare` compares up to 3 tools for the chosen tasks, on the same prices as the cards (W05).
+- `POST /api/stack/check` finds overlapping tools and adds up the known entry prices (older, see below).
+- 190 backend tests, last run passing on 2026-11-07.
 
 Not built yet:
 - **No chat UI and no live agent.** The chat contract in section 6 is a proposal.
@@ -129,13 +130,14 @@ All endpoints are JSON. Errors come back as `{"detail": "..."}`, for example `40
 |---|---|
 | `GET /api/health` | `{"status": "ok"}` |
 | `GET /api/trades` | Business types: `[{"id": "auto", "name": "Auto shop"}, ...]` (19 of them, examples only, not a gate) |
-| `GET /api/categories` | `[{"id": "calls_messages", "name": "Calls and messages", "capabilities": ["phone_answering", "lead_response"]}, ...]` (7) |
+| `GET /api/categories` | `[{"id": "calls_messages", "name": "Calls and messages", "capabilities": ["phone_answering", "lead_response"], "labels": {"phone_answering": "answering phone calls", ...}}, ...]` (7). Use `labels` wherever an owner would otherwise see a capability id. |
 | `GET /api/problems?trade=&category=` | Problem cards: `{"id": "bookkeeping", "title": "The books are behind", "plain_words": "...", "capability": "bookkeeping", "trades": ["all"]}` |
 | `GET /api/tools?trade=&capability=&category=` | Full tool records (see below). Business type only changes the order. |
 | `GET /api/tools/{tool_id}` | One tool record |
 | `GET /api/tools/{tool_id}/facts` | The same four display facts a recommendation card shows (see "Display facts"). Use this for the comparison table so cards and comparison read the same. |
 | `POST /api/recommend` | A recommendation (see below) |
-| `POST /api/stack/check` | Overlap and cost check (see below) |
+| `POST /api/compare` | Task-aware comparison and stack cost (W05, see below) |
+| `POST /api/stack/check` | Older overlap and entry-price check (see below) |
 
 ### Fact shape
 
@@ -257,12 +259,40 @@ Request `{"text": "I need to book appointments online"}` (1 to 300 characters, n
 
 Request `{"tool_ids": ["quickbooks_online", "jobber"]}`, response:
 ```json
-{"duplicates": ["QuickBooks Online and Jobber both cover invoicing"],
+{"duplicates": ["QuickBooks Online and Jobber both cover sending invoices and getting paid"],
  "known_monthly_usd": 87.0, "total_monthly_usd": 87.0, "unknown_cost_tools": []}
 ```
-`total_monthly_usd` is `null` if any tool's price is unknown.
+`total_monthly_usd` is `null` if any tool's price is unknown. This adds **entry** prices with no task context, so it can disagree with the cards. For the comparison screen and plan preview use `/api/compare` below. Duplicates now use plain labels ("both cover sending invoices and getting paid").
+
+### POST /api/compare (W05)
+
+Request, with the same `profile` you send to `/api/recommend`:
+```json
+{"profile": {"trade": "hvac", "owned": [{"tool_id": "quickbooks_online", "plan": "Simple Start"}], "budget_monthly_usd": 150},
+ "problem_ids": ["job_scheduling", "bookkeeping"],
+ "tool_ids": ["jobber", "housecall_pro"]}
+```
+Limits: 1 to 5 `problem_ids`, 1 to 3 `tool_ids`, no repeats (422). Unknown ids give 404.
+
+Response:
+- `tools[]`: one per chosen tool, in the order sent.
+  - `role`: `fills_gap` (the only chosen tool for some task), `alternative` (another chosen tool fits the same tasks) or `no_fit`. Show `role_note`.
+  - `tasks[]`: one per chosen task the tool lists. `standing` is `eligible`, `check_first` (research candidate, say why with `reason`) or `set_aside`. `route`, `added_monthly_usd` and `cost_note` are exactly what that tool's recommendation card shows.
+  - `facts`: the same four display facts as the cards.
+- `tasks[]`: one per chosen task. `kind` is `covered`, `alternatives` or `gap`. Show `note`.
+- `overlaps[]`: plain sentences. Shared features are possible overlap, never proof two tools do the same job.
+- `connections[]`: one per pair of chosen tools, plus chosen-to-owned pairs. `state` is `listed` (a vendor's sourced list names the other tool, see `listed_by` and `sources`) or `unverified`. Don't show `unverified` as compatible. Even `listed` doesn't say what data moves or which way, and `note` says so.
+- `stack`: `null` when any task has alternatives, because alternatives are not a bundle. Show `stack_note` instead ("Pick one per task first"). Otherwise:
+  - `lines[]`: one per tool, `monthly_usd` for all its tasks together. A plan or add-on shared by two tasks is charged once. `null` means unknown, with the reason in `note`.
+  - `known_monthly_usd`, `total_monthly_usd` (`null` if anything is unknown, never treated as 0), `unknown_cost_tools`, `within_budget` (`null` if there's no budget or the total is unknown).
+  - `assumptions[]`: show these under the total (fees not included, annual billing, tools still to check).
+- `stack_note`: always present. Lists tasks nothing chosen covers.
+
+The future adoption plan (W06) will take this structured `stack`, not the prose.
 
 ## 6. PROPOSED chat contract (not built, use the mock)
+
+**New assignment, 2026-11-07:** Teammate B should read [CHAT_TEAMMATE_TASK.md](docs/CHAT_TEAMMATE_TASK.md). Aurindom assigned the isolated chat bridge/connection work to the teammate on their own machine; the Codex worker has been stopped. The guide gives file boundaries, current/proposed contracts, owner-plan/alternative/custom-draft behavior and acceptance checks. Claude retains shared backend/route and provider integration ownership. This extends the existing chat work without changing the event contract below.
 
 Nothing in this section exists on the backend yet. Claude builds the real endpoint later. Teammate B builds against a mock with exactly this shape, so switching to the real one only means changing the adapter.
 
