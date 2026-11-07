@@ -437,6 +437,7 @@ class StackCost(BaseModel):
     within_budget: bool | None = None
     ready: bool = False
     unconfirmed: list[str] = Field(default_factory=list)
+    uncovered: list[str] = Field(default_factory=list)
 
 
 class AllInOne(BaseModel):

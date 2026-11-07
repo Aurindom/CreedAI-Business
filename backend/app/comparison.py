@@ -285,10 +285,13 @@ def compare(
         unconfirmed = [line.tool_name for line in lines if not line.confirmed]
         known = sum(line.monthly_usd for line in lines if line.monthly_usd is not None)
         total = None if unknown else known
-        ready = not unknown and not unconfirmed
+        uncovered = [s.title for s in slots if s.kind == "gap"]
+        ready = not unknown and not unconfirmed and not uncovered
         assumptions = [FEES]
         assumptions += [f"{t.name} is billed annually." for t in buying if t.entry_billing.known and t.entry_billing.value == "annual"]
         assumptions += [f"{t.name} still needs checking: {f.reason}." for t in buying for f in assigned[t.id] if f.coverage == "possible"]
+        if uncovered:
+            assumptions.append(f"This only prices the tasks your chosen tools cover. Nothing chosen covers {_names(uncovered)} yet, so it isn't the full cost.")
         budget = profile.budget_monthly_usd
         if budget is not None and not ready:
             assumptions.append(f"Your budget is ${budget:g}/mo. The parts we could price come to ${known:g}/mo, but that isn't a confirmed total yet.")
@@ -301,8 +304,9 @@ def compare(
             within_budget=total <= budget if ready and budget is not None else None,
             ready=ready,
             unconfirmed=unconfirmed,
+            uncovered=uncovered,
         )
-        gaps = [s.title for s in slots if s.kind == "gap"]
+        gaps = uncovered
         stack_note = "Each task goes to one tool."
         if any(s.suggested for s in slots):
             stack_note += " Some tasks went to a tool you already need for another task. You can change that."
