@@ -1,7 +1,7 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 FactStatus = Literal["present", "absent", "unknown"]
 SourceType = Literal["vendor", "third_party"]
@@ -13,6 +13,8 @@ Applicability = Literal["cross_industry", "restricted", "unknown"]
 Fit = Literal["you_use_it", "made_for", "any_business", "unconfirmed"]
 FactState = Literal["known", "not_checked", "unresolved"]
 ANY_BUSINESS = "all"
+MAX_COMPARED = 3
+MAX_TASKS = 5
 
 
 class Fact(BaseModel):
@@ -47,6 +49,7 @@ class Capability(BaseModel):
     addon_monthly_usd: Fact = UNKNOWN
     included_from: Fact = UNKNOWN
     addon_from: Fact = UNKNOWN
+    addon_offer: Fact = UNKNOWN
     facets: dict[str, Fact] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -57,6 +60,8 @@ class Capability(BaseModel):
             raise ValueError(f"{self.capability} names a plan but is not marked included")
         if self.addon_from.known and self.level != "add_on":
             raise ValueError(f"{self.capability} names an add-on plan but is not marked add_on")
+        if self.addon_offer.known and self.level != "add_on":
+            raise ValueError(f"{self.capability} names an add-on offer but is not marked add_on")
         return self
 
     @property
@@ -153,6 +158,14 @@ class Category(BaseModel):
     id: str
     name: str
     capabilities: list[str]
+    labels: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def check_labels(self) -> "Category":
+        stray = set(self.labels) - set(self.capabilities)
+        if stray:
+            raise ValueError(f"{self.id} labels capabilities it does not hold: {sorted(stray)}")
+        return self
 
 
 class Facet(BaseModel):
@@ -250,6 +263,13 @@ class Catalog(BaseModel):
 
     def facet(self, facet_id: str) -> Facet:
         return next(f for f in self.facets if f.id == facet_id)
+
+    def capability_label(self, capability: str) -> str:
+        """Owners read plain words, so a missing label falls back to the id with its underscores spaced out."""
+        for category in self.categories:
+            if capability in category.labels:
+                return category.labels[capability]
+        return capability.replace("_", " ")
 
     def category_of(self, capability: str) -> str | None:
         return next((c.id for c in self.categories if capability in c.capabilities), None)
@@ -354,8 +374,167 @@ class StackCheck(BaseModel):
     unknown_cost_tools: list[str]
 
 
+Standing = Literal["eligible", "check_first", "set_aside"]
+Role = Literal["fills_gap", "might_fill_gap", "alternative", "not_needed", "no_fit"]
+Coverage = Literal["confirmed", "possible", "excluded"]
+
+
+class TaskFit(BaseModel):
+    problem_id: str
+    title: str
+    standing: Standing
+    coverage: Coverage = "possible"
+    reason: str
+    route: Route | None = None
+    added_monthly_usd: float | None = None
+    cost_note: str | None = None
+
+
+class ComparedTool(BaseModel):
+    tool_id: str
+    tool_name: str
+    status: ToolStatus
+    role: Role
+    role_note: str
+    tasks: list[TaskFit]
+    facts: list[ToolFact]
+
+
+class TaskSlot(BaseModel):
+    problem_id: str
+    title: str
+    tool_ids: list[str]
+    kind: Literal["covered", "possible", "alternatives", "gap"]
+    note: str
+    candidate_ids: list[str] = Field(default_factory=list)
+    assigned_to: str | None = None
+    suggested: bool = False
+
+
+class Connection(BaseModel):
+    tool_ids: list[str]
+    state: Literal["listed", "unverified"]
+    listed_by: list[str]
+    note: str
+    sources: list[HttpUrl] = Field(default_factory=list)
+
+
+class StackLine(BaseModel):
+    tool_id: str
+    tool_name: str
+    problem_ids: list[str]
+    monthly_usd: float | None
+    note: str
+    confirmed: bool = False
+
+
+class StackCost(BaseModel):
+    lines: list[StackLine]
+    known_monthly_usd: float
+    total_monthly_usd: float | None
+    unknown_cost_tools: list[str]
+    assumptions: list[str]
+    within_budget: bool | None = None
+    ready: bool = False
+    unconfirmed: list[str] = Field(default_factory=list)
+
+
+class AllInOne(BaseModel):
+    tool_id: str
+    tool_name: str
+    status: ToolStatus
+    coverage: Coverage
+    monthly_usd: float | None
+    note: str
+
+
+class Comparison(BaseModel):
+    problem_ids: list[str]
+    tools: list[ComparedTool]
+    tasks: list[TaskSlot]
+    overlaps: list[str]
+    connections: list[Connection]
+    stack: StackCost | None
+    stack_note: str
+    all_in_one: list[AllInOne] = Field(default_factory=list)
+    all_in_one_note: str = ""
+
+
 class TaskMatch(BaseModel):
     status: Literal["matched", "ambiguous", "unsupported"]
     problem_id: str | None = None
     choices: list[ProblemCard] = Field(default_factory=list)
     message: str
+
+
+class Selection(BaseModel):
+    """The tasks and tools an owner picked. Compare and saved plans share it so their limits can't drift apart."""
+
+    profile: BusinessProfile = Field(default_factory=BusinessProfile)
+    problem_ids: list[str] = Field(min_length=1, max_length=MAX_TASKS)
+    tool_ids: list[str] = Field(min_length=1, max_length=MAX_COMPARED)
+    assignments: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("problem_ids", "tool_ids")
+    @classmethod
+    def no_repeats(cls, ids: list[str]) -> list[str]:
+        if len(ids) != len(set(ids)):
+            raise ValueError("each id can be chosen only once")
+        return ids
+
+    @model_validator(mode="after")
+    def assignments_within_selection(self) -> "Selection":
+        for problem_id, tool_id in self.assignments.items():
+            if problem_id not in self.problem_ids or tool_id not in self.tool_ids:
+                raise ValueError(f"assignment {problem_id} -> {tool_id} must use a chosen task and tool")
+        return self
+
+
+class PlanStep(BaseModel):
+    tool_id: str
+    tool_name: str
+    status: ToolStatus
+    coverage: Coverage = "possible"
+    problem_ids: list[str]
+    tasks: list[str]
+    reasons: list[str]
+    monthly_usd: float | None
+    cost_note: str
+    setup: ToolFact
+    facts: list[ToolFact]
+    to_confirm: list[str]
+    to_try: list[str]
+
+
+class AdoptionPlan(BaseModel):
+    id: str
+    selection: Selection
+    created_at: datetime
+    refreshed_at: datetime | None = None
+    steps: list[PlanStep]
+    gaps: list[str]
+    connections: list[Connection]
+    stack: StackCost
+    note: str
+    status: Literal["checked", "draft", "legacy"] = "legacy"
+    open_items: list[str] = Field(default_factory=list)
+
+
+class SavedPlan(BaseModel):
+    plan: AdoptionPlan
+    changed: bool
+    change_note: str
+    current_total_monthly_usd: float | None = None
+
+
+class PlanSummary(BaseModel):
+    id: str
+    created_at: datetime
+    refreshed_at: datetime | None
+    tool_names: list[str]
+    total_monthly_usd: float | None
+
+
+class OwnerSession(BaseModel):
+    token: str
+    expires_at: datetime

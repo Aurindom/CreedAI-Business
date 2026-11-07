@@ -12,7 +12,12 @@ CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "catalog.json"
 
 def test_real_catalog_loads_and_covers_every_problem():
     catalog = db.load_catalog_file(CATALOG_PATH)
-    assert 12 <= len(catalog.tools) <= 30
+    for group in (catalog.tools, catalog.trades, catalog.categories, catalog.problem_cards, catalog.facets):
+        ids = [item.id for item in group]
+        assert len(ids) == len(set(ids))
+    trade_ids = {t.id for t in catalog.trades} | {"all"}
+    assert all(set(t.trades) <= trade_ids for t in catalog.tools)
+    assert all(set(c.trades) <= trade_ids for c in catalog.problem_cards)
     for card in catalog.problem_cards:
         assert any(t.capability(card.capability) for t in catalog.tools), card.id
 
@@ -39,7 +44,7 @@ def test_catalog_goes_beyond_the_first_four_business_types():
 
 def test_categories_cover_every_problem(client):
     categories = client.get("/api/categories").json()
-    assert len(categories) == 7
+    assert categories and len({c["id"] for c in categories}) == len(categories)
     total = sum(len(client.get("/api/problems", params={"category": c["id"]}).json()) for c in categories)
     assert total == len(client.get("/api/problems").json()) > 0
 

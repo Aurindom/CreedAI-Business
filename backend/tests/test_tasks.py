@@ -38,13 +38,62 @@ def test_card_without_phrases_is_never_matched(phrased):
 
 
 def test_endpoint_returns_a_known_card_or_says_so(client):
-    match = client.post("/api/tasks/resolve", json={"text": "I keep missing calls"}).json()
-    assert match["status"] in ("matched", "ambiguous", "unsupported")
     known = {c["id"] for c in client.get("/api/problems").json()}
-    assert {c["id"] for c in match["choices"]} <= known
+    for text in ("I keep missing calls", "my books are a mess"):
+        match = client.post("/api/tasks/resolve", json={"text": text}).json()
+        assert match["status"] == "matched" and match["problem_id"] in known
+        assert [c["id"] for c in match["choices"]] == [match["problem_id"]]
     assert client.post("/api/tasks/resolve", json={"text": "zzqx"}).json()["status"] == "unsupported"
 
 
 @pytest.mark.parametrize("text", ["", "   ", "x" * 301])
 def test_endpoint_rejects_empty_or_long_text(client, text):
     assert client.post("/api/tasks/resolve", json={"text": text}).status_code == 422
+
+
+@pytest.mark.parametrize("positive, negative", [
+    ("I need help answering calls", "I don't need help answering calls"),
+    ("I need help answering calls", "I do not want to answer calls myself"),
+    ("my books are a mess", "my books are never a mess"),
+])
+def test_negation_never_gives_a_confident_match(phrased, positive, negative):
+    assert resolve_task(phrased, positive).status == "matched"
+    match = resolve_task(phrased, negative)
+    assert match.status == "ambiguous" and match.problem_id is None and len(match.choices) == 1
+    assert "confirm" in match.message
+
+
+def test_negated_need_is_listed_after_the_stated_one(phrased):
+    match = resolve_task(phrased, "I do not need help answering calls; I need bookkeeping")
+    assert match.status == "ambiguous" and match.problem_id is None
+    assert [c.id for c in match.choices] == ["books", "calls"]
+
+
+@pytest.mark.parametrize("text", [
+    "I answer calls fine but my books are late",
+    "Bookkeeping is done, however nobody can answer calls",
+    "my books are a mess and nobody answers calls",
+])
+def test_two_needs_make_the_owner_choose(phrased, text):
+    match = resolve_task(phrased, text)
+    assert match.status == "ambiguous" and match.problem_id is None
+    assert {c.id for c in match.choices} == {"calls", "books"}
+
+
+def test_a_phrase_only_counts_inside_one_clause(phrased):
+    assert resolve_task(phrased, "Please answer. Calls are fine.").status == "unsupported"
+
+
+def test_a_shorter_phrase_inside_the_winning_one_is_not_a_second_need(phrased):
+    phrased.problem("calls").phrases.append("schedule calls")
+    match = resolve_task(phrased, "schedule calls")
+    assert match.status == "matched" and match.problem_id == "calls"
+
+
+@pytest.mark.parametrize("text", [
+    "I do not need help answering calls; I need bookkeeping",
+    "I answer calls fine but invoices are late",
+])
+def test_real_catalog_does_not_guess_on_mixed_sentences(client, text):
+    match = client.post("/api/tasks/resolve", json={"text": text}).json()
+    assert match["status"] == "ambiguous" and match["problem_id"] is None and len(match["choices"]) >= 2
