@@ -19,7 +19,7 @@ Works (backend and frontend talk to each other):
 - Business type picker, 7 category tabs, 12 problem cards, a tool directory of 24 tools.
 - `POST /api/recommend` returns a route per tool (already have it, check your plan, add-on, new tool, and so on), the fit, the added monthly cost and four sourced facts.
 - `POST /api/stack/check` finds overlapping tools and adds up the known monthly cost.
-- 146 backend tests, last run passing on 2026-11-07.
+- 162 backend tests, last run passing on 2026-11-07.
 
 Not built yet:
 - **No chat UI and no live agent.** The chat contract in section 6 is a proposal.
@@ -242,8 +242,12 @@ Request `{"text": "I need to book appointments online"}` (1 to 300 characters, n
  "message": "Sounds like: Booking appointments takes too long."}
 ```
 - `matched`: one card. Go straight to its recommendation.
-- `ambiguous`: `problem_id` is `null` and `choices` holds the tied cards. Ask the owner to pick one. A bare word like "schedule" gives this on purpose.
-- `unsupported`: `choices` is empty. Show `message` and the normal problem list. Never guess.
+- `ambiguous`: `problem_id` is `null`. Ask the owner to pick from `choices`, best guess first. Never act on it without the owner's click. It happens when:
+  - a bare word fits several cards ("schedule"),
+  - the sentence names two needs ("my books are a mess and I miss calls", "I answer calls fine but invoices are late"),
+  - the need sits in a negated part ("I don't need help answering calls; I need bookkeeping"). Negated cards come last.
+  - With only ONE choice, the message says "Did you mean ...? Please confirm." Show it as a yes/no confirm, not a list.
+- `unsupported`: `choices` is empty. Show `message` and the normal problem list. Never guess. Typos ("invocies") and single vague words ("phone") land here today.
 
 ### Problem icons
 

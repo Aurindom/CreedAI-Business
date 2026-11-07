@@ -3,6 +3,8 @@ import re
 from .schemas import Catalog, ProblemCard, TaskMatch
 
 _SUFFIXES = (("ies", "y"), ("s", ""), ("ing", ""), ("ed", ""), ("e", ""))
+_CLAUSE_BREAK = re.compile(r"[.;!?\n]+|,?\s+\b(?:but|however|although|though|whereas|instead|except|yet)\b", re.IGNORECASE)
+_NEGATION = re.compile(r"\b(?:not|no|never|without|dont|doesnt|didnt|isnt|arent|wont|cant)\b|n['’]t\b", re.IGNORECASE)
 
 
 def _stem(word: str) -> str:
@@ -17,20 +19,47 @@ def _words(text: str) -> set[str]:
     return {_stem(w) for w in re.findall(r"[a-z0-9]+", text.casefold())}
 
 
-def _score(card: ProblemCard, said: set[str]) -> int:
-    """The longest phrase whose every word appears wins, so 'schedule jobs' beats a bare 'schedule'."""
-    hits = [len(words) for words in (_words(p) for p in card.phrases) if words and words <= said]
-    return max(hits, default=0)
+def _phrase_hits(card: ProblemCard, said: set[str]) -> list[set[str]]:
+    return [words for words in (_words(p) for p in card.phrases) if words and words <= said]
+
+
+def _clause_hits(catalog: Catalog, clause: str) -> list[ProblemCard]:
+    """The longest phrase wins, so 'schedule jobs' beats a bare 'schedule'. A card matched on words
+    the winning card doesn't explain is a separate need and is kept, so 'books' survives next to 'miss calls'."""
+    said = _words(clause)
+    hits = {card.id: _phrase_hits(card, said) for card in catalog.problem_cards}
+    best = max((len(w) for found in hits.values() for w in found), default=0)
+    if not best:
+        return []
+    winners = [card for card in catalog.problem_cards if any(len(w) == best for w in hits[card.id])]
+    covered = set().union(*(w for card in winners for w in hits[card.id]))
+    others = [card for card in catalog.problem_cards if card not in winners and any(not w <= covered for w in hits[card.id])]
+    return winners + others
+
+
+def _add(cards: list[ProblemCard], new: list[ProblemCard]) -> None:
+    for card in new:
+        if card not in cards:
+            cards.append(card)
 
 
 def resolve_task(catalog: Catalog, text: str) -> TaskMatch:
-    """Maps plain words to a known problem card using only the phrases in the catalog. A tie asks, nothing found says so."""
-    said = _words(text)
-    scored = [(card, _score(card, said)) for card in catalog.problem_cards]
-    best = max((score for _, score in scored), default=0)
-    if best == 0:
+    """Maps plain words to a known problem card using only the catalog's phrases.
+
+    Phrases only count inside one clause. A negated clause ("I don't need...") can't give a
+    confident match, and clauses pointing at different cards make the owner choose, because
+    a bag of words can't tell "I answer calls fine but invoices are late" from a call problem.
+    """
+    stated: list[ProblemCard] = []
+    negated: list[ProblemCard] = []
+    for clause in _CLAUSE_BREAK.split(text):
+        if clause and clause.strip():
+            _add(negated if _NEGATION.search(clause) else stated, _clause_hits(catalog, clause))
+    choices = stated + [card for card in negated if card not in stated]
+    if not choices:
         return TaskMatch(status="unsupported", message="We don't cover that task yet. Pick one of the listed problems instead.")
-    top = [card for card, score in scored if score == best]
-    if len(top) == 1:
-        return TaskMatch(status="matched", problem_id=top[0].id, choices=top, message=f"Sounds like: {top[0].title}.")
-    return TaskMatch(status="ambiguous", choices=top, message="That could mean a few things. Which one is closest?")
+    if len(choices) == 1 and stated:
+        return TaskMatch(status="matched", problem_id=choices[0].id, choices=choices, message=f"Sounds like: {choices[0].title}.")
+    if len(choices) == 1:
+        return TaskMatch(status="ambiguous", choices=choices, message=f"Did you mean: {choices[0].title}? Please confirm.")
+    return TaskMatch(status="ambiguous", choices=choices, message="That could mean a few things. Which one is closest?")
