@@ -498,7 +498,7 @@ The backend can now add tools it finds on vendor sites. Nothing searches the web
 
 ### 12.1 New field on every tool
 - `origin`: `"catalog"` for the reviewed list we ship, `"discovered"` for tools found by discovery. Old rows mean `"catalog"`.
-- A discovered tool is always `status: "pending_review"`, so it never wins a recommendation. Its summary is always "Found by discovery on DATE. Not reviewed yet." Its plan access is unknown, and its price is only filled when the vendor's own page lists one US dollar monthly plan.
+- A discovered tool is always `status: "pending_review"`, so it never wins a recommendation. Its summary is always "Found by discovery on DATE. Not reviewed yet." Its plan access is unknown, and its price is only filled when the vendor's own page lists a flat US dollar monthly plan. Per-user, per-location, yearly or usage prices stay unknown, with a note and the pricing link, and never count toward the budget.
 - It shows up in `/api/tools`, `/api/tools/{id}`, recommend and compare straight away, with no restart, and it stays after a restart.
 
 ### 12.2 What the UI should do
@@ -508,8 +508,9 @@ The backend can now add tools it finds on vendor sites. Nothing searches the web
 ### 12.3 Endpoint (operator only)
 `POST /api/discover` with `Authorization: Bearer <DISCOVERY_TOKEN>` and a body like `{"capability": "phone_answering", "trade": "hvac", "facets": {}, "max_results": 5, "max_pages": 6, "time_budget_s": 15}`.
 - 503 when `DISCOVERY_TOKEN` isn't set or no finder is connected. That is the state on every server today.
-- 401 for a missing or wrong token, 422 for an unknown task or filter or a cap over the limit (10 results, 16 pages, 30 seconds), 429 while another run is going.
-- 200 returns `{run_id, status, added[], updated[], duplicates[], excluded[], error, notice}`. A failed run (timeout, over budget, broken result) saves nothing.
+- 401 for a missing or wrong token, 422 for an unknown task or filter or a cap over the limit (10 results, 16 pages, 30 seconds), 429 while another run is going or a timed-out run is still stopping.
+- 200 returns `{run_id, status, added[], updated[], duplicates[], excluded[], error, notice}`. A failed run (over time, over budget, broken result) saves nothing. A run over its time limit fails with error code `"stopping"`, and the next run can start once it has actually stopped.
+- If a later catalog change makes a discovered tool invalid, or a reviewed tool now covers the same product, it leaves the list on the next start. It is kept aside for the operator, not deleted. Nothing changes in the UI for this.
 
 ## 13. Agent chat contract, W09 (added 2026-11-07)
 

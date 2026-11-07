@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from . import db
+from .capacity import Claim
 from .domains import identity, registrable_domain, slug
 from .schemas import Capability, Catalog, Fact, Tool
 
@@ -190,13 +191,24 @@ def check_request(catalog: Catalog, request: DiscoveryRequest) -> None:
             raise DiscoveryFailed("unknown_facet", f"unknown filter for this task: {facet_id}={value}")
 
 
-def run_finder(catalog: Catalog, request: DiscoveryRequest, finder: Finder, allow_fixture: bool = False) -> FinderResult:
+def run_finder(catalog: Catalog, request: DiscoveryRequest, finder: Finder, allow_fixture: bool = False,
+               claim: Claim | None = None) -> FinderResult:
     """Runs the finder in its own thread so a stuck finder can't hold the caller past the time budget.
 
-    A Python thread can't be killed. On timeout the cancel event is set, the thread is left to finish on
-    its own and anything it returns later is ignored.
+    A Python thread can't be killed, so the deadline only asks it to stop: the cancel event is set and the
+    finder is expected to check it between its bounded actions. The caller gets the failure straight away
+    but the claim stays held, marked stopping, until the thread really exits. Only the thread's own exit
+    path releases it. Whatever a late finder returns is dropped here and never reaches the store.
+
+    When a claim is passed, this function owns it from the first line: it is released if the request is
+    refused or the thread can't start, and by the thread itself otherwise.
     """
-    check_request(catalog, request)
+    try:
+        check_request(catalog, request)
+    except DiscoveryFailed:
+        if claim is not None:
+            claim.release()
+        raise
     cancel = threading.Event()
     box: dict[str, Any] = {}
 
@@ -205,13 +217,27 @@ def run_finder(catalog: Catalog, request: DiscoveryRequest, finder: Finder, allo
             box["raw"] = finder(request, cancel)
         except Exception as exc:
             box["error"] = type(exc).__name__
+        finally:
+            if claim is not None:
+                claim.release()
 
     worker = threading.Thread(target=work, name="discovery-finder", daemon=True)
-    worker.start()
+    try:
+        worker.start()
+    except BaseException:
+        if claim is not None:
+            claim.release()
+        raise
     worker.join(request.time_budget_s + GRACE_SECONDS)
     if worker.is_alive():
+        if claim is not None:
+            claim.stopping()
         cancel.set()
-        raise DiscoveryFailed("timed_out", f"discovery took longer than {request.time_budget_s:g} seconds and was stopped")
+        raise DiscoveryFailed(
+            "stopping",
+            f"discovery ran past {request.time_budget_s:g} seconds and is stopping. Nothing from this run will be saved. "
+            "Another run can start once it has finished stopping",
+        )
     if "error" in box:
         raise DiscoveryFailed("finder_error", f"the finder failed ({box['error']})")
     try:
@@ -247,20 +273,34 @@ def _fact(value: Any, row: Evidence, note: str | None = None, inferred: bool = F
     return Fact(status="present", value=value, source_url=row.url, source_type="vendor", checked=row.checked, note=note, inferred=inferred)
 
 
+FLAT_MONTHLY_UNITS = {"month", "mo", "monthly"}
+BLOCKING_STATES = {"usage_based", "quote_only", "extraction_failed"}
+
+
+def _flat(plan: PricePlan) -> bool:
+    return plan.unit.strip().casefold() in FLAT_MONTHLY_UNITS
+
+
 def _price(candidate: Candidate, domain: str) -> dict[str, Fact]:
-    """Only a USD monthly plan becomes a price. Anything else is described in a note and left unknown, never converted."""
+    """Only a flat USD monthly plan with no usage charges becomes the entry price.
+
+    A per-seat, per-location, annual, usage or unrecognised unit is described in a note, with the pricing
+    page as the next step, and left unknown. It is never converted, multiplied, or counted as zero.
+    """
     pricing = candidate.pricing
     link = candidate.pricing_url if candidate.pricing_url and registrable_domain(urlsplit(candidate.pricing_url).hostname or "") == domain else None
     price_rows = {r.url: r for r in candidate.evidence if r.field == "pricing.plan" and r.excerpt.strip()}
-    monthly = [
+    mandatory_usage = bool(pricing.usage_charges) or pricing.state in BLOCKING_STATES
+    comparable = [
         p for p in pricing.plans
-        if p.currency == "USD" and p.billing == "monthly" and p.source_url in price_rows
+        if not mandatory_usage and _flat(p) and p.currency == "USD" and p.billing == "monthly" and p.source_url in price_rows
         and registrable_domain(urlsplit(p.source_url).hostname or "") == domain
     ]
-    if monthly:
-        entry = min(monthly, key=lambda p: p.amount)
+    if comparable:
+        entry = min(comparable, key=lambda p: p.amount)
         row = price_rows[entry.source_url]
-        several = len(monthly) > 1
+        other_units = any(not _flat(p) for p in pricing.plans)
+        several = len(comparable) > 1 or other_units
         note = "Lowest listed monthly plan, inferred by discovery to be the entry price." if several else "Listed monthly plan, read by discovery."
         fields = {"entry_monthly_usd": _fact(entry.amount, row, note, inferred=several)}
         if entry.name and not several:
@@ -269,7 +309,8 @@ def _price(candidate: Candidate, domain: str) -> dict[str, Fact]:
     found = [f"{p.amount:g} {p.currency or 'in an unstated currency'} per {p.unit} ({p.billing})" for p in pricing.plans]
     found += [f"{u.amount:g} {u.currency or 'in an unstated currency'} per {u.per}" for u in pricing.usage_charges]
     if found:
-        note = "Listed as " + "; ".join(found) + ". Not a US dollar monthly price, so it was not converted."
+        why = "It mixes in usage charges" if mandatory_usage else "It is not a flat US dollar monthly price for the whole product"
+        note = "Listed as " + "; ".join(found) + f". {why}, so it was not converted."
     elif pricing.state == "quote_only":
         note = "The vendor asks you to contact them for a price."
     else:

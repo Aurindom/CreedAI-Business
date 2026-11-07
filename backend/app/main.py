@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from . import access, adoption, db, discovery, web
+from .capacity import Capacity
 from .comparison import AssignmentError, compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
@@ -68,7 +69,7 @@ async def lifespan(app: FastAPI):
         app.state.catalog = db.read_catalog(conn)
         app.state.conn = conn
         app.state.lock = threading.Lock()
-        app.state.discovery_run = threading.Lock()
+        app.state.capacity = Capacity(1)
         app.state.discovery_finder = None
         yield
     finally:
@@ -281,16 +282,14 @@ def discover_route(request: Request, body: discovery.DiscoveryRequest, finder: d
         discovery.check_request(_catalog(request), body)
     except discovery.DiscoveryFailed as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
-    if not request.app.state.discovery_run.acquire(blocking=False):
-        raise HTTPException(status_code=429, detail="A discovery run is already going. Try again when it finishes")
+    claim = request.app.state.capacity.try_claim()
+    if claim is None:
+        raise HTTPException(status_code=429, detail="A discovery run is already going or still stopping. Try again when it finishes")
     try:
-        try:
-            result = discovery.run_finder(_catalog(request), body, finder)
-        except discovery.DiscoveryFailed as exc:
-            return discovery.DiscoveryReport(run_id=uuid.uuid4().hex, status="failed", error=discovery.ErrorInfo(code=exc.code, message=exc.message))
-        with request.app.state.lock:
-            report = discovery.store(request.app.state.conn, _catalog(request), body, result, _now().date())
-            request.app.state.catalog = db.read_catalog(request.app.state.conn)
-        return report
-    finally:
-        request.app.state.discovery_run.release()
+        result = discovery.run_finder(_catalog(request), body, finder, claim=claim)
+    except discovery.DiscoveryFailed as exc:
+        return discovery.DiscoveryReport(run_id=uuid.uuid4().hex, status="failed", error=discovery.ErrorInfo(code=exc.code, message=exc.message))
+    with request.app.state.lock:
+        report = discovery.store(request.app.state.conn, _catalog(request), body, result, _now().date())
+        request.app.state.catalog = db.read_catalog(request.app.state.conn)
+    return report

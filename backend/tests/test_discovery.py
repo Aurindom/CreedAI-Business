@@ -181,18 +181,129 @@ def test_a_crashing_finder_does_not_leak_its_message(server):
     assert report["error"]["code"] == "finder_error" and "secret" not in report["error"]["message"]
 
 
-def test_a_stuck_finder_is_stopped_at_the_time_budget(server, monkeypatch):
-    monkeypatch.setattr(discovery, "GRACE_SECONDS", 0.05)
-    cancelled = threading.Event()
+def wait_until_free(capacity, seconds=3.0):
+    """Polls in short event waits, with no fixed sleep, until the worker's exit path has released its slot."""
+    gate = threading.Event()
+    for _ in range(int(seconds / 0.01)):
+        if not capacity.usage().busy:
+            return True
+        gate.wait(0.01)
+    return not capacity.usage().busy
 
-    def slow(request, cancel):
-        if cancel.wait(5):
-            cancelled.set()
-        return result(candidate())
 
-    report = run(server(slow), time_budget_s=0.1)
-    assert report["status"] == "failed" and report["error"]["code"] == "timed_out"
-    assert cancelled.wait(2)
+class PausedFinder:
+    """A finder made of two bounded actions with a gate inside the first. Nothing here depends on timing."""
+
+    def __init__(self, raw):
+        self.raw = raw
+        self.in_first = threading.Event()
+        self.release_first = threading.Event()
+        self.actions = []
+        self.saw_cancel = False
+
+    def __call__(self, request, cancel):
+        self.actions.append("first")
+        self.in_first.set()
+        self.release_first.wait(5)
+        self.saw_cancel = cancel.is_set()
+        if self.saw_cancel:
+            return self.raw
+        self.actions.append("second")
+        return self.raw
+
+
+@pytest.fixture
+def quick_deadline(monkeypatch):
+    monkeypatch.setattr(discovery, "GRACE_SECONDS", 0.02)
+
+
+def post(client, **body):
+    return client.post("/api/discover", json={"capability": "phone_answering", "time_budget_s": 0.05, **body}, headers=AUTH)
+
+
+def test_a_paused_finder_is_cancelled_finishes_its_action_and_starts_no_next_one(server, quick_deadline):
+    finder = PausedFinder(result(candidate()))
+    client = server(finder)
+    report = post(client).json()
+    assert finder.in_first.is_set()
+    assert report["status"] == "failed" and report["error"]["code"] == "stopping"
+    assert "stopping" in report["error"]["message"] and "stopped" not in report["error"]["message"]
+    usage = app.state.capacity.usage()
+    assert usage.stopping == 1 and usage.running == 0
+    finder.release_first.set()
+    assert wait_until_free(app.state.capacity)
+    assert finder.saw_cancel and finder.actions == ["first"]
+
+
+def test_a_request_during_cleanup_is_busy_and_one_after_exit_succeeds(server, quick_deadline):
+    finder = PausedFinder(result(candidate()))
+    client = server(finder)
+    assert post(client).json()["error"]["code"] == "stopping"
+    assert post(client).status_code == 429
+    assert post(client).status_code == 429
+    finder.release_first.set()
+    assert wait_until_free(app.state.capacity)
+    app.state.discovery_finder = returns(result(candidate()))
+    again = post(client, time_budget_s=5)
+    assert again.status_code == 200 and again.json()["added"] == ["ringwise-com-ringwise"]
+
+
+def test_a_late_result_after_the_deadline_never_reaches_sqlite(server, quick_deadline):
+    finder = PausedFinder(result(candidate()))
+    client = server(finder)
+    assert post(client).json()["error"]["code"] == "stopping"
+    finder.release_first.set()
+    assert wait_until_free(app.state.capacity)
+    assert listed(client, "ringwise-com-ringwise") is None
+    rows = app.state.conn.execute("SELECT COUNT(*) FROM tool WHERE origin = 'discovered'").fetchone()[0]
+    assert rows == 0
+    stop(client)
+    assert listed(server(), "ringwise-com-ringwise") is None
+
+
+def test_a_finder_exception_releases_the_slot_exactly_once(catalog):
+    from app.capacity import Capacity
+
+    capacity = Capacity(1)
+    claim = capacity.try_claim()
+    outcomes = []
+    real = claim.release
+    claim.release = lambda: outcomes.append(real()) or outcomes[-1]
+
+    def boom(request, cancel):
+        raise RuntimeError("secret internal detail")
+
+    with pytest.raises(discovery.DiscoveryFailed) as caught:
+        discovery.run_finder(catalog, discovery.DiscoveryRequest(capability="phone"), boom, claim=claim)
+    assert caught.value.code == "finder_error"
+    assert wait_until_free(capacity)
+    assert outcomes == [True]
+    assert capacity.try_claim() is not None
+
+
+def test_a_thread_that_cannot_start_releases_the_slot(catalog, monkeypatch):
+    from app.capacity import Capacity
+
+    capacity = Capacity(1)
+    claim = capacity.try_claim()
+
+    def refuse(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    with pytest.raises(RuntimeError):
+        discovery.run_finder(catalog, discovery.DiscoveryRequest(capability="phone"), returns({}), claim=claim)
+    assert not capacity.usage().busy and claim.state == "stopped"
+
+
+def test_a_refused_request_does_not_keep_its_slot(catalog):
+    from app.capacity import Capacity
+
+    capacity = Capacity(1)
+    claim = capacity.try_claim()
+    with pytest.raises(discovery.DiscoveryFailed):
+        discovery.run_finder(catalog, discovery.DiscoveryRequest(capability="nope"), returns({}), claim=claim)
+    assert not capacity.usage().busy
 
 
 def test_page_text_never_reaches_the_tool(server):
@@ -205,12 +316,12 @@ def test_page_text_never_reaches_the_tool(server):
     assert "Ignore" not in str(stored) and stored["summary"].startswith("Found by discovery")
 
 
-def plan(amount, currency="USD", billing="monthly", name="Starter", url="https://www.ringwise.com/pricing"):
-    return {"name": name, "amount": amount, "currency": currency, "unit": "month", "billing": billing, "source_url": url}
+def plan(amount, currency="USD", billing="monthly", name="Starter", url="https://www.ringwise.com/pricing", unit="month"):
+    return {"name": name, "amount": amount, "currency": currency, "unit": unit, "billing": billing, "source_url": url}
 
 
-def priced(*plans, state="fixed", evidence=True):
-    found = candidate(pricing={"state": state, "plans": list(plans)})
+def priced(*plans, state="fixed", evidence=True, usage=()):
+    found = candidate(pricing={"state": state, "plans": list(plans), "usage_charges": list(usage)})
     if evidence:
         found["evidence"].append(row("pricing.plan", "https://www.ringwise.com/pricing", "Starter $39/mo"))
     return found
@@ -245,6 +356,46 @@ def test_other_prices_stay_unknown_with_the_pricing_link(server, found, words):
     price = listed(client, "ringwise-com-ringwise")["entry_monthly_usd"]
     assert price["status"] == "unknown" and words in price["note"]
     assert price["source_url"] == "https://www.ringwise.com/pricing"
+
+
+USAGE = {"amount": 0.05, "currency": "USD", "per": "minute", "source_url": "https://www.ringwise.com/pricing"}
+
+
+@pytest.mark.parametrize("found, words", [
+    (priced(plan(10, unit="user/month")), "10 USD per user/month"),
+    (priced(plan(10, unit="seat/month")), "per seat/month"),
+    (priced(plan(25, unit="location/month")), "per location/month"),
+    (priced(plan(400, billing="annual", unit="year")), "per year (annual)"),
+    (priced(plan(30), usage=[USAGE]), "usage charges"),
+    (priced(plan(30), state="usage_based"), "usage charges"),
+    (priced(plan(30, unit="whatever")), "per whatever"),
+])
+def test_prices_that_are_not_a_flat_monthly_total_stay_unresolved(server, found, words):
+    client = server(returns(result(found)))
+    run(client)
+    stored = listed(client, "ringwise-com-ringwise")
+    price = stored["entry_monthly_usd"]
+    assert price["status"] == "unknown" and price["value"] is None and words in price["note"]
+    assert "not converted" in price["note"] and price["source_url"] == "https://www.ringwise.com/pricing"
+    assert stored["entry_plan"]["status"] == "unknown"
+
+
+def test_a_flat_plan_beside_a_per_seat_plan_is_only_an_estimate(server):
+    client = server(returns(result(priced(plan(49, name="Team"), plan(9, name="Solo", unit="user/month")))))
+    run(client)
+    price = listed(client, "ringwise-com-ringwise")["entry_monthly_usd"]
+    assert price["value"] == 49 and price["inferred"]
+
+
+def test_a_per_seat_price_never_counts_toward_a_budget(server):
+    client = server(returns(result(priced(plan(10, unit="user/month")))))
+    run(client)
+    card = next(c for c in client.get("/api/problems").json() if c["capability"] == "phone_answering")
+    rec = client.post("/api/recommend", json={"profile": {"trade": "hvac", "budget_monthly_usd": 500}, "problem_id": card["id"]}).json()
+    mine = [o for o in rec["options"] if o["tool_id"] == "ringwise-com-ringwise"]
+    assert all(o["status"] == "pending_review" for o in mine)
+    assert rec["winner_tool_id"] != "ringwise-com-ringwise"
+    assert listed(client, "ringwise-com-ringwise")["entry_monthly_usd"]["value"] is None
 
 
 def test_only_evidenced_facet_values_are_kept(server):
@@ -298,11 +449,12 @@ def test_requests_over_the_hard_caps_are_refused(server, body):
 
 def test_one_discovery_run_at_a_time(server):
     client = server(returns(result(candidate())))
-    app.state.discovery_run.acquire()
+    claim = app.state.capacity.try_claim()
     try:
         assert client.post("/api/discover", json={"capability": "phone_answering"}, headers=AUTH).status_code == 429
     finally:
-        app.state.discovery_run.release()
+        claim.release()
+    assert client.post("/api/discover", json={"capability": "phone_answering"}, headers=AUTH).status_code == 200
 
 
 def test_the_plain_discover_function_runs_the_whole_path(catalog, tmp_path):
@@ -323,6 +475,8 @@ def test_seed_hands_a_discovered_twin_to_the_catalog_entry(catalog, tmp_path):
     db.add_discovered_tool(conn, tool("found-voice", 20, [], status="pending_review").model_copy(update={"name": "Voice"}))
     assert db.seed(conn, catalog) == ["found-voice"]
     assert {t.id for t in db.read_catalog(conn).tools} == {t.id for t in catalog.tools}
+    kept = conn.execute("SELECT state, reason, canonical_id FROM quarantine").fetchall()
+    assert kept == [("archived_duplicate", "curated_duplicate", "voice")]
 
 
 def test_seed_drops_a_discovered_tool_the_new_catalog_cannot_hold(catalog, tmp_path):
@@ -336,3 +490,4 @@ def test_seed_drops_a_discovered_tool_the_new_catalog_cannot_hold(catalog, tmp_p
     assert db.seed(conn, smaller) == ["diner-bot"]
     read = db.read_catalog(conn)
     assert "diner-bot" not in {t.id for t in read.tools}
+    assert conn.execute("SELECT state, reason FROM quarantine WHERE tool_id = 'diner-bot'").fetchall() == [("quarantined", "catalog_conflict")]
