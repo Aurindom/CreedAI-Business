@@ -11,18 +11,26 @@ def by_label(t):
 def test_unknown_facts_stay_visible_as_unknown():
     facts = by_label(tool("t"))
     assert list(facts) == ["Entry price", "Setup", "Privacy", "Support"]
-    assert all(not f.known and f.value == NOT_CHECKED for f in facts.values())
+    assert all(not f.known and f.value == NOT_CHECKED and f.state == "not_checked" for f in facts.values())
 
 
 def test_researched_unknown_says_why():
     hidden = Fact(status="unknown", note="Sales contact only.")
     price = by_label(tool("t", entry_monthly_usd=hidden))["Entry price"]
     assert price.value == "Unknown" and price.note == "Sales contact only."
+    assert price.state == "unresolved"
+
+
+def test_unresolved_fact_keeps_where_we_looked():
+    looked = Fact(status="unknown", note="Pricing page needs a sales call.", source_url="https://example.com/pricing", checked="2026-11-07")
+    price = by_label(tool("t", entry_monthly_usd=looked))["Entry price"]
+    assert price.state == "unresolved" and str(price.source_url) == "https://example.com/pricing"
+    assert str(price.checked) == "2026-11-07"
 
 
 def test_known_price_shows_plan_and_source():
     price = by_label(tool("t", 49, entry_plan=fact("Core")))["Entry price"]
-    assert price.known and price.value == "$49/mo, Core plan"
+    assert price.known and price.state == "known" and price.value == "$49/mo, Core plan"
     assert str(price.source_url) == "https://example.com/p"
     assert str(price.checked) == "2026-11-06"
 

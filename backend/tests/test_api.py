@@ -10,13 +10,6 @@ from app.schemas import Catalog
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "catalog.json"
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "test.db"))
-    with TestClient(app) as test_client:
-        yield test_client
-
-
 def test_real_catalog_loads_and_covers_every_problem():
     catalog = db.load_catalog_file(CATALOG_PATH)
     assert 12 <= len(catalog.tools) <= 30

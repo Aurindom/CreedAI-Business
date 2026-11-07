@@ -6,8 +6,9 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from . import db
+from .facts import tool_facts
 from .matching import check_stack, recommend
-from .schemas import BusinessProfile, Catalog, Category, ProblemCard, Recommendation, StackCheck, Tool, Trade
+from .schemas import BusinessProfile, Catalog, Category, ProblemCard, Recommendation, StackCheck, Tool, ToolFact, Trade
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -88,6 +89,15 @@ def tools(request: Request, trade: str | None = None, capability: str | None = N
 def tool_detail(request: Request, tool_id: str) -> Tool:
     try:
         return _catalog(request).tool(tool_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=exc.args[0]) from exc
+
+
+@app.get("/api/tools/{tool_id}/facts")
+def tool_fact_list(request: Request, tool_id: str) -> list[ToolFact]:
+    """Cards and the comparison read the same fact wording from here, so a price or source can't be phrased two ways."""
+    try:
+        return tool_facts(_catalog(request).tool(tool_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=exc.args[0]) from exc
 

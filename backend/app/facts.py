@@ -6,11 +6,15 @@ LEVEL_WORDS = {"low": "Low effort", "medium": "Some effort", "high": "High effor
 
 
 def _from_fact(label: str, fact: Fact, text: str | None = None) -> ToolFact:
+    """A note on an unknown fact means someone looked and could not confirm it, which owners should see apart from never checked."""
     if not fact.known:
-        return ToolFact(label=label, known=False, value=UNKNOWN if fact.note else NOT_CHECKED, note=fact.note)
+        if fact.note:
+            return ToolFact(label=label, known=False, state="unresolved", value=UNKNOWN, note=fact.note, source_url=fact.source_url, checked=fact.checked)
+        return ToolFact(label=label, known=False, state="not_checked", value=NOT_CHECKED)
     return ToolFact(
         label=label,
         known=True,
+        state="known",
         value=text or LEVEL_WORDS.get(str(fact.value), str(fact.value)),
         note=fact.note,
         source_url=fact.source_url,

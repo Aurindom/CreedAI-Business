@@ -134,6 +134,7 @@ All endpoints are JSON. Errors come back as `{"detail": "..."}`, for example `40
 | `GET /api/problems?trade=&category=` | Problem cards: `{"id": "bookkeeping", "title": "The books are behind", "plain_words": "...", "capability": "bookkeeping", "trades": ["all"]}` |
 | `GET /api/tools?trade=&capability=&category=` | Full tool records (see below). Business type only changes the order. |
 | `GET /api/tools/{tool_id}` | One tool record |
+| `GET /api/tools/{tool_id}/facts` | The same four display facts a recommendation card shows (see "Display facts"). Use this for the comparison table so cards and comparison read the same. |
 | `POST /api/recommend` | A recommendation (see below) |
 | `POST /api/stack/check` | Overlap and cost check (see below) |
 
@@ -186,8 +187,8 @@ Response (real output, cut down):
     "fit": "any_business",
     "fit_note": "The vendor offers this to many kinds of business",
     "added_monthly_usd": 38.0,
-    "cost_note": "Entry plan, before processing or hardware fees",
-    "facts": [{"label": "Entry price", "known": true, "value": "$38/mo, Simple Start plan",
+    "cost_note": "Simple Start plan, before processing or hardware fees",
+    "facts": [{"label": "Entry price", "known": true, "state": "known", "value": "$38/mo, Simple Start plan",
                "note": "...", "source_url": "https://quickbooks.intuit.com/pricing/",
                "source_type": "vendor", "checked": "2026-11-06"}]
   }],
@@ -201,6 +202,26 @@ Response (real output, cut down):
 - `status`: `verified` or `pending_review`. Show a visible "not yet rechecked" badge on every pending card, in options, check_first and set_aside. A pending option is never the winner, so `winner_tool_id` is `null` when the top option is pending. Don't show a green or "recommended" style on a pending card. For `any_business`, say "offered to many kinds of business", not "works for any business".
 - `added_monthly_usd` can be `null`, which means the cost is unknown. Show "unknown", not $0.
 - `check_first` holds options we can't confirm yet. Show them apart from the confident options.
+
+### Display facts
+
+Each item in `options[].facts` and in `GET /api/tools/{id}/facts` is `{label, known, state, value, note, source_url, source_type, checked}`. `state` is one of:
+- `known`: sourced. Show the value, a link to `source_url` and the `checked` date.
+- `not_checked`: nobody has looked yet. Show "Not checked yet".
+- `unresolved`: someone looked and couldn't confirm it. Show "Unknown" plus `note` (the reason), and the link and date if present.
+
+Don't merge `not_checked` and `unresolved` into one "unknown" style. Today the comparison builds its own text from the raw tool record and shows "Not checked yet" for both, which is the gap to close.
+
+### Plan picker (W03, for the owner screen)
+
+The backend and `frontend/src/api.js` are ready. The picker itself goes in `App.jsx`.
+- Beside each owned tool, add an optional plan select. Options are `planChoices(tool)` (the sourced `plan_tiers`, cheapest first) plus "I do not know" as the default, value `PLAN_UNKNOWN`.
+- If `planChoices` is empty (no sourced tiers, or a single offering like Google Business Profile), don't show a select. A short optional text box for an old or custom plan name is fine, capped at `PLAN_LABEL_MAX` (100) characters. Never present a typed label as checked.
+- Keep plans in state keyed by tool id, for example `{jobber: "Core"}`, so changing the trade, tab or problem doesn't wipe them.
+- Build the request with `ownedProfile(trade, ownedIds, plans)`. It sends `owned: [{tool_id, plan}]`, turns blanks into "I do not know", and drops plans for tools that are no longer owned.
+- Re-run the recommendation when a plan changes. The answer depends on it: a Lite owner can get `plan_upgrade` while a Max owner gets `already_have` for the same feature.
+- An unknown or unmatched plan always gives `check_plan` with `added_monthly_usd: null`. Never show that as $0 or "included".
+- Don't add scores or stars.
 
 ### POST /api/stack/check
 

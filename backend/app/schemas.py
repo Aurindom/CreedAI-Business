@@ -11,6 +11,7 @@ Route = Literal["already_have", "check_plan", "native_add_on", "plan_upgrade", "
 Outcome = Literal["no_new_tool", "add_on", "new_tool", "verify_with_vendor", "no_match"]
 Applicability = Literal["cross_industry", "restricted", "unknown"]
 Fit = Literal["you_use_it", "made_for", "any_business", "unconfirmed"]
+FactState = Literal["known", "not_checked", "unresolved"]
 ANY_BUSINESS = "all"
 
 
@@ -246,6 +247,7 @@ class BusinessProfile(BaseModel):
 class ToolFact(BaseModel):
     label: str
     known: bool
+    state: FactState
     value: str
     note: str | None = None
     source_url: HttpUrl | None = None
