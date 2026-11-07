@@ -958,12 +958,21 @@
           "access": {
             "status": "present",
             "value": "included",
-            "source_url": "https://business.google.com/us/business-profile/",
+            "source_url": "https://support.google.com/business/answer/3038063",
             "source_type": "vendor",
-            "checked": "2026-11-06"
+            "checked": "2026-11-07",
+            "note": "Needs a Google Account and an eligible business. The profile must be verified before you can make changes."
           }
         }
-      ]
+      ],
+      "offering": {
+        "status": "present",
+        "value": "single",
+        "source_url": "https://support.google.com/business/answer/3038063",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Managing a Business Profile is at no charge. There are no plans to choose."
+      }
     },
     {
       "id": "mailchimp",
@@ -981,15 +990,15 @@
         "value": 0,
         "source_url": "https://mailchimp.com/pricing/marketing/",
         "source_type": "vendor",
-        "checked": "2026-11-06",
-        "note": "Free plan: up to 250 contacts and 500 sends a month. Regular paid prices were not captured."
+        "checked": "2026-11-07",
+        "note": "Free plan: up to 250 contacts, 500 sends a month (250 a day), 1 seat."
       },
       "entry_plan": {
         "status": "present",
         "value": "Free",
         "source_url": "https://mailchimp.com/pricing/marketing/",
         "source_type": "vendor",
-        "checked": "2026-11-06"
+        "checked": "2026-11-07"
       },
       "capabilities": [
         {
@@ -999,10 +1008,50 @@
             "value": "included",
             "source_url": "https://mailchimp.com/pricing/marketing/",
             "source_type": "vendor",
-            "checked": "2026-11-06"
+            "checked": "2026-11-07"
+          },
+          "included_from": {
+            "status": "present",
+            "value": "Free",
+            "source_url": "https://mailchimp.com/pricing/marketing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "The Free plan includes creating email campaigns, within its contact and send limits."
           }
         }
-      ]
+      ],
+      "entry_billing": {
+        "status": "present",
+        "value": "monthly",
+        "source_url": "https://mailchimp.com/pricing/marketing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_tiers": {
+        "status": "present",
+        "value": [
+          "Free",
+          "Essentials",
+          "Standard",
+          "Premium"
+        ],
+        "source_url": "https://mailchimp.com/pricing/marketing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07"
+      },
+      "plan_prices": {
+        "status": "present",
+        "value": {
+          "Free": 0,
+          "Essentials": 13,
+          "Standard": 20,
+          "Premium": 350
+        },
+        "source_url": "https://mailchimp.com/pricing/marketing/",
+        "source_type": "vendor",
+        "checked": "2026-11-07",
+        "note": "Starting monthly prices at the smallest contact level shown. Prices rise with contacts. Paid plans start with a 14-day trial. Premium's $297.50 is a 12-month promotion and is not used."
+      }
     },
     {
       "id": "setmore",

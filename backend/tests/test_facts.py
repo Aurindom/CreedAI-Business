@@ -51,4 +51,4 @@ def test_same_price_falls_back_to_name(catalog):
 
 
 def test_unknown_price_ranks_after_known_price(catalog):
-    assert ranked(catalog, [tool("hidden", None, [cap("phone")]), tool("pricey", 500, [cap("phone")])]) == ["pricey", "hidden"]
+    assert ranked(catalog, [tool("hidden", None, [cap("phone")]), tool("pricey", 500, [cap("phone", plan="Core")], entry_plan=fact("Core"))]) == ["pricey", "hidden"]

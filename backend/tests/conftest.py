@@ -15,13 +15,13 @@ def fact(value, source_type="vendor"):
 def cap(name, access="included", addon=None, plan=None):
     extra = {"addon_monthly_usd": fact(addon)} if addon is not None else {}
     if plan is not None:
-        extra["included_from"] = fact(plan)
+        extra["addon_from" if access == "add_on" else "included_from"] = fact(plan)
     access_fact = Fact(status="unknown") if access == "unknown" else fact(access)
     return Capability(capability=name, access=access_fact, **extra)
 
 
 def tool(tool_id, price=None, caps=(), connects=None, trades=("hvac",), applicability="restricted", **extra):
-    fields = dict(extra)
+    fields = {"status": "verified", **extra}
     fields["applicability"] = applicability
     if applicability != "unknown":
         fields["applicability_source"] = "https://example.com/who"
@@ -47,12 +47,12 @@ def catalog():
             ProblemCard(id="nothing", title="t", plain_words="w", capability="teleport", trades=["hvac"]),
         ],
         tools=[
-            tool("suite", 50, [cap("phone", "add_on", 29), cap("jobs")], connects=["ledger"]),
+            tool("suite", 50, [cap("phone", "add_on", 29, plan="Base"), cap("jobs", plan="Base")], connects=["ledger"], entry_plan=fact("Base")),
             tool("hidden", 80, [cap("phone", "add_on"), cap("jobs")]),
             tool("voice", 100, [cap("phone", plan="Core")], connects=["ledger"], entry_plan=fact("Core")),
-            tool("solo", 60, [cap("phone")]),
+            tool("solo", 60, [cap("phone", plan="Core")], entry_plan=fact("Core")),
             tool("mystery", None, [cap("phone")]),
-            tool("ledger", 30, [cap("bookkeeping")]),
+            tool("ledger", 30, [cap("bookkeeping", plan="Core")], entry_plan=fact("Core")),
             tool("foreign", 10, [cap("phone", plan="Core")], trades=("restaurant",), entry_plan=fact("Core")),
             tool("banned", 1, [cap("phone")], status="rejected"),
         ],

@@ -45,6 +45,7 @@ class Capability(BaseModel):
     access: Fact
     addon_monthly_usd: Fact = UNKNOWN
     included_from: Fact = UNKNOWN
+    addon_from: Fact = UNKNOWN
 
     @model_validator(mode="after")
     def check_access(self) -> "Capability":
@@ -52,6 +53,8 @@ class Capability(BaseModel):
             raise ValueError(f"bad access value: {self.access.value}")
         if self.included_from.known and self.level != "included":
             raise ValueError(f"{self.capability} names a plan but is not marked included")
+        if self.addon_from.known and self.level != "add_on":
+            raise ValueError(f"{self.capability} names an add-on plan but is not marked add_on")
         return self
 
     @property
@@ -72,11 +75,46 @@ class Tool(BaseModel):
     entry_plan: Fact = UNKNOWN
     entry_billing: Fact = UNKNOWN
     plan_tiers: Fact = UNKNOWN
+    plan_prices: Fact = UNKNOWN
+    offering: Fact = UNKNOWN
     setup_effort: Fact = UNKNOWN
     privacy: Fact = UNKNOWN
     support_stability: Fact = UNKNOWN
     connects_to: Fact = UNKNOWN
     capabilities: list[Capability] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_plans(self) -> "Tool":
+        """Tier prices share entry_billing's basis and must name sourced tiers, so a price can never float free of its plan."""
+        if self.offering.known and self.offering.value not in ("single", "tiered"):
+            raise ValueError(f"{self.id}: bad offering value: {self.offering.value}")
+        if self.single_offering and self.plan_tiers.known:
+            raise ValueError(f"{self.id}: a single offering cannot list plan tiers")
+        if self.plan_prices.known:
+            prices = self.plan_prices.value
+            if not isinstance(prices, dict) or not self.plan_tiers.known:
+                raise ValueError(f"{self.id}: plan_prices must map sourced plan_tiers to monthly prices")
+            tiers = {str(t).casefold() for t in self.plan_tiers.value}
+            for name, price in prices.items():
+                if str(name).casefold() not in tiers:
+                    raise ValueError(f"{self.id}: priced plan {name} is not in plan_tiers")
+                if isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0:
+                    raise ValueError(f"{self.id}: bad price for plan {name}: {price}")
+        return self
+
+    @property
+    def single_offering(self) -> bool:
+        return self.offering.known and self.offering.value == "single"
+
+    def plan_price(self, plan: str) -> Fact:
+        """The entry plan's own fact wins; other tiers come from plan_prices. Anything else stays unknown."""
+        if self.entry_plan.known and str(self.entry_plan.value).strip().casefold() == plan.strip().casefold():
+            return self.entry_monthly_usd
+        if self.plan_prices.known:
+            for name, price in self.plan_prices.value.items():
+                if str(name).strip().casefold() == plan.strip().casefold():
+                    return self.plan_prices.model_copy(update={"value": price})
+        return Fact(status="unknown", note=f"Price of the {plan} plan not recorded. Verify with the vendor")
 
     def capability(self, name: str) -> Capability | None:
         return next((c for c in self.capabilities if c.capability == name), None)
@@ -218,6 +256,7 @@ class ToolFact(BaseModel):
 class Option(BaseModel):
     tool_id: str
     tool_name: str
+    status: ToolStatus
     route: Route
     fit: Fit
     fit_note: str
@@ -229,6 +268,7 @@ class Option(BaseModel):
 class SetAside(BaseModel):
     tool_id: str
     tool_name: str
+    status: ToolStatus
     reason: str
 
 

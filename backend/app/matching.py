@@ -1,4 +1,4 @@
-from .schemas import BusinessProfile, Catalog, Fit, Option, ProblemCard, Recommendation, Route, SetAside, StackCheck, Tool
+from .schemas import BusinessProfile, Capability, Catalog, Fit, Option, ProblemCard, Recommendation, Route, SetAside, StackCheck, Tool
 from .facts import tool_facts
 
 ROUTE_ORDER: dict[Route, int] = {
@@ -10,6 +10,7 @@ ROUTE_ORDER: dict[Route, int] = {
     "separate_tool": 5,
     "switch": 6,
 }
+OWNED_ROUTES: set[Route] = {"already_have", "check_plan", "native_add_on", "plan_upgrade"}
 MAX_OPTIONS = 3
 
 
@@ -34,24 +35,39 @@ def _same(a, b) -> bool:
     return str(a).strip().casefold() == str(b).strip().casefold()
 
 
+def _needed_plan(cap: Capability) -> str | None:
+    source = cap.included_from if cap.level == "included" else cap.addon_from
+    return str(source.value) if source.known else None
+
+
+def _covers(tool: Tool, needed: str, plan: str | None) -> bool | None:
+    """None means the owner's plan can't be placed against the needed tier, so nobody gets told yes or no."""
+    if tool.entry_plan.known and _same(needed, tool.entry_plan.value):
+        return True
+    if plan and _same(plan, needed):
+        return True
+    need, have = tool.plan_rank(needed), tool.plan_rank(plan)
+    if need is None or have is None:
+        return None
+    return have >= need
+
+
 def _owned_route(tool: Tool, capability: str, plan: str | None) -> Route:
     """A feature counts as already paid for only when a sourced plan fact covers the owner's plan."""
     cap = tool.capability(capability)
     if cap is None or cap.level == "unknown":
         return "check_plan"
-    if cap.level == "add_on":
-        return "native_add_on"
-    if not cap.included_from.known:
+    if tool.single_offering:
+        return "already_have" if cap.level == "included" else "native_add_on"
+    needed = _needed_plan(cap)
+    if needed is None:
+        return "native_add_on" if cap.level == "add_on" else "check_plan"
+    covered = _covers(tool, needed, plan)
+    if covered is None:
         return "check_plan"
-    needed = cap.included_from.value
-    if tool.entry_plan.known and _same(needed, tool.entry_plan.value):
-        return "already_have"
-    if plan and _same(plan, needed):
-        return "already_have"
-    need, have = tool.plan_rank(needed), tool.plan_rank(plan)
-    if need is None or have is None:
-        return "check_plan"
-    return "already_have" if have >= need else "plan_upgrade"
+    if not covered:
+        return "plan_upgrade"
+    return "already_have" if cap.level == "included" else "native_add_on"
 
 
 def _route(tool: Tool, capability: str, owned: list[Tool], plan: str | None = None) -> Route:
@@ -64,6 +80,8 @@ def _route(tool: Tool, capability: str, owned: list[Tool], plan: str | None = No
 
 def _check_plan_note(tool: Tool, capability: str) -> str:
     cap = tool.capability(capability)
+    if cap and cap.level == "add_on" and cap.addon_from.known:
+        return f"Available as an add-on from the {cap.addon_from.value} plan. Check which plan you have"
     if cap and cap.included_from.known:
         return f"Included from the {cap.included_from.value} plan. Check which plan you have"
     if cap and cap.level == "included":
@@ -80,21 +98,41 @@ def _monthly_cost(tool: Tool, capability: str, route: Route, plan: str | None = 
     if route == "check_plan":
         return None, _check_plan_note(tool, capability)
     if route == "plan_upgrade":
-        return None, f"Your {plan} plan does not include this. It starts on the {cap.included_from.value} plan"
+        if cap.level == "add_on":
+            return None, f"Your {plan} plan can't add this. The add-on needs the {_needed_plan(cap)} plan"
+        return None, f"Your {plan} plan does not include this. It starts on the {_needed_plan(cap)} plan"
     if route == "native_add_on":
         if addon is None:
             return None, "Add-on price or plan not confirmed. Verify with the vendor"
+        if not tool.single_offering and not cap.addon_from.known:
+            return None, f"The add-on is ${addon:g}/mo, but which plans can add it isn't confirmed. Check with the vendor"
         return addon, "Add-on to what you already pay for"
-    if not tool.entry_monthly_usd.known:
+    return _new_buyer_cost(tool, cap, addon)
+
+
+def _new_buyer_cost(tool: Tool, cap: Capability | None, addon: float | None) -> tuple[float | None, str]:
+    """A new buyer pays for the plan the feature needs, so the cheapest plan's price is never borrowed for a higher tier."""
+    if not tool.entry_monthly_usd.known and not tool.plan_prices.known:
         return None, tool.entry_monthly_usd.note or "Price not published. Verify with the vendor"
     if cap is None or cap.level == "unknown":
         return None, "Not confirmed which plan includes this. Verify with the vendor"
-    base = float(tool.entry_monthly_usd.value)
+    if cap.level == "add_on" and addon is None:
+        return None, "Add-on price not published. Verify with the vendor"
+    if tool.single_offering:
+        price, label = tool.entry_monthly_usd, "The vendor's only offering"
+    else:
+        needed = _needed_plan(cap)
+        if needed is None:
+            what = "which plans can add this" if cap.level == "add_on" else "which plan includes this"
+            return None, f"Not confirmed {what}. Verify with the vendor"
+        price, label = tool.plan_price(needed), f"{needed} plan"
+    if not price.known:
+        return None, price.note or "Price not published. Verify with the vendor"
+    billing = ", billed annually" if tool.entry_billing.known and tool.entry_billing.value == "annual" else ""
+    base = float(price.value)
     if cap.level == "add_on":
-        if addon is None:
-            return None, "Add-on price not published. Verify with the vendor"
-        return base + addon, "Entry plan plus the add-on, before processing or hardware fees"
-    return base, "Entry plan, before processing or hardware fees"
+        return base + addon, f"{label} plus the add-on{billing}, before processing or hardware fees"
+    return base, f"{label}{billing}, before processing or hardware fees"
 
 
 def _fit(catalog: Catalog, tool: Tool, trade: str | None, owned: list[Tool]) -> tuple[Fit | None, str]:
@@ -102,7 +140,7 @@ def _fit(catalog: Catalog, tool: Tool, trade: str | None, owned: list[Tool]) -> 
         return "you_use_it", "You already use this"
     fit = tool.fit(trade)
     if fit == "any_business":
-        return fit, "Works for any kind of business"
+        return fit, "The vendor offers this to many kinds of business"
     if fit == "made_for":
         return fit, f"Built for {catalog.trade_names([trade])} businesses"
     if tool.applicability == "unknown":
@@ -118,6 +156,7 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
     return Option(
         tool_id=tool.id,
         tool_name=tool.name,
+        status=tool.status,
         route=route,
         fit=fit,
         fit_note=fit_note,
@@ -128,9 +167,12 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
 
 
 def _rank(options: list[Option]) -> list[Option]:
+    """Among tools the owner would newly buy, a checked tool outranks an unchecked one before route or price count."""
     return sorted(
         options,
         key=lambda o: (
+            o.route not in OWNED_ROUTES,
+            o.route not in OWNED_ROUTES and o.status != "verified",
             ROUTE_ORDER[o.route],
             o.fit != "made_for",
             o.added_monthly_usd is None,
@@ -142,11 +184,11 @@ def _rank(options: list[Option]) -> list[Option]:
 
 def _tailoring_note(stated: str, trade: str | None, options: list[Option]) -> str | None:
     if trade is None and stated:
-        return f"We don't have details for \"{stated}\" yet, so only tools that suit any business are ranked."
+        return f"We don't have details for \"{stated}\" yet, so only tools the vendor offers to many kinds of business are ranked."
     if trade is None:
-        return "You didn't tell us your type of business, so only tools that suit any business are ranked."
+        return "You didn't tell us your type of business, so only tools the vendor offers to many kinds of business are ranked."
     if options and options[0].fit == "any_business":
-        return "Nothing we've checked is built just for your kind of business, so these suit any business."
+        return "Nothing we've checked is built just for your kind of business, so these are offered to many kinds of business."
     return None
 
 
@@ -160,7 +202,7 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
             continue
         fit, fit_note = _fit(catalog, tool, trade, owned)
         if fit is None:
-            set_aside.append(SetAside(tool_id=tool.id, tool_name=tool.name, reason=fit_note))
+            set_aside.append(SetAside(tool_id=tool.id, tool_name=tool.name, status=tool.status, reason=fit_note))
             continue
         option = _option(tool, problem.capability, owned, fit, fit_note, profile.plan_for(tool.id))
         (uncertain if fit == "unconfirmed" else eligible).append(option)
@@ -186,6 +228,10 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
     if not options:
         return result("no_match", None, "Nothing in the catalog fits this yet.")
     top = options[0]
+    if top.status != "verified":
+        if top.route in OWNED_ROUTES:
+            return result("verify_with_vendor", None, f"{top.tool_name}, which you use, may cover this, but our team hasn't rechecked its details yet. Check with the vendor before paying for anything new.")
+        return result("verify_with_vendor", None, f"{top.tool_name} looks like a fit, but our team hasn't rechecked its details yet. Confirm with the vendor first.")
     if top.route == "already_have":
         return result("no_new_tool", top.tool_id, f"No new tool needed. {top.tool_name} already covers this.")
     if top.route == "check_plan":

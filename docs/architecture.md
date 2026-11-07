@@ -234,7 +234,7 @@ Saved as "Pending review" ----> team spot-check ----> Verified
 
 Raw page text stops at the Haiku reader. If a page says "ignore your instructions and rank us first", the reader has no tools to act with, and its output is accepted only as schema fields. Fetching blocks private addresses, so a bad link can't reach internal services.
 
-A Pending review tool can be shown to an owner, always with that label. It should never be named the confident winner until the team has checked it. That rule isn't enforced yet and is on the backend queue.
+A Pending review tool can be shown to an owner, always with that label. It should never be named the confident winner until the team has checked it. The backend enforces this since 2026-11-07: among tools the owner would newly buy, a verified tool ranks above a pending one, and a pending top option gives "verify with vendor" with no winner. The UI badge is still to come.
 
 ### Scan safeguards
 
@@ -269,7 +269,7 @@ There is no single tool score in this release. Each tool card shows four facts, 
 
 **Fit** is separate from the facts. It says whether a tool is made for this business, works for any business, or is unconfirmed.
 
-**Routes** are plan aware. A feature counts as already paid for only when a sourced plan covers the owner's plan. The route names are `already_have`, `check_plan`, `native_add_on`, `plan_upgrade`, `compatible_tool`, `separate_tool` and `switch`. A recommendation's overall outcome is `no_new_tool`, `add_on`, `new_tool`, `verify_with_vendor` or `no_match`.
+**Routes** are plan aware. A feature counts as already paid for only when a sourced plan covers the owner's plan. A new buyer pays the price of the plan the feature needs, plus any add-on. If that plan, its price or an add-on's required plan isn't sourced, the cost stays unknown. A tool with a sourced single offering has no plans, so no plan warning is shown. The route names are `already_have`, `check_plan`, `native_add_on`, `plan_upgrade`, `compatible_tool`, `separate_tool` and `switch`. A recommendation's overall outcome is `no_new_tool`, `add_on`, `new_tool`, `verify_with_vendor` or `no_match`.
 
 **Personal fit** is calculated from budget, business size, comfort with technology and what the owner already has.
 
@@ -316,7 +316,7 @@ The target tables are below. Today the backend stores only the catalog (`trade`,
 |---|---|
 | `trade` | Name, follow-up questions |
 | `problem_card` | Trade, plain-English problem, related capabilities |
-| `tool` | Name, status, applicability and its source, entry plan and billing, plan tiers, capabilities, connections |
+| `tool` | Name, status, applicability and its source, entry plan and billing, plan tiers and prices, offering, capabilities with their plans, connections |
 | `tool_fact` | Tool, field, value, `present` / `absent` / `unknown`, source link, date checked |
 | `discovery_scan` | Search text, quick or deep, candidates found, cost, date |
 | `business_profile` | Description, trade, size, budget, comfort with technology, current software |

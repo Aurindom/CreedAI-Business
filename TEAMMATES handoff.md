@@ -28,7 +28,7 @@ Not built yet:
 - No saved plans or results tracker.
 
 Known data and logic gaps (Claude is fixing these on the backend, so don't work around them in the UI):
-- 16 of the 24 tools are `pending_review` (8 are `verified`). Their facts haven't been rechecked yet. Today a pending tool can still be the winner, and the card doesn't show the review status yet.
+- 16 of the 24 tools are `pending_review` (8 are `verified`). Their facts haven't been rechecked yet. Since 2026-11-07 the backend never makes a pending tool the winner, and every option carries `status`. The card doesn't show it yet (teammate A).
 - The cost of a feature that only comes on a higher plan is still shown at the entry plan price.
 - Several prices are unknown (Podium, Square, Toast, 7shifts, and the billing period for Slang AI).
 - `PLAN.md` is the product plan. `TEAM_HANDOFF.md` only points here. Where anything disagrees with this file, this file wins.
@@ -145,7 +145,14 @@ Every fact on a tool looks like this. If `status` is `unknown`, show "unknown", 
  "source_type": "vendor", "checked": "2026-11-06", "note": "..."}
 ```
 
-A tool record has `id, name, url, trades, applicability, applicability_source, status, summary, entry_monthly_usd, entry_plan, entry_billing, plan_tiers, setup_effort, privacy, support_stability, connects_to, capabilities`. `status` is `verified`, `pending_review` or `rejected`. Here `pending_review` means our team hasn't rechecked the facts yet. It has nothing to do with customer reviews.
+A tool record has `id, name, url, trades, applicability, applicability_source, status, summary, entry_monthly_usd, entry_plan, entry_billing, plan_tiers, plan_prices, offering, setup_effort, privacy, support_stability, connects_to, capabilities`. `status` is `verified`, `pending_review` or `rejected`. Here `pending_review` means our team hasn't rechecked the facts yet. It has nothing to do with customer reviews.
+
+Plan facts, all optional and all sourced like any other fact:
+- `plan_tiers`: plan names from cheapest to dearest. `plan_prices`: a map from those names to monthly prices, on the same billing basis as `entry_billing`.
+- `offering`: `single` when the vendor sells one thing with no plans (Google Business Profile). Then no plan warning is shown. A free price alone doesn't count.
+- Each capability can carry `included_from` (the lowest plan that includes it) or, for add-ons, `addon_from` (the lowest plan that can add it).
+
+A new buyer is priced at the plan the feature needs, never the cheapest plan by default. If that plan or its price isn't sourced, `added_monthly_usd` is `null` and `cost_note` says what to check with the vendor.
 
 ### POST /api/recommend
 
@@ -170,13 +177,14 @@ Response (real output, cut down):
   "winner_tool_id": "quickbooks_online",
   "message": "QuickBooks Online covers this but overlaps what you have. Weigh the move first.",
   "tailored": false,
-  "tailoring_note": "Nothing we've checked is built just for your kind of business, so these suit any business.",
+  "tailoring_note": "Nothing we've checked is built just for your kind of business, so these are offered to many kinds of business.",
   "options": [{
     "tool_id": "quickbooks_online",
     "tool_name": "QuickBooks Online",
+    "status": "verified",
     "route": "switch",
     "fit": "any_business",
-    "fit_note": "Works for any kind of business",
+    "fit_note": "The vendor offers this to many kinds of business",
     "added_monthly_usd": 38.0,
     "cost_note": "Entry plan, before processing or hardware fees",
     "facts": [{"label": "Entry price", "known": true, "value": "$38/mo, Simple Start plan",
@@ -184,12 +192,13 @@ Response (real output, cut down):
                "source_type": "vendor", "checked": "2026-11-06"}]
   }],
   "check_first": [],
-  "set_aside": [{"tool_id": "...", "tool_name": "...", "reason": "..."}]
+  "set_aside": [{"tool_id": "...", "tool_name": "...", "status": "verified", "reason": "..."}]
 }
 ```
 - `outcome`: `no_new_tool`, `add_on`, `new_tool`, `verify_with_vendor` or `no_match`.
 - `route`: `already_have`, `check_plan`, `native_add_on`, `plan_upgrade`, `compatible_tool`, `separate_tool` or `switch`.
 - `fit`: `you_use_it`, `made_for`, `any_business` or `unconfirmed`.
+- `status`: `verified` or `pending_review`. Show a visible "not yet rechecked" badge on every pending card, in options, check_first and set_aside. A pending option is never the winner, so `winner_tool_id` is `null` when the top option is pending. Don't show a green or "recommended" style on a pending card. For `any_business`, say "offered to many kinds of business", not "works for any business".
 - `added_monthly_usd` can be `null`, which means the cost is unknown. Show "unknown", not $0.
 - `check_first` holds options we can't confirm yet. Show them apart from the confident options.
 

@@ -144,11 +144,14 @@ def test_unknown_tool_is_a_404(client):
     assert client.get("/api/tools/nope").status_code == 404
 
 
-def test_jobber_owner_with_missed_calls_gets_the_add_on(client):
+def test_jobber_add_on_waits_until_its_plans_are_sourced(client):
     body = {"profile": {"trade": "hvac", "owned_tool_ids": ["jobber"], "budget_monthly_usd": 100}, "problem_id": "missed_calls"}
     result = client.post("/api/recommend", json=body).json()
-    assert result["outcome"] == "add_on"
-    assert result["options"][0]["added_monthly_usd"] == 29
+    top = result["options"][0]
+    assert top["tool_id"] == "jobber" and top["route"] == "native_add_on"
+    assert top["added_monthly_usd"] is None
+    assert "$29/mo" in top["cost_note"] and "which plans can add it" in top["cost_note"]
+    assert result["outcome"] == "verify_with_vendor"
 
 
 def test_restaurant_missed_calls_has_no_confident_winner(client):
