@@ -6,6 +6,8 @@ Built for the UMD AI for Small Business Hack-a-thon, Fall 2026. This is a workin
 
 - **Teammates start here:** [`TEAMMATES handoff.md`](TEAMMATES%20handoff.md)
 - **Product plan:** [`PLAN.md`](PLAN.md)
+- **Architecture (target design):** [`docs/architecture.md`](docs/architecture.md)
+- **Deferred work:** [`docs/FUTURE_WORK.md`](docs/FUTURE_WORK.md)
 
 ## Quick start
 

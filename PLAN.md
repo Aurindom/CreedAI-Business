@@ -4,6 +4,8 @@ Working name: Main Street AI (placeholder). Updated 2026-11-07.
 
 For setup, contracts and who owns what, read [`TEAMMATES handoff.md`](TEAMMATES%20handoff.md). If this file and the handoff disagree, the handoff wins.
 
+The full target design, including the agent runtime and security, is in [`docs/architecture.md`](docs/architecture.md).
+
 ## Goal
 
 A marketplace that helps small business owners who aren't technical find, compare and adopt AI tools. It's organized by task, like missed calls, scheduling or bookkeeping. Any kind of business can use it. Business type is an optional filter, and the business types in the catalog are examples, not a gate.
