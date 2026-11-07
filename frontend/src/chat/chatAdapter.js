@@ -168,6 +168,11 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
         await recommend(conversationId, state.problem, profile, memory, "Thanks, that's what I needed. Here's what fits your business.", onEvent)
         return
       }
+      if (state.candidates?.length) {
+        onEvent({ type: 'clarify', question: 'Thanks. Which of these is closest?', choices: [...state.candidates.map((p) => p.title), SOMETHING_ELSE] })
+        onEvent({ type: 'done' })
+        return
+      }
       onEvent({
         type: 'clarify',
         question: "Thanks. Now, what's taking up the most of your time?",
@@ -212,7 +217,12 @@ export function createMockAdapter({ delayMs = 350, slowMs = 9000, load = loadCat
     const wantsStart = text === normalize(GET_STARTED)
     if (!memory.background_done && text !== 'slow reply' && (wantsStart || !trade)) {
       const steps = stepsLeft()
-      const state = { steps, index: 0, problem: match.result === 'confident' ? match.problem : null }
+      const state = {
+        steps,
+        index: 0,
+        problem: match.result === 'confident' ? match.problem : null,
+        candidates: match.result === 'unsure' ? match.candidates : [],
+      }
       if (steps.length) {
         intakes.set(conversationId, state)
         const count = steps.length === 1 ? 'one quick question' : `${steps.length} quick questions`

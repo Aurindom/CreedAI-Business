@@ -18,14 +18,16 @@ The rules the whole team follows:
 Works (backend and frontend talk to each other):
 - Business type picker, 7 category tabs, 12 problem cards, a tool directory of 24 tools.
 - `POST /api/recommend` returns a route per tool (already have it, check your plan, add-on, new tool, and so on), the fit, the added monthly cost and four sourced facts.
-- `POST /api/stack/check` finds overlapping tools and adds up the known monthly cost.
-- 146 backend tests, last run passing on 2026-11-07.
+- `POST /api/compare` compares up to 3 tools for the chosen tasks, on the same prices as the cards (W05).
+- `POST /api/stack/check` finds overlapping tools and adds up the known entry prices (older, see below).
+- Private saved plans (W06): an owner starts a private session with no account, saves an adoption plan from a comparison, and reopens it later. See "Saved plans (W06)" below.
+- 220 backend tests, last run passing on 2026-11-07.
 
 Not built yet:
 - **No chat UI and no live agent.** The chat contract in section 6 is a proposal.
 - No live discovery, no MCP integration, no custom assistant or setup wizard.
 - No plan picker in the UI yet. The backend and `api.js` are ready for it (see "Plan picker" below).
-- No saved plans or results tracker.
+- No results tracker. No plan screens in the UI yet (the backend and `api.js` are ready).
 
 Known data and logic gaps (Claude is fixing these on the backend, so don't work around them in the UI):
 - 16 of the 24 tools are `pending_review` (8 are `verified`). Their facts haven't been rechecked yet. Since 2026-11-07 the backend never makes a pending tool the winner, and every option carries `status`. The card doesn't show it yet (teammate A).
@@ -129,13 +131,16 @@ All endpoints are JSON. Errors come back as `{"detail": "..."}`, for example `40
 |---|---|
 | `GET /api/health` | `{"status": "ok"}` |
 | `GET /api/trades` | Business types: `[{"id": "auto", "name": "Auto shop"}, ...]` (19 of them, examples only, not a gate) |
-| `GET /api/categories` | `[{"id": "calls_messages", "name": "Calls and messages", "capabilities": ["phone_answering", "lead_response"]}, ...]` (7) |
+| `GET /api/categories` | `[{"id": "calls_messages", "name": "Calls and messages", "capabilities": ["phone_answering", "lead_response"], "labels": {"phone_answering": "answering phone calls", ...}}, ...]` (7). Use `labels` wherever an owner would otherwise see a capability id. |
 | `GET /api/problems?trade=&category=` | Problem cards: `{"id": "bookkeeping", "title": "The books are behind", "plain_words": "...", "capability": "bookkeeping", "trades": ["all"]}` |
 | `GET /api/tools?trade=&capability=&category=` | Full tool records (see below). Business type only changes the order. |
 | `GET /api/tools/{tool_id}` | One tool record |
 | `GET /api/tools/{tool_id}/facts` | The same four display facts a recommendation card shows (see "Display facts"). Use this for the comparison table so cards and comparison read the same. |
 | `POST /api/recommend` | A recommendation (see below) |
-| `POST /api/stack/check` | Overlap and cost check (see below) |
+| `POST /api/compare` | Task-aware comparison and stack cost (W05, see below) |
+| `POST /api/stack/check` | Older overlap and entry-price check (see below) |
+| `POST /api/sessions`, `DELETE /api/sessions/current` | Start or close a private session (W06) |
+| `GET /api/plans`, `POST /api/plans`, `GET /api/plans/{id}`, `POST /api/plans/{id}/refresh` | Private saved plans (W06, see below) |
 
 ### Fact shape
 
@@ -242,8 +247,12 @@ Request `{"text": "I need to book appointments online"}` (1 to 300 characters, n
  "message": "Sounds like: Booking appointments takes too long."}
 ```
 - `matched`: one card. Go straight to its recommendation.
-- `ambiguous`: `problem_id` is `null` and `choices` holds the tied cards. Ask the owner to pick one. A bare word like "schedule" gives this on purpose.
-- `unsupported`: `choices` is empty. Show `message` and the normal problem list. Never guess.
+- `ambiguous`: `problem_id` is `null`. Ask the owner to pick from `choices`, best guess first. Never act on it without the owner's click. It happens when:
+  - a bare word fits several cards ("schedule"),
+  - the sentence names two needs ("my books are a mess and I miss calls", "I answer calls fine but invoices are late"),
+  - the need sits in a negated part ("I don't need help answering calls; I need bookkeeping"). Negated cards come last.
+  - With only ONE choice, the message says "Did you mean ...? Please confirm." Show it as a yes/no confirm, not a list.
+- `unsupported`: `choices` is empty. Show `message` and the normal problem list. Never guess. Typos ("invocies") and single vague words ("phone") land here today.
 
 ### Problem icons
 
@@ -253,12 +262,52 @@ Request `{"text": "I need to book appointments online"}` (1 to 300 characters, n
 
 Request `{"tool_ids": ["quickbooks_online", "jobber"]}`, response:
 ```json
-{"duplicates": ["QuickBooks Online and Jobber both cover invoicing"],
+{"duplicates": ["QuickBooks Online and Jobber both cover sending invoices and getting paid"],
  "known_monthly_usd": 87.0, "total_monthly_usd": 87.0, "unknown_cost_tools": []}
 ```
-`total_monthly_usd` is `null` if any tool's price is unknown.
+`total_monthly_usd` is `null` if any tool's price is unknown. This adds **entry** prices with no task context, so it can disagree with the cards. For the comparison screen and plan preview use `/api/compare` below. Duplicates now use plain labels ("both cover sending invoices and getting paid").
+
+### POST /api/compare (W05)
+
+Request, with the same `profile` you send to `/api/recommend`:
+```json
+{"profile": {"trade": "hvac", "owned": [{"tool_id": "quickbooks_online", "plan": "Simple Start"}], "budget_monthly_usd": 150},
+ "problem_ids": ["job_scheduling", "bookkeeping"],
+ "tool_ids": ["jobber", "housecall_pro"]}
+```
+Limits: 1 to 5 `problem_ids`, 1 to 3 `tool_ids`, no repeats (422). Unknown ids give 404.
+
+Response:
+- `tools[]`: one per chosen tool, in the order sent.
+  - `role`: `fills_gap` (the only chosen tool for some task), `alternative` (another chosen tool fits the same tasks) or `no_fit`. Show `role_note`.
+  - `tasks[]`: one per chosen task the tool lists. `standing` is `eligible`, `check_first` (research candidate, say why with `reason`) or `set_aside`. `route`, `added_monthly_usd` and `cost_note` are exactly what that tool's recommendation card shows.
+  - `facts`: the same four display facts as the cards.
+- `tasks[]`: one per chosen task. `kind` is `covered`, `alternatives` or `gap`. Show `note`.
+- `overlaps[]`: plain sentences. Shared features are possible overlap, never proof two tools do the same job.
+- `connections[]`: one per pair of chosen tools, plus chosen-to-owned pairs. `state` is `listed` (a vendor's sourced list names the other tool, see `listed_by` and `sources`) or `unverified`. Don't show `unverified` as compatible. Even `listed` doesn't say what data moves or which way, and `note` says so.
+- `stack`: `null` when any task has alternatives, because alternatives are not a bundle. Show `stack_note` instead ("Pick one per task first"). Otherwise:
+  - `lines[]`: one per tool, `monthly_usd` for all its tasks together. A plan or add-on shared by two tasks is charged once. `null` means unknown, with the reason in `note`.
+  - `known_monthly_usd`, `total_monthly_usd` (`null` if anything is unknown, never treated as 0), `unknown_cost_tools`, `within_budget` (`null` if there's no budget or the total is unknown).
+  - `assumptions[]`: show these under the total (fees not included, annual billing, tools still to check).
+- `stack_note`: always present. Lists tasks nothing chosen covers.
+
+The adoption plan (W06) takes this structured `stack`, not the prose.
+
+### Saved plans (W06)
+
+No accounts. `api.js` has `startSession`, `endSession`, `plans`, `savePlan`, `plan`, `refreshPlan` and `newRequestId`. Each private helper takes the token as its first argument.
+
+1. `POST /api/sessions` gives `201 {"token": "...", "expires_at": "..."}` (30 days). The token is shown only once and the server keeps only a hash of it. Send it as `Authorization: Bearer <token>`. Keep it on the device (for example `localStorage`) and tell the owner that clearing the browser loses access. Never put it in a URL, a log or a chat prompt.
+2. `POST /api/plans` with the same body as `/api/compare` plus `request_id` (8 to 100 letters, digits, `-` or `_`). Make one with `newRequestId()` when the owner presses Confirm and reuse it for retries, so a double click returns the same plan (`200`) instead of a second one (`201` the first time).
+3. The response is the saved plan:
+   - `steps[]`: one per tool being bought. `tasks`, `reasons`, `monthly_usd` (`null` = unknown) with `cost_note`, `setup` (the sourced setup fact), `facts`, `to_confirm[]` (open questions the owner should ask the vendor) and `to_try[]` (what to test before paying). We have no recorded setup steps, so none are invented.
+   - `gaps[]`: chosen tasks nothing in the plan covers. `connections`, `stack` and `note` ("This plan is guidance. Nothing is bought, connected or set up for you."). Show `note`.
+4. `GET /api/plans/{id}` returns `{"plan": ..., "changed": bool, "change_note": "...", "current_total_monthly_usd": ...}`. The saved estimate never changes on its own. If `changed` is true, show `change_note` and a Refresh button that calls `POST /api/plans/{id}/refresh`. `GET /api/plans` lists summaries for the session.
+5. Errors: `401` missing, ended or closed session (start a new one). `404` a plan that isn't in this session, including someone else's. `409` alternatives not yet narrowed to one per task, a `request_id` reused for a different selection, the 20-plan cap, or a refresh that today's catalog can't rebuild. `503` private plans are switched off on this server (`PRIVATE_PLANS=off`).
 
 ## 6. PROPOSED chat contract (not built, use the mock)
+
+**New assignment, 2026-11-07:** Teammate B should read [CHAT_TEAMMATE_TASK.md](docs/CHAT_TEAMMATE_TASK.md). Aurindom assigned the isolated chat bridge/connection work to the teammate on their own machine; the Codex worker has been stopped. The guide gives file boundaries, current/proposed contracts, owner-plan/alternative/custom-draft behavior and acceptance checks. Claude retains shared backend/route and provider integration ownership. This extends the existing chat work without changing the event contract below.
 
 Nothing in this section exists on the backend yet. Claude builds the real endpoint later. Teammate B builds against a mock with exactly this shape, so switching to the real one only means changing the adapter.
 

@@ -84,7 +84,11 @@
       "capabilities": [
         "phone_answering",
         "lead_response"
-      ]
+      ],
+      "labels": {
+        "phone_answering": "answering phone calls",
+        "lead_response": "replying to new leads"
+      }
     },
     {
       "id": "reviews",
@@ -92,21 +96,31 @@
       "capabilities": [
         "review_requests",
         "review_replies"
-      ]
+      ],
+      "labels": {
+        "review_requests": "asking customers for reviews",
+        "review_replies": "replying to reviews"
+      }
     },
     {
       "id": "scheduling",
       "name": "Scheduling and jobs",
       "capabilities": [
         "job_scheduling"
-      ]
+      ],
+      "labels": {
+        "job_scheduling": "scheduling jobs and appointments"
+      }
     },
     {
       "id": "staff",
       "name": "Staff and shifts",
       "capabilities": [
         "staff_scheduling"
-      ]
+      ],
+      "labels": {
+        "staff_scheduling": "building staff schedules"
+      }
     },
     {
       "id": "money",
@@ -114,21 +128,31 @@
       "capabilities": [
         "invoicing",
         "bookkeeping"
-      ]
+      ],
+      "labels": {
+        "invoicing": "sending invoices and getting paid",
+        "bookkeeping": "bookkeeping"
+      }
     },
     {
       "id": "sales",
       "name": "Sales and point of sale",
       "capabilities": [
         "point_of_sale"
-      ]
+      ],
+      "labels": {
+        "point_of_sale": "taking payments at the counter"
+      }
     },
     {
       "id": "marketing",
       "name": "Marketing and email",
       "capabilities": [
         "email_marketing"
-      ]
+      ],
+      "labels": {
+        "email_marketing": "email marketing"
+      }
     }
   ],
   "problem_cards": [
@@ -149,7 +173,9 @@
         "nobody picks up",
         "receptionist",
         "answering service",
-        "voicemail"
+        "voicemail",
+        "pick up phone",
+        "keep calling"
       ]
     },
     {
@@ -398,7 +424,9 @@
         "live chat",
         "chat widget",
         "website visitors",
-        "chat leads"
+        "chat leads",
+        "reply website",
+        "website messages"
       ]
     }
   ],
