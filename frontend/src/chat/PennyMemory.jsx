@@ -13,7 +13,7 @@ function PennyMemory({ memory, names, onRemove }) {
   return (
     <details className="msc-memory">
       <summary>
-        <span>Penny remembers</span>
+        <span>Business context</span>
         <small>{items.map((item) => item.text).join(' · ')}</small>
       </summary>
       <ul className="msc-memory-list">
