@@ -510,3 +510,20 @@ The backend can now add tools it finds on vendor sites. Nothing searches the web
 - 503 when `DISCOVERY_TOKEN` isn't set or no finder is connected. That is the state on every server today.
 - 401 for a missing or wrong token, 422 for an unknown task or filter or a cap over the limit (10 results, 16 pages, 30 seconds), 429 while another run is going.
 - 200 returns `{run_id, status, added[], updated[], duplicates[], excluded[], error, notice}`. A failed run (timeout, over budget, broken result) saves nothing.
+
+## 13. Agent chat contract, W09 (added 2026-11-07)
+
+Mock-tested only. There is no live agent route yet, that waits for the Hermes go-ahead (W10). But this is the shape the chat UI will get, so you can build against it now.
+
+The chat stream is server-sent events. Each `data:` line is one JSON frame with a `type`:
+
+- `text`: `{"type":"text","text":"..."}`. Append it to the reply bubble. Text arrives a few characters late on purpose (a safety check holds the last 7 back).
+- `action`: `{"type":"action","seq":1,"action":"search_catalog","label":"Searching the catalog","status":"started","message":"Working on it."}`. Same `seq` comes again with `succeeded`, `failed` or `unconfirmed`. Show `label` and `message`, replace the row by `seq`. `action` is null for a step the assistant is not allowed to do.
+- `notice`: `{"type":"notice","code":"busy","message":"...","fallback":"browse"}`. Codes: busy, unavailable, timeout, interrupted, blocked, run_failed, run_cancelled. Show the message as is.
+- `done`: always the last frame, exactly once. `{"type":"done","turn":"completed","succeeded":1,"failed":0,"unconfirmed":0,"fallback":null}`.
+
+Rules for the UI:
+- A finished turn does not mean the action worked. `turn: "completed"` with `failed: 1` means the reply finished but the step failed. Show it as failed.
+- `unconfirmed` means we do not know. Don't show a green tick.
+- When `fallback` is `"browse"`, put the owner back on browse and compare (search box, tool cards). Never leave a spinner running.
+- `busy` means too many people at once. It is not an error on their side.
