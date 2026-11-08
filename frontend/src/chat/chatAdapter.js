@@ -1,8 +1,7 @@
 import { api } from '../api.js'
-import { createMockAdapter } from './demoAdapter.js'
 
 const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
-export const EMPTY_MEMORY = { trade: null, owned: [], ruled_out: [], budget_monthly_usd: null, background_done: false, active_task_ids: [], pending_question: null, pending_task_ids: [] }
+export const EMPTY_MEMORY = { trade: null, owned: [], ruled_out: [], plans: {}, budget_monthly_usd: null, background_done: false, active_task_ids: [], pending_question: null, pending_task_ids: [] }
 let catalog = null
 
 export async function loadCatalog() {
@@ -68,11 +67,6 @@ export async function checkLiveChat(fetcher = (...args) => fetch(...args)) {
 
 // Production-only transport: failures never generate scripted answers.
 export function createChatAdapter({ fetcher = (...args) => fetch(...args) } = {}) {
-  // Local testing without an API key: scripted answers over the real catalog, clearly labeled Demo mode.
-  if (import.meta.env?.VITE_CHAT_MODE === 'demo') {
-    const demo = createMockAdapter({ load: loadCatalog })
-    return { sendMessage: demo.sendMessage, isLive: async () => false, demo: true }
-  }
   const agent = createHttpAdapter({ fetcher })
   const isLive = () => checkLiveChat(fetcher)
   async function sendMessage(request, onEvent) {

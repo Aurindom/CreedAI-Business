@@ -1,9 +1,9 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { vendorQuestions } from './vendorQuestions'
 import { costText, HEADLINES, ROUTE_LABELS, safeUrl, serviceUrl, statusLabel } from './ChatResult'
 
-function SummaryOption({ option, status, fallbackUrl }) {
+function SummaryOption({ option, status, fallbackUrl, includeDetails }) {
   const url = serviceUrl(option, fallbackUrl)
   return (
     <div className="msc-print-option">
@@ -12,7 +12,7 @@ function SummaryOption({ option, status, fallbackUrl }) {
       <p>{option.cost_note}</p>
       <p>{option.fit_note}</p>
       {url && <p><a href={url} target="_blank" rel="noreferrer noopener">{url}</a></p>}
-      <details open className="msc-summary-sources"><summary>Sources and checks</summary>
+      <details open={includeDetails} className="msc-summary-sources"><summary>Sources and checks</summary>
       <ul>
         {option.facts.map((fact) => {
           const url = safeUrl(fact.source_url)
@@ -26,6 +26,7 @@ function SummaryOption({ option, status, fallbackUrl }) {
 
 function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
   const closeRef = useRef(null)
+  const [includeDetails, setIncludeDetails] = useState(false)
   useEffect(() => {
     const previousFocus = document.activeElement
     closeRef.current?.focus()
@@ -40,7 +41,7 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
   function onKeyDown(event) {
     if (event.key === 'Escape') { event.stopPropagation(); onClose() }
     if (event.key === 'Tab') {
-      const controls = [...event.currentTarget.querySelectorAll('button, a[href]')]
+      const controls = [...event.currentTarget.querySelectorAll('button, a[href], input')]
       const first = controls[0], last = controls[controls.length - 1]
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
@@ -48,10 +49,11 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
   }
 
   return createPortal(
-    <div className="msc-summary-overlay" role="dialog" aria-modal="true" aria-labelledby="penny-summary-title" onKeyDown={onKeyDown}>
+    <div className={`msc-summary-overlay${includeDetails ? ' msc-summary-expanded' : ''}`} role="dialog" aria-modal="true" aria-labelledby="penny-summary-title" onKeyDown={onKeyDown}>
     <div className="msc-summary-preview">
       <div className="msc-summary-controls">
         <p>Summary preview. Use Print / Save PDF, or your browser’s Print menu if the dialog does not open.</p>
+        <label className="msc-summary-detail-choice"><input type="checkbox" checked={includeDetails} onChange={event => setIncludeDetails(event.target.checked)} />Print detailed sources and vendor questions (may add pages)</label>
         <div><button type="button" onClick={onPrint}>Print / Save PDF</button><button type="button" ref={closeRef} onClick={onClose}>Close summary</button></div>
       </div>
     <section className="msc-print">
@@ -62,9 +64,9 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
       {recommendation.tailoring_note && <p>{recommendation.tailoring_note}</p>}
       {recommendation.budget_note && <p>{recommendation.budget_note}</p>}
       {shortlist.length > 1 && <p>These are alternatives. Choose one that covers your need.</p>}
-      {shortlist.map(option => <SummaryOption key={option.tool_id} option={option} status={statuses[option.tool_id]} fallbackUrl={serviceUrls[option.tool_id]} />)}
+      {shortlist.map(option => <SummaryOption key={option.tool_id} option={option} status={statuses[option.tool_id]} fallbackUrl={serviceUrls[option.tool_id]} includeDetails={includeDetails} />)}
       {remaining > 0 && <p>{remaining} more alternatives and detailed sources are available in your chat.</p>}
-      {questions.length > 0 && <section><h2>Questions for the vendor</h2>{questions.map(group => <div key={group.toolId}><h3>{group.toolName}</h3><ul>{group.questions.map(question => <li key={question}>{question}</li>)}</ul></div>)}</section>}
+      {questions.length > 0 && <section className="msc-summary-vendor-questions"><h2>Questions for the vendor</h2>{questions.map(group => <div key={group.toolId}><h3>{group.toolName}</h3><ul>{group.questions.map(question => <li key={question}>{question}</li>)}</ul></div>)}</section>}
       <p className="msc-print-footer">Confirm the required plan, current pricing, business fit and data handling with the service before subscribing.</p>
     </section>
     </div>

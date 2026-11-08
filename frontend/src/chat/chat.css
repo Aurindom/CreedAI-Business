@@ -173,11 +173,15 @@
 .msc-crash button { min-height: 44px; padding: 0 12px; border: 1px solid #184f4c; border-radius: 9px; background: #fff; color: #184f4c; font-weight: 700; }
 
 .msc-print { display: none; }
+.msc-history-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 20px; border-bottom: 1px solid #93829e44; font-size: 12px; color: inherit; }
+.msc-history-controls button { min-height: 36px; padding: 5px 8px; border: 1px solid #93829e66; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
 .msc-summary-overlay { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 20px; background: #08070cbd; }
 .msc-summary-preview { width: min(760px, 100%); max-height: 90dvh; overflow: auto; border-radius: 16px; background: #fff; color: #182128; box-shadow: 0 24px 80px #0006; }
 .msc-summary-controls { padding: 16px 24px; border-bottom: 1px solid #dfe3db; background: #f3f4f5; font-size: 14px; }
 .msc-summary-controls p { margin: 0 0 12px; line-height: 1.5; }
 .msc-summary-controls div { display: flex; flex-wrap: wrap; gap: 10px; }
+.msc-summary-detail-choice { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }
+.msc-summary-detail-choice input { width: auto; }
 .msc-summary-controls button { min-height: 44px; padding: 8px 14px; border: 1px solid #655573; border-radius: 8px; background: #fff; color: #342b42; cursor: pointer; }
 .msc-summary-preview .msc-print { display: block; padding: 24px; font: 14px/1.4 Arial, sans-serif; }
 .msc-summary-preview h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
@@ -200,6 +204,8 @@
   .msc-summary-overlay { display: block; position: static; padding: 0; background: #fff; }
   .msc-summary-preview { width: auto; max-height: none; overflow: visible; border-radius: 0; box-shadow: none; }
   .msc-summary-controls { display: none; }
+  .msc-summary-overlay:not(.msc-summary-expanded) .msc-summary-sources,
+  .msc-summary-overlay:not(.msc-summary-expanded) .msc-summary-vendor-questions { display: none; }
   .msc-summary-preview .msc-print { display: block; padding: 0; color: #000; font-size: 10pt; line-height: 1.25; }
   .msc-print h1 { margin: 0; font-size: 18pt; }
   .msc-print h2 { margin: 12pt 0 3pt; font-size: 13pt; }

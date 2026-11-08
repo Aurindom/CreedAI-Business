@@ -12,10 +12,45 @@ second test user was never created (sign-in returns `invalid_credentials`; an
 earlier signup attempt hit HTTP 429). You own the Supabase project, so you can
 close this with one zero-cost run. Steps are in "Run the two-account check" below.
 
+2026-11-08 update on `giri-test`: account-owned favourites and a 30-day chat
+retention policy now supersede the original short cache policy. See
+`FAVOURITES_AND_RETENTION.md`. The new two-account browser journey uses a
+synthetic identity-provider seam with real API/SQLite/Redis, so it does not
+resolve the live second-account Supabase check below.
+
+Later SMTP session update: custom **Mailjet SMTP** was configured in the Creed
+Supabase project. The owner confirmed receiving the confirmation email in spam
+and then successfully signing in. This supersedes the earlier pre-SMTP setup
+notes for the development project; production sender/domain/redirect checks
+and a second real-mailbox signup remain unverified. The old HTTP429 result is
+historical, not a fresh statement about the current quota. Two mock-email
+browser identities pass isolation checks but do not exercise SMTP delivery.
+
+Own production authentication/signup/cache/plan-access hardening and its release
+evidence. Claude continues agent/discovery work under CLAUDE_WXX_RESUME.md. This is
+a tested integration baseline, not a claim that public production is ready.
+
 ## Baseline at 1d249b9
 
 - 997 backend tests, 33 frontend tests, `npm run build` clean.
 - This commit adds the checker and 7 offline tests for its refusal rules.
+- Supabase email/password identity verified server-side; supplied invalid tokens
+  never become guests. Identity verification is independent of Redis.
+- Account-owned persistent plans and one initial owner workspace per verified
+  Supabase subject. Browser-only session creation is deprecated. Old plans need
+  explicit valid-token proof to import; account anchors cannot be used as tokens.
+- Immediate persisted app-session revocation on logout. Last active session's
+  logout gives its conversation a 30-day recovery window. A new login to the
+  same account can recover inside that window; other active sessions remain
+  usable. Active conversation inactivity TTL is 30 days, not durable storage.
+- Account-owned favourites persist in the app database until removed. They do
+  not depend on Redis or chat retention. Owners can delete cached chat history
+  independently, with queued writes serialized before deletion.
+- Account changes clear/remount workspace/chat/plans and cancel old requests.
+  Private responses are no-store. Rapid history updates are coalesced.
+- Grounded OpenRouter-only Penny: model selects allowed claim IDs; backend owns
+  package binding, mandatory uncertainty, references/winners and rendering.
+  Signed-in/guest identity is checked server-side; tokens/IDs are not model input.
 
 | What | Evidence | Real or mocked |
 |---|---|---|

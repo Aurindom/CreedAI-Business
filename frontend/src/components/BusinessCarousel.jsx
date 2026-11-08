@@ -39,8 +39,8 @@ const CHALLENGE_PROBLEMS = {
 
 export default function BusinessCarousel({ paused = false, onChooseBusiness, onChooseProblem, onAskPenny, onCompare, onSceneChange }) {
   const [active, setActive] = useState(0)
-  // The slideshow waits for the owner. Changing slides on its own makes the page hard to read.
-  const [playing, setPlaying] = useState(false)
+  // Advance by default; interaction and reduced-motion preferences suspend playback.
+  const [playing, setPlaying] = useState(true)
   const [engaged, setEngaged] = useState(false)
   const [reduced, setReduced] = useState(false)
   const root = useRef(null)
@@ -87,7 +87,6 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness, onC
   }, [active, reduced, paused])
 
   function navigate(index) {
-    setPlaying(false)
     setActive((index + businesses.length) % businesses.length)
   }
 
@@ -121,6 +120,7 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness, onC
         <div className="business-pagination" ref={pagination} aria-hidden="true">{businesses.map((business, index) => <button type="button" key={business.type} tabIndex={-1} className={active === index ? 'is-active' : ''} aria-label={`Show ${business.type} story`} aria-current={active === index ? 'true' : undefined} onClick={() => navigate(index)}><span className="pagination-index">{String(index + 1).padStart(2, '0')}</span><span>{business.type}</span><i aria-hidden="true" /></button>)}</div>
         <div className="carousel-controls"><span className="carousel-count" aria-live={autoPlaying ? 'off' : 'polite'}>{String(active + 1).padStart(2, '0')} / {businesses.length}</span><button type="button" aria-label="Previous business story" onClick={() => navigate(active - 1)}>&#8592;</button><button type="button" aria-label="Next business story" onClick={() => navigate(active + 1)}>&#8594;</button>{!paused && !reduced && <button type="button" aria-label={playing ? 'Pause slideshow' : 'Play slideshow'} aria-pressed={!playing} onClick={() => setPlaying((value) => !value)}>{playing ? <span aria-hidden="true">&#10074;&#10074;</span> : <span aria-hidden="true">&#9654;</span>}</button>}</div>
       </div>
+      <a className="carousel-skip" href="#start">Skip to tool finder</a>
     </section>
   )
 }

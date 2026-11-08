@@ -1,18 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, ownedProfile, planChoices, isSingleOffering, PLAN_UNKNOWN, PLAN_LABEL_MAX } from './api'
+import { resolveTrade } from './businessTypes'
 import ChatPanel from './chat/ChatPanel'
 import ProductShowcase from './components/ProductShowcase'
 import QuickCompare from './components/QuickCompare'
 import MainStreetBrand from './components/MainStreetBrand'
 import StreetHeaderScene from './components/StreetHeaderScene'
+import OwnerLaunchpad from './components/OwnerLaunchpad'
+import ComparisonTray from './components/ComparisonTray'
 import ComparisonWorkspace from './components/ComparisonWorkspace'
 import HowItWorks from './components/HowItWorks'
+import BusinessToolkit from './components/BusinessToolkit'
 import OptionsResults from './components/OptionsResults'
 import MultiPlan from './components/MultiPlan'
 import AccountControls from './auth/AccountControls'
 import { useOwnerAuth } from './auth/ownerAuth'
 import SignInPage from './auth/SignInPage'
 import { isAccountPath, usePath } from './auth/route'
+import { FavouritesProvider, FavouriteButton, FavouriteTools, useFavourites } from './favourites/Favourites'
 
 const stages = [
   { number: '01', title: 'Your business', detail: 'Give us a little context', anchor: 'business' },
@@ -71,20 +76,8 @@ function dollars(amount) {
 
 const OWNED_PREVIEW = 10
 
-// Opens Penny's chat from anywhere on the page.
-function askPenny() {
-  window.dispatchEvent(new window.CustomEvent('penny:open'))
-}
-
 function stageAnchor(anchor) {
-  document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-// Mirrors Catalog.resolve_trade on the backend so directory labels agree with the ranking.
-function resolveTrade(trades, text) {
-  const wanted = (text || '').trim().toLowerCase().replaceAll(' ', '_')
-  if (!wanted) return null
-  return trades.find((t) => wanted === t.id || wanted === t.name.toLowerCase().replaceAll(' ', '_'))?.id ?? null
+  document.getElementById(anchor)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })
 }
 
 function tradeNames(trades, ids, limit = 3) {
@@ -123,6 +116,7 @@ function OptionCard({ option, tool, selected, full, onCompare, uncertain, budget
       <div className="tool-card-head">
         <span className="tool-avatar">{option.tool_name.slice(0, 1)}</span>
         <span className={`tool-status ${option.status !== 'verified' || uncertain || option.route === 'check_plan' || option.route === 'plan_upgrade' ? 'pending' : 'verified'}`}>{option.status === 'verified' ? 'Source checked' : 'Pending review'}</span>
+        <FavouriteButton toolId={option.tool_id} name={option.tool_name} />
       </div>
       <p className="route-label">{routeLabels[option.route]}</p>
       <h3>{option.tool_name}</h3>
@@ -138,7 +132,7 @@ function OptionCard({ option, tool, selected, full, onCompare, uncertain, budget
       </div>
       <p className="cost-note">{option.cost_note}</p>
       {budgetProvided && <p className={`budget-status budget-${option.within_budget === true ? 'within' : option.within_budget === false ? 'over' : 'unknown'}`}>{option.within_budget === true ? 'Within your added monthly budget' : option.within_budget === false ? 'Over your added monthly budget' : 'Confirm vendor pricing to assess budget fit'}</p>}
-      <dl className="fact-list">
+      <details className="tool-evidence"><summary>Plan details and sources</summary><dl className="fact-list">
         {option.facts.map((fact) => (
           <div key={fact.label} className={fact.known ? 'fact-known' : 'fact-unknown'}>
             <dt>{fact.label}</dt>
@@ -146,7 +140,7 @@ function OptionCard({ option, tool, selected, full, onCompare, uncertain, budget
             </dd>
           </div>
         ))}
-      </dl>
+      </dl></details>
       {tool && <a className="source-link" href={tool.url} target="_blank" rel="noopener noreferrer">Visit vendor website <ArrowIcon size={14} /></a>}
     </article>
   )
@@ -157,7 +151,7 @@ function DirectoryCard({ tool, trades, tradeId, selected, full, onCompare }) {
   const price = priceOf(tool)
   return (
     <article className="tool-card">
-      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.auto_review?.eligible ? 'Automatically checked' : tool.auto_review ? 'Evidence checked' : tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span></div>
+      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.auto_review?.eligible ? 'Automatically checked' : tool.auto_review ? 'Evidence checked' : tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span><FavouriteButton toolId={tool.id} name={tool.name} /></div>
       <h3>{tool.name}</h3><p className="tool-summary">{tool.summary}</p>
       {tool.auto_review && <p className="tool-summary">{tool.auto_review.eligible ? `Checked for ${tool.auto_review.capability.replaceAll('_', ' ')}.` : tool.auto_review.notes.join(' ')}</p>}
       <div className={`fit-line fit-${audience.tone}`}>{audience.text}</div>
@@ -203,16 +197,19 @@ function App() {
   }, [path, accountPage])
 
   if (accountPage) return <SignInPage auth={auth} path={path} />
-  return <Marketplace key={auth.user?.id || 'guest'} auth={auth} />
+  return <FavouritesProvider key={auth.user?.id || 'guest'} auth={auth}><Marketplace key={auth.user?.id || 'guest'} auth={auth} /></FavouritesProvider>
 }
 
 function Marketplace({ auth }) {
+  const favourites = useFavourites()
   const [trades, setTrades] = useState([])
   const [categories, setCategories] = useState([])
   const [allTools, setAllTools] = useState([])
   const [problems, setProblems] = useState([])
   const [allProblems, setAllProblems] = useState([])
   const [directory, setDirectory] = useState([])
+  const [directoryQuery, setDirectoryQuery] = useState('')
+  const [directoryLoading, setDirectoryLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
   const [businessName, setBusinessName] = useState('')
@@ -242,7 +239,6 @@ function Marketplace({ auth }) {
   const [taskError, setTaskError] = useState('')
   const [isResolving, setIsResolving] = useState(false)
   const taskRequest = useRef(0)
-  const [motionPaused, setMotionPaused] = useState(false)
   const [quickCompare, setQuickCompare] = useState(false)
   const [baseline, setBaseline] = useState('')
 
@@ -253,6 +249,13 @@ function Marketplace({ auth }) {
   const activeProblem = allProblems.find((p) => p.id === selectedProblem) || problems.find((p) => p.id === selectedProblem) || null
   const multiProblem = selectedProblems.length > 1
   const activeCategory = categories.find((c) => c.id === category) || null
+  const visibleDirectory = useMemo(() => {
+    const words = directoryQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+    return directory.filter(tool => {
+      const text = [tool.name, tool.summary, ...tool.capabilities.map(item => item.capability.replaceAll('_', ' '))].join(' ').toLocaleLowerCase()
+      return words.every(word => text.includes(word))
+    })
+  }, [directory, directoryQuery])
 
   useEffect(() => {
     let current = true
@@ -270,6 +273,7 @@ function Marketplace({ auth }) {
       const [all, filtered] = await Promise.all([api.tools(), api.tools(typedTrade, category)])
       setAllTools(all)
       setDirectory(filtered)
+      setDirectoryQuery('')
       setShowDirectory(true)
       setResearchMessage(report.added.length
         ? `Found ${report.added.length} new research candidates. ${report.promoted?.length || 0} passed automatic verification. Check the evidence notes and vendor sources.`
@@ -295,6 +299,7 @@ function Marketplace({ auth }) {
 
   useEffect(() => {
     let current = true
+    setDirectoryLoading(true)
     Promise.all([api.problems(typedTrade, category), api.tools(typedTrade, category)])
       .then(([cards, tools]) => {
         if (!current) return
@@ -303,6 +308,7 @@ function Marketplace({ auth }) {
         setLoadError('')
       })
       .catch((error) => { if (current) setLoadError(error.message) })
+      .finally(() => { if (current) setDirectoryLoading(false) })
     return () => { current = false }
   }, [typedTrade, category])
 
@@ -405,12 +411,20 @@ function Marketplace({ auth }) {
     })
   }
 
+  function askPenny(selection = {}) {
+    window.dispatchEvent(new window.CustomEvent('penny:open', { detail: {
+      profile: { ...ownedProfile(businessType.trim(), owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) },
+      problemIds: Array.isArray(selection.problemIds) ? selection.problemIds : selectedProblems,
+    } }))
+  }
+
   function chooseProblem(id) {
     taskRequest.current += 1
     setIsResolving(false)
     setSelectedProblem(id)
     setSelectedTools([])
     setShowDirectory(false)
+    setDirectoryQuery('')
     window.setTimeout(() => stageAnchor('explore'), 80)
   }
 
@@ -438,11 +452,11 @@ function Marketplace({ auth }) {
     ? `Every tool in ${activeCategory ? activeCategory.name : 'the catalog'}, with who it is built for.`
     : multiProblem ? `For your ${selectedProblems.length} problems${tradeLabel ? ` at a ${tradeLabel.toLowerCase()}` : ''}.` : activeProblem ? `For “${activeProblem.title.toLowerCase()}”${tradeLabel ? ` at a ${tradeLabel.toLowerCase()}` : ''}.` : 'Choose a task above to see what fits.'
   const exploreCount = showDirectory
-    ? plural(directory.length, 'tool')
+    ? plural(visibleDirectory.length, 'tool')
     : multiProblem ? plural(selectedProblems.length, 'problem') : recommendation ? plural(recommendation.options.length + recommendation.check_first.length, 'tool') + ' to look at' : 'No task chosen'
 
   return (
-    <div className={`site-shell${motionPaused ? ' motion-paused' : ''}${quickCompare ? ' quick-compare-mode' : ''}`}>
+    <div className={`site-shell${quickCompare ? ' quick-compare-mode' : ''}`}>
       <a className="skip-link" href="#business" onClick={() => setQuickCompare(false)}>Skip to the tool finder</a>
       <aside className="sidebar street-header">
         <StreetHeaderScene />
@@ -458,7 +472,8 @@ function Marketplace({ auth }) {
             ))}
           </nav>
         </div>
-        <button className="nav-quick-compare" type="button" onClick={openQuickCompare}>Compare tools <ArrowIcon size={15} /></button>
+        <button className="nav-quick-compare" type="button" aria-label="Compare tools" onClick={openQuickCompare}><span className="nav-label-full">Compare tools</span><span className="nav-label-short">Compare</span><ArrowIcon size={15} /></button>
+        <button className="nav-quick-compare favourites-nav" type="button" aria-label={`Favourite tools${favourites.items.length ? ` (${favourites.items.length})` : ''}`} onClick={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('favourites')) }}><span className="nav-label-full">Favourite tools</span><span className="nav-label-short">Favourites</span>{favourites.items.length ? ` (${favourites.items.length})` : ''}<ArrowIcon size={15} /></button>
         <AccountControls auth={auth} />
         <div className="sidebar-bottom">
           <div className="sidebar-tip-icon">✳</div>
@@ -481,18 +496,19 @@ function Marketplace({ auth }) {
         </div>
         <div className="topbar">
           <span className="topbar-route">Find AI tools that fit your small business</span>
-          <div className="topbar-right"><button className="motion-toggle" type="button" aria-pressed={motionPaused} onClick={() => setMotionPaused((paused) => !paused)}>{motionPaused ? 'Play animations' : 'Pause animations'}</button></div>
         </div>
 
         <div className="content">
           {loadError && <div className="error-banner" role="alert"><strong>We couldn't reach the catalog service.</strong> {loadError}</div>}
 
           {quickCompare ? <QuickCompare tools={allTools} baseline={baseline} selected={selectedTools} plans={ownedPlans} onBaseline={selectBaseline} onPlan={(id, plan) => setOwnedPlans((current) => ({ ...current, [id]: plan }))} onToggle={toggleCompare} onBack={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('business')) }} /> : <>
-            <ProductShowcase part="hero" scene={scene} onSceneChange={setScene} tools={allTools} paused={motionPaused} onCompare={openQuickCompare} onAskPenny={askPenny}
+            <ProductShowcase part="hero" scene={scene} onSceneChange={setScene} tools={allTools} onCompare={openQuickCompare} onAskPenny={askPenny}
               onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }}
               onChooseProblem={(type, problemId) => { setBusinessType(type); setCategory(''); chooseProblem(problemId) }} />
-            <HowItWorks onStart={() => stageAnchor('business')} onAskPenny={askPenny} onCompare={openQuickCompare} />
+            <ProductShowcase part="story" scene={scene} tools={allTools} />
+            <HowItWorks accent={scene.theme} onStart={() => stageAnchor('business')} onAskPenny={askPenny} onCompare={openQuickCompare} />
           </>}
+          {!quickCompare && <OwnerLaunchpad categories={categories} favouritesCount={favourites.items.length} onFind={() => stageAnchor('challenge')} onCompare={openQuickCompare} onFavourites={() => stageAnchor('favourites')} onCategory={id => { chooseCategory(id); setShowDirectory(false); setDirectoryQuery(''); window.requestAnimationFrame(() => stageAnchor('challenge')) }} />}
 
           <div className="metrics-row" hidden={quickCompare}>
             <div><strong>{allTools.length}</strong><span>tools in the catalog</span></div>
@@ -500,18 +516,23 @@ function Marketplace({ auth }) {
             <div><strong>{trades.length}</strong><span>business types in the catalog</span></div>
           </div>
 
-          <div className="finder-intro" hidden={quickCompare}><p>STEP BY STEP</p><h2>Let's find your fit.</h2><span>A few details. Relevant options. A more informed decision.</span></div>
+          <section className="section-block" id="favourites" hidden={quickCompare}>
+            <div className="section-heading"><div><div className="section-kicker">SAVED FOR YOU</div><h2>Your favourite tools</h2><p>Your shortlist, ready whenever you return.</p></div></div>
+            <FavouriteTools toolsById={toolsById} renderTool={tool => <DirectoryCard key={tool.id} tool={tool} trades={trades} tradeId={tradeId} {...compareProps(tool.id)} />} />
+          </section>
 
           <section className="section-block" id="business" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 01 <span /> GET ORIENTED</div><h2>Tell us about your business</h2><p>A little context helps us find relevant options. Every field is optional.</p></div><div className="section-counter">01 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 01: GET ORIENTED</div><h2>Tell us about your business</h2><p>A little context helps us find relevant options. Every field is optional.</p></div><div className="section-counter">01 / 04</div></div>
             <div className="form-card">
               <label className="field"><span>Business name <small>optional</small></span><input type="text" value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="e.g. Northside Coffee" maxLength={80} /></label>
               <label className="field">
                 <span>Type of business <small>optional, type anything</small></span>
                 <input type="text" list="trade-list" value={businessType} onChange={(event) => setBusinessType(event.target.value)} placeholder="e.g. Bakery, Plumbing, Dog grooming" maxLength={100} />
                 <datalist id="trade-list">{trades.map((t) => <option key={t.id} value={t.name} />)}</datalist>
+                {tradeId && <small role="status">Business category: {tradeLabel}</small>}
               </label>
               <label className="field budget-field"><span>How much more could you spend each month? <small>optional, in dollars</small></span><input type="number" min="0" step="0.01" value={budget} onChange={(event) => { const value = event.target.value; if (value === '' || (Number.isFinite(Number(value)) && Number(value) >= 0)) setBudget(value) }} placeholder="e.g. 100" /><small>On top of what you already pay. Leave it blank if you're not sure.</small></label>
+              <details className="owned-picker"><summary><span>Already using software?</span><small>{owned.length ? `${owned.length} selected` : 'Add your subscriptions, optional'}</small></summary>
               <div className="field owned-field">
                 <span>Tools you already pay for <small>optional</small></span>
                 <div className="chip-list">
@@ -529,12 +550,16 @@ function Marketplace({ auth }) {
                   return <label className="field" key={id}><span>{tool.name} plan <small>optional</small></span>{choices.length ? <select value={ownedPlans[id] ?? PLAN_UNKNOWN} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))}><option value={PLAN_UNKNOWN}>I do not know</option>{choices.map((plan) => <option value={plan} key={plan}>{plan}</option>)}</select> : <><input value={ownedPlans[id] ?? ''} maxLength={PLAN_LABEL_MAX} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))} placeholder="Plan name, if you know it" /><small>Not checked by us. We will ask you to verify an unrecognized plan.</small></>}</label>
                 })}
               </div>}
+              </details>
               <div className="form-note"><span>✳</span><p>{businessNote}</p></div>
             </div>
+            <BusinessToolkit business={tradeLabel || typedTrade} tradeId={tradeId} tools={allTools} categories={categories}
+              onCategory={(id) => { chooseCategory(id); window.requestAnimationFrame(() => stageAnchor('challenge')) }}
+              onBrowse={() => { setCategory(''); setShowDirectory(true); setDirectoryQuery(''); window.requestAnimationFrame(() => stageAnchor('explore')) }} />
           </section>
 
           <section className="section-block" id="challenge" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 02 <span /> NAME THE PROBLEM</div><h2>What's slowing you down?</h2><p>{tradeId ? `We've put the most common problems for a ${tradeLabel.toLowerCase()} first. ` : ''}Pick one, or up to {MAX_PROBLEMS} at once.</p></div><div className="section-counter">02 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 02: NAME THE PROBLEM</div><h2>What's slowing you down?</h2><p>{tradeId ? `We've put the most common problems for a ${tradeLabel.toLowerCase()} first. ` : ''}Pick one, or up to {MAX_PROBLEMS} at once.</p></div><div className="section-counter">02 / 04</div></div>
             <div className="category-tabs" role="tablist" aria-label="Filter by type of work">
               <button type="button" role="tab" aria-selected={category === ''} className={`tab ${category === '' ? 'tab-on' : ''}`} onClick={() => chooseCategory('')}>All</button>
               {categories.map((c) => (
@@ -595,17 +620,19 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block" id="explore" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 03 <span /> YOUR OPTIONS</div><h2>{exploreHeading}</h2><p>{exploreLead}</p></div><div className="section-counter">03 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 03: YOUR OPTIONS</div><h2>{exploreHeading}</h2><p>{exploreLead}</p></div><div className="section-counter">03 / 04</div></div>
             <div className="explore-toolbar">
-              <div><strong>{exploreCount}</strong><span>{tradeLabel ? ` · ${tradeLabel}` : ' · Any business'}</span></div>
-              <button type="button" onClick={() => setShowDirectory((value) => !value)}>{showDirectory ? 'Back to my options' : 'Browse directory'} <ArrowIcon size={15} /></button>
+              <div aria-live="polite"><strong>{directoryLoading && showDirectory ? 'Loading tools…' : exploreCount}</strong><span>{tradeLabel ? ` · ${tradeLabel}` : ' · Any business'}</span></div>
+              <button type="button" onClick={() => { setShowDirectory(value => !value); setDirectoryQuery('') }}>{showDirectory ? 'Back to my options' : 'Browse directory'} <ArrowIcon size={15} /></button>
             </div>
+            <div className="directory-search" role="search" aria-label="Find tools in the directory"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.7" /><path d="m16 16 5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg><label className="sr-only" htmlFor="directory-search">Search tools</label><input id="directory-search" type="search" value={directoryQuery} maxLength={100} onChange={event => { setDirectoryQuery(event.target.value); setShowDirectory(true) }} placeholder="Find a tool by name or what it does" /><span className="search-hint">YOUR NEXT GOOD FIND</span></div>
 
             {researchEnabled && activeProblem && <div className="research-controls">
               <button type="button" disabled={researchBusy} onClick={researchMore}>{researchBusy ? 'Researching public sources...' : 'Research more tools'}</button>
               {researchMessage && <p role="status">{String(researchMessage)}</p>}
             </div>}
-            {showDirectory && <div className="tool-grid">{directory.map((tool) => (
+            {showDirectory && !directoryLoading && visibleDirectory.length === 0 && !loadError && <div className="directory-empty"><span aria-hidden="true">⌕</span><h3>No matches just yet</h3><p>Try a tool name or a simpler search, or explore the full directory.</p><button type="button" onClick={() => { setDirectoryQuery(''); chooseCategory('') }}>Clear search and filters <ArrowIcon size={16} /></button></div>}
+            {showDirectory && <div className="tool-grid">{visibleDirectory.map((tool) => (
               <DirectoryCard key={tool.id} tool={tool} trades={trades} tradeId={tradeId} {...compareProps(tool.id)} />
             ))}</div>}
 
@@ -650,17 +677,16 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block compare-section" id="compare">
-            <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We flag the details that need confirmation.'}</p></div><div className="section-counter">04 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 04: DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We flag the details that need confirmation.'}</p></div><div className="section-counter">04 / 04</div></div>
             <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
           </section>
-
-          {!quickCompare && <ProductShowcase part="story" scene={scene} tools={allTools} paused={motionPaused} />}
 
           <section className="next-panel" hidden={quickCompare}><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Confirm task assignments and save a private adoption plan for your next steps.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>
           <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>
         </div>
       </main>
-      <ChatPanel auth={auth} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
+      <ComparisonTray tools={comparison} onRemove={toggleCompare} onClear={() => { setSelectedTools([]); setBaseline('') }} onView={() => stageAnchor('compare')} />
+      <ChatPanel pageProblemIds={selectedProblems} auth={auth} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
     </div>
   )
 }

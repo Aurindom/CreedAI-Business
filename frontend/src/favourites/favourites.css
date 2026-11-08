@@ -1,0 +1,12 @@
+.favourite-button { display: inline-grid; place-items: center; flex: none; width: 42px; height: 42px; padding: 9px; border: 1px solid #9c8cab66; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.favourite-button svg { fill: transparent; stroke: currentColor; stroke-width: 1.7; }
+.favourite-button.is-favourite { color: #d6b7ee; background: #b99dd51c; border-color: #c3a2da; }
+.favourite-button.is-favourite svg { fill: currentColor; }
+.favourite-button:hover:not(:disabled), .favourite-button:focus-visible { outline: 2px solid #d3bde6; outline-offset: 3px; }
+.favourite-button:disabled { opacity: .5; cursor: default; }
+.favourites-empty { padding: 24px; border: 1px solid #9c8cab44; border-radius: 18px; line-height: 1.6; }
+.favourites-error { padding: 16px; border: 1px solid #c18181; border-radius: 12px; margin-bottom: 16px; }
+.favourites-error button { padding: 8px; margin-left: 8px; text-decoration: underline; }
+.favourites-nav { margin-top: 8px; }
+.favourites-toast { position: fixed; z-index: 11000; right: 20px; bottom: 20px; max-width: min(400px, calc(100vw - 40px)); padding: 16px; border: 1px solid #bd9cca; border-radius: 14px; background: #241e2e; color: #f3e9fc; box-shadow: 0 12px 40px #0005; }
+.favourites-toast button { padding: 6px 10px; margin-left: 8px; color: inherit; text-decoration: underline; }

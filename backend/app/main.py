@@ -18,6 +18,7 @@ from .agent import bindings
 from .capacity import Capacity
 from .chat import router as chat_router
 from .chat_history import router as chat_history_router
+from .favourites import router as favourites_router
 from .comparison import AssignmentError, compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
@@ -103,12 +104,13 @@ async def _log_rejected_fields(request: Request, exc: RequestValidationError):
 web.install(app)
 app.include_router(chat_router)
 app.include_router(chat_history_router)
+app.include_router(favourites_router)
 
 
 @app.middleware('http')
 async def private_responses_are_not_cached(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(('/api/auth/', '/api/plans', '/api/chat/history')):
+    if request.url.path.startswith(('/api/auth/', '/api/plans', '/api/chat/history', '/api/favourites')):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Vary'] = 'Authorization'
     return response

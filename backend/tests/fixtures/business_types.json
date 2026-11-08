@@ -1,0 +1,18 @@
+[
+  {"text": "auto", "expected": "auto"},
+  {"text": "Auto shop", "expected": "auto"},
+  {"text": "mechanic shop", "expected": "auto"},
+  {"text": "mechainc shop", "expected": "auto"},
+  {"text": "MECHANIC SHOP", "expected": "auto"},
+  {"text": "  mechanic   shop  ", "expected": "auto"},
+  {"text": "mechanic-shop", "expected": "auto"},
+  {"text": "mechanic_shop", "expected": "auto"},
+  {"text": "car repair shop", "expected": "auto"},
+  {"text": "vehicle repair", "expected": "auto"},
+  {"text": "automotive repair shop", "expected": "auto"},
+  {"text": "repair shop", "expected": null},
+  {"text": "I run a mechanic shop and a bakery", "expected": null},
+  {"text": "car", "expected": null},
+  {"text": "mechanic school", "expected": null},
+  {"text": "", "expected": null}
+]

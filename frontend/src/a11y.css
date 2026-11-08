@@ -52,7 +52,15 @@
 .site-shell .chip-more:hover { background: #ffffff10; }
 
 /* How it works: the core features, right after the hero */
-.how-it-works { position: relative; z-index: 1; margin: 56px auto 40px; padding: 40px clamp(20px, 4vw, 48px); max-width: 1100px; border: 1px solid #3a3146; border-radius: 28px; background: #14111bcc; }
+.how-it-works { position: relative; z-index: 1; isolation: isolate; margin: 0 auto 40px; padding: 116px clamp(24px, 5vw, 72px) 48px; background: var(--page, #07080d); scroll-margin-top: 100px; }
+.how-it-works::before { content: ''; position: absolute; z-index: -1; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 0, color-mix(in srgb, var(--journey-accent) 12%, transparent), transparent 64%); mask-image: linear-gradient(transparent, #000 100px, #000 70%, transparent); }
+.how-inner { max-width: 1100px; margin: 0 auto; }
+.how-connection { position: absolute; top: 0; left: 50%; display: flex; flex-direction: column; align-items: center; width: 16px; height: 86px; transform: translateX(-50%); pointer-events: none; }
+.how-connection span { flex: 1; width: 1px; background: linear-gradient(transparent, var(--journey-accent)); }
+.how-connection span:last-child { background: linear-gradient(var(--journey-accent), transparent); }
+.how-connection i { width: 7px; height: 7px; margin: 8px 0; border-radius: 50%; background: var(--journey-accent); box-shadow: 0 0 22px var(--journey-accent); }
+.how-intro { max-width: 760px; opacity: 0; transform: translateY(22px); transition: opacity .7s ease, transform .7s cubic-bezier(.2,.7,.2,1); }
+.how-it-works.is-visible .how-intro { opacity: 1; transform: none; }
 .how-kicker { margin: 0 0 10px; color: var(--accent, #d8c8ff); font-size: 12px; font-weight: 600; letter-spacing: .14em; }
 .how-it-works h2 { margin: 0 0 10px; color: var(--text, #f4f1fa); font-size: clamp(28px, 4vw, 40px); font-weight: 550; letter-spacing: -.03em; line-height: 1.15; }
 .how-lead { margin: 0 0 28px; color: #cfc6dc; font-size: 17px; line-height: 1.6; }
@@ -73,7 +81,7 @@
 .how-link { min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: #e4dcef; font-size: 15px; text-decoration: underline; text-underline-offset: 4px; }
 
 @media (max-width: 640px) {
-  .how-it-works { margin: 32px 0; padding: 28px 18px; border-radius: 20px; }
+  .how-it-works { margin: 0 0 24px; padding: 100px 24px 32px; }
   .site-shell .business-ask-penny { margin: 10px 0 0; }
   .site-shell .owner-account-trigger { min-width: 0; padding: 0 12px; }
 }
@@ -81,13 +89,12 @@
 /* Motion stays gentle, and stops completely for owners who ask for less motion */
 @media (prefers-reduced-motion: reduce) {
   .skip-link, .how-step, .site-shell .business-day button.day-challenge, .site-shell .business-ask-penny, .how-primary { transition: none; }
-  .how-step { opacity: 1; transform: none; }
+  .how-step, .how-intro { opacity: 1; transform: none; transition: none; }
 }
 .motion-paused .how-step { transition: none; opacity: 1; transform: none; }
 
-/* Small phones: the header holds the logo and Account; Compare is offered in the hero and How it works */
+/* Keep the two-row mobile header's comparison and favourites shortcuts. */
 @media (max-width: 480px) {
-  .street-header .nav-quick-compare { display: none; }
   .site-shell .owner-account-trigger { min-height: 44px; padding: 0 14px; }
 }
 .product-sticky, .showcase-bridge { overflow-x: clip; }

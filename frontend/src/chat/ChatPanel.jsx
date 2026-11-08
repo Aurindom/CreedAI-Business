@@ -6,7 +6,7 @@ import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult, { safeUrl } from './ChatResult'
 import { clearSession, historyFor, loadSession, memoryForRequest, newConversationId, saveSession, visibleMessages } from './chatSession'
-import { queueHistory } from './historyCache'
+import { queueHistory, deleteSavedHistory } from './historyCache'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
 import PennyMemory from './PennyMemory'
@@ -71,24 +71,10 @@ function latestResult(list) {
   return null
 }
 
-// What Penny is talking about right now, so a follow-up like "how much is it?" stays on topic in Demo mode.
-function contextFor(list) {
-  const result = latestResult(list)
-  if (!result) return {}
-  const { recommendation } = result
-  const winner = [...recommendation.options, ...recommendation.check_first].find((option) => option.tool_id === recommendation.winner_tool_id)
-  return {
-    problemId: recommendation.problem_id,
-    problemTitle: result.problemTitle,
-    winnerId: recommendation.winner_tool_id || null,
-    winnerName: winner?.tool_name || null,
-  }
-}
-
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
 
-function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) {
+function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, handoff }) {
   const adapter = useMemo(() => createChatAdapter(), [])
   const [restored] = useState(() => auth?.configured ? null : loadSession(EMPTY_MEMORY))
   const [conversationId, setConversationId] = useState(() => restored?.conversationId || newConversationId())
@@ -97,6 +83,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
   const [resumed, setResumed] = useState(() => Boolean(restored?.messages.length))
   const [hydratedFor, setHydratedFor] = useState(null)
   const [historyReady, setHistoryReady] = useState(false)
+  const [deletingHistory, setDeletingHistory] = useState(false)
   const [names, setNames] = useState({ tools: {}, trades: {}, urls: {} })
   const [live, setLive] = useState(null)
   const [speaking, setSpeaking] = useState(false)
@@ -116,6 +103,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
   const memoryRef = useRef(memory)
   const speakTimer = useRef(null)
   const abortRef = useRef(null)
+  const handledHandoff = useRef(null)
 
   messagesRef.current = messages
   memoryRef.current = memory
@@ -160,12 +148,12 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
 
   useEffect(() => {
     if (!auth?.configured) { saveSession({ conversationId, messages, memory }); return }
-    if (userId && authToken && hydratedFor === userId && historyReady) {
+    if (userId && authToken && hydratedFor === userId && historyReady && !deletingHistory) {
       queueHistory(authToken, { conversationId, messages: messages.filter((item) => item.kind !== 'loading').slice(-40), memory }).catch(() => {
         setNotice('Penny could not save this short chat history. Please try again before signing out.')
       })
     }
-  }, [auth?.configured, userId, authToken, hydratedFor, historyReady, conversationId, messages, memory])
+  }, [auth?.configured, userId, authToken, hydratedFor, historyReady, deletingHistory, conversationId, messages, memory])
 
   useEffect(() => {
     if (!open) return
@@ -268,6 +256,37 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     inputRef.current?.focus()
   }
 
+  // A page selection is already a resolved catalog task. Load its actual results
+  // directly, after account hydration, and carry the same context into live chat.
+  useEffect(() => {
+    if (!handoff || handledHandoff.current === handoff.key || busy || deletingHistory) return
+    if (auth?.configured && (!auth.ready || (userId && hydratedFor !== userId))) return
+    handledHandoff.current = handoff.key
+    const run = begin()
+    const selectedProfile = handoff.profile
+    loadCatalog().then(async (catalog) => {
+      if (run !== runRef.current) return
+      const tasks = handoff.problemIds.map(id => catalog.problems.find(problem => problem.id === id)).filter(Boolean)
+      if (!tasks.length) return
+      setMemory(current => ({
+        ...current,
+        trade: selectedProfile.trade || null,
+        owned: selectedProfile.owned.map(entry => entry.tool_id),
+        plans: Object.fromEntries(selectedProfile.owned.filter(entry => entry.plan).map(entry => [entry.tool_id, entry.plan])),
+        budget_monthly_usd: selectedProfile.budget_monthly_usd ?? null,
+        active_task_ids: tasks.map(task => task.id),
+        pending_question: null,
+        pending_task_ids: [],
+        background_done: true,
+      }))
+      setResumed(false)
+      addMessage({ kind: 'user', text: `Help me with my selected ${tasks.length === 1 ? 'task' : 'tasks'}: ${tasks.map(task => task.title).join('; ')}.` })
+      await Promise.all(tasks.map(task => fetchRecommendation(task.id, selectedProfile, run)))
+    }).catch(() => {
+      if (run === runRef.current) setNotice('Could not load your selected tasks. Your selections are still on the page. Please try again.')
+    }).finally(() => finish(run))
+  }, [handoff, auth?.configured, auth?.ready, userId, hydratedFor, busy, deletingHistory])
+
   async function send(rawText, { isRetry = false } = {}) {
     if (auth?.configured && (!auth.ready || (userId && hydratedFor !== userId))) {
       setInputError('Restoring your account conversation. Please wait a moment.')
@@ -307,7 +326,6 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     setResumed(false)
 
     const pending = []
-    const actions = []
     let replyId = null
     let receivedA2UIQuestion = false
     let receivedA2UIRecommendation = false
@@ -356,7 +374,6 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
       if (event.type === 'clarify' && !receivedA2UIQuestion) addMessage({ kind: 'clarify', text: event.question, choices: event.choices || [], progress: event.progress || '' })
       if (event.type === 'recommendation' && !receivedA2UIRecommendation) pending.push(fetchRecommendation(event.problem_id, event.profile, run))
       if (event.type === 'sources' && !receivedA2UISources) addMessage({ kind: 'sources', items: event.items || [] })
-      if (event.type === 'action' && ['compare', 'save'].includes(event.action)) actions.push(event.action)
       if (event.type === 'action' && ACTION_LABELS[event.status]) addMessage({ kind: 'action', status: event.status, text: event.message || ACTION_LABELS[event.status] })
       if (event.type === 'error') {
         addMessage({
@@ -369,17 +386,12 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
 
     try {
       abortRef.current = new AbortController()
-      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryForRequest(memoryRef.current), history, isRetry, accessToken: authToken, signal: abortRef.current.signal, context: contextFor(messagesRef.current) }, onEvent)
+      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryForRequest(memoryRef.current), history, isRetry, accessToken: authToken, signal: abortRef.current.signal }, onEvent)
     } catch {
       if (run === runRef.current) addMessage({ kind: 'error', text: UNAVAILABLE, retry: { type: 'send', text } })
     }
     await Promise.allSettled(pending)
     finish(run)
-    const target = latestResult(messagesRef.current)
-    if (run === runRef.current && target) {
-      if (actions.includes('compare')) compareAlternatives(target)
-      else if (actions.includes('save')) savePlan(target)
-    }
   }
 
   async function retry(message) {
@@ -412,6 +424,23 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     inputRef.current?.focus()
   }
 
+  async function deleteHistory() {
+    if (!authToken || !historyReady || busyRef.current || deletingHistory) return
+    const run = begin()
+    setDeletingHistory(true)
+    try {
+      await deleteSavedHistory(authToken)
+      if (run !== runRef.current) return
+      startOver()
+      setNotice('Your saved chat history was deleted. Your favourite tools are unchanged.')
+    } catch {
+      if (run === runRef.current) setNotice('Could not delete your chat history. Please retry.')
+    } finally {
+      if (run === runRef.current) finish(run)
+      setDeletingHistory(false)
+    }
+  }
+
   // The owner's details as Penny knows them, for comparing or saving outside the chat stream.
   function currentProfile() {
     const known = memoryRef.current
@@ -421,7 +450,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     })
     return {
       trade: known.trade || profile?.trade || null,
-      owned,
+      owned: owned.map(entry => ({ ...entry, plan: entry.plan || known.plans?.[entry.tool_id] || null })),
       budget_monthly_usd: known.budget_monthly_usd ?? profile?.budget_monthly_usd ?? null,
     }
   }
@@ -563,9 +592,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
             <div className="penny-panel-heading">
               <span className="penny-panel-eyebrow">MAIN STREET / ASSISTANT</span>
               <h2>Penny</h2>
-              {adapter.demo
-                ? <span className="msc-demo">Demo mode</span>
-                : <span className={live ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : live ? 'Live AI' : 'Unavailable'}</span>}
+              <span className={live ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : live ? 'Live AI' : 'Unavailable'}</span>
             </div>
           </div>
           <div className="msc-header-actions">
@@ -574,14 +601,15 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>
               </button>
             )}
-            <button type="button" className="msc-text-button" onClick={startOver}>New chat</button>
+            <button type="button" className="msc-text-button" onClick={startOver} disabled={deletingHistory}>New chat</button>
             <button type="button" className="msc-close" onClick={onClose} aria-label="Close chat">×</button>
           </div>
         </header>
 
         <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence, which means facts we have checked, and tells you when something is unknown.</p></details>
-        {live === false && !adapter.demo && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
+        {live === false && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
+        {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
 
         <div className="msc-log" ref={logRef} role="log" aria-live="polite" aria-busy={busy}>
           {messages.length === 0 && (
@@ -619,8 +647,9 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
                 </ul>
               )
             }
-            if (message.kind === 'alternatives') return <AlternativesCard key={message.id} message={message} />
-            if (message.kind === 'saved-plan') return <SavedPlanCard key={message.id} plan={message.plan} />
+            if (message.kind === 'action') return <p className="msc-action" data-status={message.status} role="status" key={message.id}>{message.text}</p>
+            if (message.kind === 'alternatives') return <AlternativesCard key={message.id} message={message} serviceUrls={names.urls} />
+            if (message.kind === 'saved-plan') return <SavedPlanCard key={message.id} plan={message.plan} serviceUrls={names.urls} />
             if (message.kind === 'draft') return <DraftCard key={message.id} draft={message.draft} />
             if (message.kind === 'draft-builder') {
               return (
@@ -633,7 +662,6 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
                 />
               )
             }
-            if (message.kind === 'action') return <p className="msc-action" data-status={message.status} role="status" key={message.id}>{message.text}</p>
             if (message.kind === 'error') {
               return (
                 <div className="msc-error" role="alert" key={message.id}>
@@ -713,33 +741,22 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
 }
 
 const LAUNCHER_KEY = 'main-street-penny-launcher-v1'
-const FIGURE_SCROLL_LIMIT = 240
 
 function savedLauncher() {
   try {
     const mode = window.sessionStorage.getItem(LAUNCHER_KEY)
-    return mode === 'compact' || mode === 'hidden' ? mode : 'figure'
+    return mode === 'hidden' ? 'hidden' : 'figure'
   } catch {
     return 'figure'
   }
 }
 
-function useNearTop() {
-  const [nearTop, setNearTop] = useState(() => typeof window === 'undefined' || window.scrollY < FIGURE_SCROLL_LIMIT)
-  useEffect(() => {
-    const update = () => setNearTop(window.scrollY < FIGURE_SCROLL_LIMIT)
-    window.addEventListener('scroll', update, { passive: true })
-    return () => window.removeEventListener('scroll', update)
-  }, [])
-  return nearTop
-}
-
-function ChatPanelInner({ profile, auth }) {
+function ChatPanelInner({ profile, auth, pageProblemIds }) {
   const [open, setOpen] = useState(false)
   const [activity, setActivity] = useState('idle')
+  const [handoff, setHandoff] = useState(null)
   const [launcherMode, setLauncherMode] = useState(savedLauncher)
-  const nearTop = useNearTop()
-  const showFigure = launcherMode === 'figure' && nearTop && !open
+  const showFigure = launcherMode === 'figure' && !open
   const phone = useIsPhone()
   const bubble = useDraggable({ storageKey: 'main-street-penny-bubble-v1' })
   const chatWindow = useDraggable({ storageKey: 'main-street-penny-window-v1', enabled: !phone })
@@ -752,8 +769,6 @@ function ChatPanelInner({ profile, auth }) {
 
   useEffect(() => {
     if (wasOpen.current && !open) {
-      // After a first chat Penny stays small, so she doesn't cover the page.
-      if (launcherMode === 'figure') changeLauncher('compact')
       returnFocus.current = true
     }
     wasOpen.current = open
@@ -782,24 +797,35 @@ function ChatPanelInner({ profile, auth }) {
   }, [open, chatWindow, bubble.position])
 
   useEffect(() => {
-    function openFromPage() {
+    function openFromPage(event) {
       anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+      takeSelection(event.detail)
       setOpen(true)
     }
     window.addEventListener('penny:open', openFromPage)
     return () => window.removeEventListener('penny:open', openFromPage)
-  }, [bubble.ref])
+  }, [bubble.ref, profile, pageProblemIds])
+
+  function takeSelection(selection = {}) {
+    const problemIds = [...new Set(selection?.problemIds || pageProblemIds || [])].filter(id => typeof id === 'string').slice(0, 3)
+    if (!problemIds.length) return
+    const sourceProfile = selection?.profile || profile
+    const selectedProfile = { trade: sourceProfile.trade || null, owned: sourceProfile.owned || [], budget_monthly_usd: sourceProfile.budget_monthly_usd ?? null }
+    const context = { problemIds, profile: selectedProfile }
+    setHandoff({ ...context, key: JSON.stringify(context) })
+  }
 
   function openChat() {
     if (bubble.wasDragged()) return
     anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+    takeSelection()
     setOpen(true)
   }
 
   return (
     <div className="msc-root">
       {!open && launcherMode === 'hidden' && (
-        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('compact')} aria-label="Show Penny, your AI guide">
+        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('figure')} aria-label="Show Penny, your AI guide">
           <PennyAvatar size={28} />
           <span>Penny</span>
         </button>
@@ -821,15 +847,15 @@ function ChatPanelInner({ profile, auth }) {
           <button type="button" className="penny-hide" onClick={() => changeLauncher('hidden')} aria-label="Hide Penny" title="Hide Penny">×</button>
         </div>
       )}
-      <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} drag={chatWindow} phone={phone} />
+      <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} drag={chatWindow} phone={phone} handoff={handoff} />
     </div>
   )
 }
 
-function ChatPanel({ profile = {}, auth }) {
+function ChatPanel({ profile = {}, auth, pageProblemIds = [] }) {
   return (
     <ChatErrorBoundary>
-      <ChatPanelInner profile={profile} auth={auth} />
+      <ChatPanelInner key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} pageProblemIds={pageProblemIds} />
     </ChatErrorBoundary>
   )
 }

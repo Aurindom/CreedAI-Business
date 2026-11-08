@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
@@ -168,6 +169,23 @@ class Tool(BaseModel):
 class Trade(BaseModel):
     id: str
     name: str
+    aliases: list[str] = Field(default_factory=list)
+
+
+def normalize_trade(text: str) -> str:
+    return re.sub(r'[\s_-]+', ' ', text.strip().casefold())
+
+
+def transposed_trade(wanted: str, candidate: str) -> bool:
+    """Only accept one swapped pair of adjacent letters in a full business label."""
+    if len(wanted) < 6 or len(wanted) != len(candidate):
+        return False
+    different = [index for index, pair in enumerate(zip(wanted, candidate)) if pair[0] != pair[1]]
+    if len(different) != 2 or different[1] != different[0] + 1:
+        return False
+    first, second = different
+    return (wanted[first].isalpha() and wanted[second].isalpha()
+            and wanted[first] == candidate[second] and wanted[second] == candidate[first])
 
 
 class Category(BaseModel):
@@ -297,11 +315,15 @@ class Catalog(BaseModel):
         return ", ".join(names)
 
     def resolve_trade(self, text: str | None) -> str | None:
-        wanted = (text or "").strip().casefold().replace(" ", "_")
-        for trade in self.trades:
-            if wanted in (trade.id, trade.name.casefold().replace(" ", "_")):
-                return trade.id
-        return None
+        wanted = normalize_trade(text or '')
+        if not wanted:
+            return None
+        labels = [(trade.id, [normalize_trade(value) for value in [trade.id, trade.name, *trade.aliases]]) for trade in self.trades]
+        exact = {trade_id for trade_id, values in labels if wanted in values}
+        if exact:
+            return next(iter(exact)) if len(exact) == 1 else None
+        close = {trade_id for trade_id, values in labels if any(transposed_trade(wanted, value) for value in values)}
+        return next(iter(close)) if len(close) == 1 else None
 
     def tool(self, tool_id: str) -> Tool:
         for tool in self.tools:

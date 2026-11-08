@@ -3,12 +3,12 @@ import React, { useEffect, useRef } from 'react'
 const steps = [
   { number: '1', title: 'Tell us about your business', detail: 'Your type of business and the software you already pay for. Every question is optional.' },
   { number: '2', title: "Pick what's slowing you down", detail: 'Missed calls, the books, reviews, scheduling and more, in plain words.' },
-  { number: '3', title: 'See checked tools and real prices', detail: 'Every price and fact links to its source. Unknowns stay marked as unknown.' },
+  { number: '3', title: 'See checked tools and real prices', detail: 'See sources for prices and facts, with service links to confirm any missing details.' },
   { number: '4', title: 'Compare, plan, or ask Penny', detail: 'Compare side by side, save a plan, or ask Penny. She can even draft a custom assistant for your staff.' },
 ]
 
 // The core features, first and in plain words. Cards fade in once as they scroll into view.
-export default function HowItWorks({ onStart, onAskPenny, onCompare }) {
+export default function HowItWorks({ onStart, onAskPenny, onCompare, accent }) {
   const root = useRef(null)
 
   useEffect(() => {
@@ -28,10 +28,14 @@ export default function HowItWorks({ onStart, onAskPenny, onCompare }) {
   }, [])
 
   return (
-    <section className="how-it-works" ref={root} aria-labelledby="how-it-works-title">
+    <section className="how-it-works" id="how-it-works" ref={root} aria-labelledby="how-it-works-title" style={{ '--journey-accent': accent || '#d8c8ff' }}>
+      <div className="how-connection" aria-hidden="true"><span /><i /><span /></div>
+      <div className="how-inner">
+      <div className="how-intro">
       <p className="how-kicker">HOW MAIN STREET AI HELPS</p>
       <h2 id="how-it-works-title">Find the right AI tools in four simple steps</h2>
       <p className="how-lead">No tech knowledge needed. You can start with the steps below or just ask Penny.</p>
+      </div>
       <ol className="how-steps">
         {steps.map((step, index) => (
           <li className="how-step" key={step.number} style={{ '--step-delay': `${index * 90}ms` }}>
@@ -45,6 +49,7 @@ export default function HowItWorks({ onStart, onAskPenny, onCompare }) {
         <button type="button" className="how-primary" onClick={onStart}>Start with step 1 <span aria-hidden="true">&#8595;</span></button>
         <button type="button" className="how-secondary" onClick={onAskPenny}>Ask Penny instead</button>
         <button type="button" className="how-link" onClick={onCompare}>Already pay for a tool? Compare it</button>
+      </div>
       </div>
     </section>
   )

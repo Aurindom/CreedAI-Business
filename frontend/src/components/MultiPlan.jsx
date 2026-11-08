@@ -83,7 +83,7 @@ export default function MultiPlan({ problemIds, problems, profile, toolsById, bu
         {stack?.assumptions?.length > 0 && <details className="plan-assumptions"><summary>What this total includes</summary><ul>{stack.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details>}
         <div className="opt-help-actions">
           {winners.length > 0 && <button type="button" className="opt-chip" onClick={() => onCompareThese(winners.slice(0, 3))}>Compare these tools</button>}
-          <button type="button" className="opt-chip" onClick={onAskPenny}>Ask Penny about this plan</button>
+          <button type="button" className="opt-chip" onClick={() => onAskPenny({ problemIds })}>Ask Penny about this plan</button>
         </div>
       </section>
 
