@@ -10,7 +10,13 @@ _FALLING_BEHIND = re.compile(
     r"\b(?:never|rarely|do\s+not|don['’]?t|can\s*not|can['’]?t)\s+(?:"
     r"(?:get|got)\s+a?round\s+to"
     r"|(?:have|find)\s+(?:the\s+)?time\s+(?:to|for)"
-    r"|keep\s+up(?:\s+with)?)\b", re.IGNORECASE)
+    r"|keep\s+up(?:\s+with)?"
+    # Not being reachable or not answering is the complaint itself ("customers can never reach us").
+    r"|(?:\w+\s+)?(?:reach|contact|get\s+(?:through|hold\s+of))"
+    # Phone answering only: "I never reply to reviews" is a deliberate refusal (see test_owner_phrases).
+    r"|(?:\w+\s+)?(?:answer|pick\s+up|call\s+(?:\w+\s+)?back))\b"
+    r"|\b(?:can|could)\s+never\s+(?:reach|contact|get\s+(?:through|hold\s+of))\b"
+    r"|\bcould\s*n['’]?t\s+(?:reach|contact|get\s+(?:through|hold\s+of))\b", re.IGNORECASE)
 
 
 # Deliberately narrow spelling/slang aliases, not fuzzy matching of arbitrary words.
