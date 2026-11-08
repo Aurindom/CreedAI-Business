@@ -15,6 +15,22 @@ class ConversationReply(Strict):
     text: str = Field(min_length=1, max_length=600)
 
 
+# The model chooses the conversational intent; the server owns the factual boundary.
+# Arbitrary prose cannot be made safe by a denylist of vendor names or verbs.
+APPROVED_REPLIES = {
+    'greeting': ("Hi! I'm Penny. How can I help today?", "I'm here. What would you like to discuss?",
+                 "I'm doing well, thanks! How are you?", 'Hello! How can I help?', 'Hello!'),
+    'acknowledgement': ("You're welcome!", 'Happy to help.'),
+    'repair': ("You're right to flag that. Let's focus on the part you want to work through.",),
+    'help': ('I can help you compare business software and understand what you already use.',),
+    'scope': ('I focus on business software. What would you like help with there?',),
+}
+
+
+def reply_choices():
+    return {f'{intent}.{i}': text for intent, choices in APPROVED_REPLIES.items() for i, text in enumerate(choices)}
+
+
 # This path is for conversation management, not a second product-facts channel.
 _FACTUAL = re.compile(
     r'\d|[$\u00a3\u20ac%]|https?://|www\.|<[^>]*>|'
@@ -51,4 +67,5 @@ def validate_conversation(raw, catalog, guard):
                         for name in product_names if name)
     if not text or _FACTUAL.search(text) or names_product or chat_guard.reason(text):
         return ValidatedReply(status='fallback', text=FALLBACK, reason='conversation_content_rejected')
-    return ValidatedReply(status='validated', text=text)
+    approved = APPROVED_REPLIES[reply.intent]
+    return ValidatedReply(status='validated', text=text if text in approved else approved[0])

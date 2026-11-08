@@ -133,6 +133,9 @@ class DiscoveryReport(BaseModel):
     excluded: list[Skipped] = Field(default_factory=list)
     error: ErrorInfo | None = None
     notice: str = NOTICE
+    automatically_checked: list[str] = Field(default_factory=list)
+    promoted: list[str] = Field(default_factory=list)
+    verification_notes: dict[str, list[str]] = Field(default_factory=dict)
 
 
 Finder = Callable[[DiscoveryRequest, threading.Event], Any]

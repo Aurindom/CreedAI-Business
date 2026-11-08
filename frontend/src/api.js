@@ -92,6 +92,8 @@ export function newRequestId() {
 }
 
 export const api = {
+  discoveryStatus: () => request('/api/discovery/status'),
+  research: (body) => request('/api/research', { method: 'POST', body: JSON.stringify(body) }),
   account: (token) => request('/api/auth/me', { headers: owner(token), cache: 'no-store' }),
   logoutAccount: (token) => request('/api/auth/logout', { method: 'POST', headers: owner(token) }),
   claimLegacyPlans: (token, legacyToken) => request('/api/plans/claim-legacy', { method: 'POST', headers: owner(token), body: JSON.stringify({ legacy_token: legacyToken }) }),

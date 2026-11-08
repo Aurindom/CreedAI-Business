@@ -35,6 +35,15 @@ def filtered_context(catalog, profile, memory):
 
 def task_ids(catalog, body):
     # History supplies a pending answer's context, never an arbitrary short turn.
+    normalized = body.message.casefold().strip(' .!?')
+    known = {card.id for card in catalog.problem_cards}
+    pending = pending_tasks(catalog, body)
+    if normalized in {'yes', 'yes please', 'please do', 'sure', 'go ahead'} and len(pending) == 1:
+        return pending
+    if re.fullmatch(r'(?:please )?show (?:me )?(?:the )?(?:tools|options|recommendations) for that(?: now)?', normalized):
+        active = [pid for pid in body.memory.active_task_ids if pid in known]
+        if len(active) == 1:
+            return active
     texts = [body.message]
     previous = next((item.text for item in reversed(body.history) if item.role == 'assistant'), '')
     answering = body.memory.pending_question in ('business', 'software', 'budget', 'plan')

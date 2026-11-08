@@ -22,7 +22,7 @@ router = APIRouter()
 TTL_SECONDS = 30 * 24 * 60 * 60
 ACTIVE_TTL_SECONDS = TTL_SECONDS
 MAX_SNAPSHOT_BYTES = 128_000
-ALLOWED_KINDS = {"user", "assistant", "clarify", "a2ui", "result", "sources", "error"}
+ALLOWED_KINDS = {"user", "assistant", "clarify", "a2ui", "result", "sources", "error", "action"}
 PENNY_CATALOG = "https://mainstreet.ai/catalogs/penny/v1"
 
 
@@ -149,8 +149,10 @@ class ChatSnapshot(BaseModel):
             if "text" in item and (not isinstance(item["text"], str) or len(item["text"]) > 2000):
                 raise ValueError("Invalid chat text")
             kind = item["kind"]
-            if kind in ("user", "assistant", "clarify", "error") and not isinstance(item.get("text"), str):
+            if kind in ("user", "assistant", "clarify", "error", "action") and not isinstance(item.get("text"), str):
                 raise ValueError("Missing chat text")
+            if kind == 'action' and item.get('status') not in ('succeeded', 'failed', 'not_executed', 'unconfirmed'):
+                raise ValueError('Invalid action status')
             if kind == "result":
                 try:
                     Recommendation.model_validate(item.get("recommendation"))

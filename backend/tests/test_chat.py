@@ -62,6 +62,55 @@ def test_status_is_off_without_a_key(client, monkeypatch):
     assert client.post("/api/chat", json={"conversation_id": "c", "message": "hi"}).status_code == 503
 
 
+def test_ready_is_separate_from_liveness_and_leaks_nothing(client, monkeypatch):
+    ready = client.get("/api/chat/ready")
+    assert ready.status_code == 200 and ready.json() == {"ready": True, "checks": {"provider": True, "database": True, "budget": True}}
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    down = client.get("/api/chat/ready")
+    assert down.status_code == 503 and down.headers["retry-after"] == "60"
+    assert down.json()["checks"]["provider"] is False
+    assert "test-secret-key" not in down.text and "spend.db" not in down.text
+    assert client.get("/api/health").json() == {"status": "ok"}
+
+
+def test_ready_is_off_when_the_budget_cannot_cover_a_turn(client, monkeypatch):
+    monkeypatch.setenv("CHAT_SPEND_CAP_USD", "0.02")
+    chat.ledger().settle(0, 0.015)
+    response = client.get("/api/chat/ready")
+    assert response.status_code == 503 and response.json()["checks"]["budget"] is False
+
+
+def test_public_browsing_keeps_working_while_chat_is_down(client, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    assert client.get("/api/chat/ready").status_code == 503
+    for route in ("/api/trades", "/api/problems", "/api/tools"):
+        response = client.get(route)
+        assert response.status_code == 200 and response.json()
+
+
+def test_provider_outage_tells_the_owner_to_retry(client, monkeypatch):
+    request = httpx.Request("POST", chat.OPENROUTER_URL)
+    script(monkeypatch, httpx.ConnectTimeout("slow", request=request))
+    events = send(client)
+    error = next(e for e in events if e["type"] == "error")
+    assert error["retryable"] is True and "Try again" in error["message"] and "Browsing still works" in error["message"]
+    assert events[-1] == {"type": "done"}
+
+
+def test_readiness_recovers_after_a_restart(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "app.db"))
+    monkeypatch.setenv("CHAT_SPEND_PATH", str(tmp_path / "spend.db"))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("CHAT_PROVIDER", raising=False)
+    with TestClient(app) as first:
+        assert first.get("/api/chat/ready").status_code == 503
+        assert first.get("/api/health").status_code == 200
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-secret-key")
+    with TestClient(app) as second:
+        assert second.get("/api/chat/ready").status_code == 200
+        assert second.get("/api/tools").status_code == 200
+
+
 def test_unstructured_reply_falls_back_and_finishes(client, monkeypatch):
     script(monkeypatch, reply("Happy to help."))
     events = send(client)

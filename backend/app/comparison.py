@@ -43,13 +43,14 @@ def _task_fit(catalog: Catalog, tool: Tool, problem: ProblemCard, profile: Busin
     gap = _facet_gap(catalog, tool, problem)
     option = _option(tool, problem.capability, owned, fit, gap or fit_note, profile.plan_for(tool.id))
     reason = option.fit_note
-    if tool.status != "verified":
-        reason += ". Our team hasn't rechecked its details yet"
+    if option.status != "verified":
+        reason += (". Automatic checks identified details to confirm" if tool.auto_review
+                   else ". Our team hasn't rechecked its details yet")
     standing = "check_first" if fit == "unconfirmed" or gap else "eligible"
     return TaskFit(
         **base,
         standing=standing,
-        coverage="confirmed" if standing == "eligible" and tool.status == "verified" else "possible",
+        coverage="confirmed" if standing == "eligible" and option.status == "verified" else "possible",
         reason=reason,
         route=option.route,
         added_monthly_usd=option.added_monthly_usd,

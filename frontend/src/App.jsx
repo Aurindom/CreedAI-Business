@@ -127,7 +127,7 @@ function OptionCard({ option, tool, selected, full, onCompare, uncertain, budget
         <CompareButton selected={selected} full={full} onClick={onCompare} />
       </div>
       <p className="cost-note">{option.cost_note}</p>
-      {budgetProvided && <p className={`budget-status budget-${option.within_budget === true ? 'within' : option.within_budget === false ? 'over' : 'unknown'}`}>{option.within_budget === true ? 'Within your added monthly budget' : option.within_budget === false ? 'Over your added monthly budget' : 'Cost unknown - budget fit unconfirmed'}</p>}
+      {budgetProvided && <p className={`budget-status budget-${option.within_budget === true ? 'within' : option.within_budget === false ? 'over' : 'unknown'}`}>{option.within_budget === true ? 'Within your added monthly budget' : option.within_budget === false ? 'Over your added monthly budget' : 'Confirm vendor pricing to assess budget fit'}</p>}
       <dl className="fact-list">
         {option.facts.map((fact) => (
           <div key={fact.label} className={fact.known ? 'fact-known' : 'fact-unknown'}>
@@ -147,8 +147,9 @@ function DirectoryCard({ tool, trades, tradeId, selected, full, onCompare }) {
   const price = priceOf(tool)
   return (
     <article className="tool-card">
-      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span><FavouriteButton toolId={tool.id} name={tool.name} /></div>
+      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.auto_review?.eligible ? 'Automatically checked' : tool.auto_review ? 'Evidence checked' : tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span><FavouriteButton toolId={tool.id} name={tool.name} /></div>
       <h3>{tool.name}</h3><p className="tool-summary">{tool.summary}</p>
+      {tool.auto_review && <p className="tool-summary">{tool.auto_review.eligible ? `Checked for ${tool.auto_review.capability.replaceAll('_', ' ')}.` : tool.auto_review.notes.join(' ')}</p>}
       <div className={`fit-line fit-${audience.tone}`}>{audience.text}</div>
       <div className="tool-divider" />
       <div className="tool-price"><div><small>Published entry price</small><strong>{price === null ? 'Ask vendor' : `${dollars(price)} / mo`}</strong></div><CompareButton selected={selected} full={full} onClick={onCompare} /></div>
@@ -161,7 +162,7 @@ function ToolFactValue({ fact, toolName }) {
   if (fact === null) return <span className="fact-load-error">Evidence unavailable. Try selecting this tool again.</span>
   if (!fact) return <span className="fact-loading">Loading evidence...</span>
   return <span className={`fact-value fact-state-${fact.state}`}>
-    {fact.state === 'not_checked' ? 'Not checked yet' : fact.state === 'unresolved' ? 'Unknown' : fact.value}
+    {fact.state === 'not_checked' ? 'Check vendor details' : fact.state === 'unresolved' ? (fact.note || 'Confirm with vendor') : fact.value}
     {fact.source_type === 'vendor' && fact.known && <span className="fact-source"> ? vendor says</span>}
     {fact.note && <span className="fact-why">{fact.note}</span>}
     {fact.checked && <small className="evidence-date">Checked {fact.checked}</small>}
@@ -200,6 +201,9 @@ function Marketplace({ auth }) {
   const [recommendError, setRecommendError] = useState('')
   const [isRecommending, setIsRecommending] = useState(false)
   const [showDirectory, setShowDirectory] = useState(false)
+  const [researchEnabled, setResearchEnabled] = useState(false)
+  const [researchBusy, setResearchBusy] = useState(false)
+  const [researchMessage, setResearchMessage] = useState('')
   const [selectedTools, setSelectedTools] = useState([])
   const [taskText, setTaskText] = useState('')
   const [taskResolution, setTaskResolution] = useState(null)
@@ -216,6 +220,34 @@ function Marketplace({ auth }) {
   const toolsById = useMemo(() => Object.fromEntries(allTools.map((t) => [t.id, t])), [allTools])
   const activeProblem = problems.find((p) => p.id === selectedProblem) || null
   const activeCategory = categories.find((c) => c.id === category) || null
+
+  useEffect(() => {
+    let current = true
+    api.discoveryStatus().then((status) => { if (current) setResearchEnabled(status.available) }).catch(() => {})
+    return () => { current = false }
+  }, [])
+
+  async function researchMore() {
+    if (!activeProblem || researchBusy) return
+    setResearchBusy(true)
+    setResearchMessage('Searching public sources. New findings need review before we recommend them.')
+    try {
+      const report = await api.research({ capability: activeProblem.capability, trade: tradeId || null,
+        max_results: 5, max_pages: 8, time_budget_s: 25 })
+      const [all, filtered] = await Promise.all([api.tools(), api.tools(typedTrade, category)])
+      setAllTools(all)
+      setDirectory(filtered)
+      setShowDirectory(true)
+      setResearchMessage(report.added.length
+        ? `Found ${report.added.length} new research candidates. ${report.promoted?.length || 0} passed automatic verification. Check the evidence notes and vendor sources.`
+        : report.status === 'failed' ? 'Research could not finish. Existing tools are still available.'
+        : 'No new supported candidates found in this search. Existing tools are still available.')
+    } catch (error) {
+      setResearchMessage(error.detail || error.message)
+    } finally {
+      setResearchBusy(false)
+    }
+  }
 
   useEffect(() => {
     Promise.all([api.trades(), api.categories(), api.tools(), api.problems()])
@@ -473,6 +505,10 @@ function Marketplace({ auth }) {
               <button type="button" onClick={() => setShowDirectory((value) => !value)}>{showDirectory ? 'Back to my options' : 'Browse directory'} <ArrowIcon size={15} /></button>
             </div>
 
+            {researchEnabled && activeProblem && <div className="research-controls">
+              <button type="button" disabled={researchBusy} onClick={researchMore}>{researchBusy ? 'Researching public sources...' : 'Research more tools'}</button>
+              {researchMessage && <p role="status">{String(researchMessage)}</p>}
+            </div>}
             {showDirectory && <div className="tool-grid">{directory.map((tool) => (
               <DirectoryCard key={tool.id} tool={tool} trades={trades} tradeId={tradeId} {...compareProps(tool.id)} />
             ))}</div>}
@@ -507,7 +543,7 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block compare-section" id="compare">
-            <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We leave unknown facts visible.'}</p></div><div className="section-counter">04 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We flag the details that need confirmation.'}</p></div><div className="section-counter">04 / 04</div></div>
             <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
           </section>
 

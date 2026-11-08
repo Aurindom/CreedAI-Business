@@ -15,6 +15,21 @@ $allowed = @{
     SUPABASE_PUBLISHABLE_KEY = $true
     REDIS_URL = $true
     APP_DB_PATH = $true
+    CHAT_RUNTIME = $true
+    HERMES_API_URL = $true
+    HERMES_API_KEY = $true
+    HERMES_TIMEOUT_SECONDS = $true
+    PUBLIC_MCP_URL = $true
+    PUBLIC_MCP_TOKEN = $true
+    MODEL_GATEWAY_URL = $true
+    MODEL_GATEWAY_KEY = $true
+    DISCOVERY_ENABLED = $true
+    DISCOVERY_PUBLIC_ENABLED = $true
+    DISCOVERY_SEARCH_PROVIDER = $true
+    DISCOVERY_OPENROUTER_KEY = $true
+    DISCOVERY_AUTO_VERIFY = $true
+    DISCOVERY_MAX_REQUESTS = $true
+    DISCOVERY_SPEND_CAP_USD = $true
 }
 
 if (Test-Path -LiteralPath $localEnv) {

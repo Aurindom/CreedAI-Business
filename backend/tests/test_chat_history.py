@@ -151,6 +151,15 @@ def test_metadata_expiry_is_enforced_even_if_redis_retains_the_old_value(client,
     assert client.get('/api/chat/history', headers=account_header()).json() is None
 
 
+@pytest.mark.parametrize('status', ['succeeded', 'failed', 'not_executed', 'unconfirmed'])
+def test_action_updates_roundtrip_without_breaking_saved_history(client, history, status):
+    snapshot = {**SNAPSHOT, 'messages': [*SNAPSHOT['messages'], {'id': 'action', 'kind': 'action', 'status': status, 'text': 'Checked action status.'}]}
+    assert client.put('/api/chat/history', json=snapshot, headers=account_header()).status_code == 204
+    assert client.get('/api/chat/history', headers=account_header()).json()['messages'][-1]['status'] == status
+    snapshot['messages'][-1]['status'] = 'invented'
+    assert client.put('/api/chat/history', json=snapshot, headers=account_header()).status_code == 422
+
+
 def test_delete_history_is_account_scoped_and_does_not_remove_favourites(client, history):
     alice, bob = account_header(1, 1), account_header(2, 2)
     for headers in [alice, bob]:

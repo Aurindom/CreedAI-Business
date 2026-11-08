@@ -12,6 +12,13 @@ import PennyMemory from './PennyMemory'
 import SpeechInput from './SpeechInput'
 import './chat.css'
 
+const ACTION_LABELS = {
+  succeeded: 'Done.',
+  failed: 'That step did not work. Nothing was changed for you.',
+  not_executed: 'That step did not run. Nothing was changed for you.',
+  unconfirmed: 'We could not confirm that step finished. Please check before relying on it.',
+}
+
 const STARTERS = [
   'Start with a few questions',
   'I keep missing calls while I\'m on a job',
@@ -268,6 +275,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
       if (event.type === 'clarify' && !receivedA2UIQuestion) addMessage({ kind: 'clarify', text: event.question, choices: event.choices || [], progress: event.progress || '' })
       if (event.type === 'recommendation' && !receivedA2UIRecommendation) pending.push(fetchRecommendation(event.problem_id, event.profile, run))
       if (event.type === 'sources' && !receivedA2UISources) addMessage({ kind: 'sources', items: event.items || [] })
+      if (event.type === 'action' && ACTION_LABELS[event.status]) addMessage({ kind: 'action', status: event.status, text: event.message || ACTION_LABELS[event.status] })
       if (event.type === 'error') {
         addMessage({
           kind: 'error',
@@ -411,6 +419,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
                 </ul>
               )
             }
+            if (message.kind === 'action') return <p className="msc-action" data-status={message.status} role="status" key={message.id}>{message.text}</p>
             if (message.kind === 'error') {
               return (
                 <div className="msc-error" role="alert" key={message.id}>
