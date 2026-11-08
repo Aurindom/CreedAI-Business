@@ -7,6 +7,11 @@
 		X-Frame-Options DENY
 		-Server
 	}
+	@probe {
+		not path /.well-known/acme-challenge/*
+		path_regexp (?i)(^|/)\.|^/(actuator|backups?|bak|old|cgi-bin|phpmyadmin|pma|server-status|vendor|wordpress|wp|wp-admin|wp-content|wp-includes|config|admin)(/|$)|\.(php|sql|bak|old|swp|zip|tar|tgz|gz|7z|rar|ini|log|yml|yaml|conf|env|pem|key)$
+	}
+	respond @probe 404
 	reverse_proxy app:8000 {
 		flush_interval -1
 	}

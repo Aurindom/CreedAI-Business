@@ -5,6 +5,12 @@ from .schemas import Catalog, ProblemCard, TaskMatch
 _SUFFIXES = (("ies", "y"), ("s", ""), ("ing", ""), ("ed", ""), ("e", ""))
 _CLAUSE_BREAK = re.compile(r"[.;!?\n]+|,?\s+\b(?:but|however|although|though|whereas|instead|except|yet)\b", re.IGNORECASE)
 _NEGATION = re.compile(r"\b(?:not|no|never|without|dont|doesnt|didnt|isnt|arent|wont|cant)\b|n['’]t\b", re.IGNORECASE)
+# These say the owner falls behind on a task, so they state the need instead of rejecting it.
+_FALLING_BEHIND = re.compile(
+    r"\b(?:never|rarely|do\s+not|don['’]?t|can\s*not|can['’]?t)\s+(?:"
+    r"(?:get|got)\s+a?round\s+to"
+    r"|(?:have|find)\s+(?:the\s+)?time\s+(?:to|for)"
+    r"|keep\s+up(?:\s+with)?)\b", re.IGNORECASE)
 
 
 # Deliberately narrow spelling/slang aliases, not fuzzy matching of arbitrary words.
@@ -26,6 +32,10 @@ def _owner_text(text: str) -> str:
     return re.sub(r"[a-z]+", lambda match: _OWNER_WORDS.get(match.group().casefold(), match.group()), text, flags=re.I)
 
 
+def _negated(clause: str) -> bool:
+    return bool(_NEGATION.search(_FALLING_BEHIND.sub(' ', clause)))
+
+
 def affirmative_excerpt(text: str, excerpt: str) -> bool:
     """Require an exact owner excerpt inside an affirmative clause, not a quote with negation removed."""
     normalize = lambda value: ' '.join(value.casefold().replace('\u2019', "'").split())
@@ -33,7 +43,7 @@ def affirmative_excerpt(text: str, excerpt: str) -> bool:
     clauses = [part for clause in _CLAUSE_BREAK.split(text.replace('\u2019', "'"))
                for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
     return len(wanted) >= 1 and any(
-        wanted in normalize(clause) and not _NEGATION.search(clause)
+        wanted in normalize(clause) and not _negated(clause)
         for clause in clauses)
 
 
@@ -94,7 +104,7 @@ def resolve_task(catalog: Catalog, text: str) -> TaskMatch:
     negated: list[ProblemCard] = []
     for clause in _CLAUSE_BREAK.split(_owner_text(text)):
         if clause and clause.strip():
-            _add(negated if _NEGATION.search(clause) else stated, _clause_hits(catalog, clause))
+            _add(negated if _negated(clause) else stated, _clause_hits(catalog, _FALLING_BEHIND.sub(' ', clause)))
     choices = stated + [card for card in negated if card not in stated]
     if not choices:
         return TaskMatch(status="unsupported", message="We don't cover that task yet. Pick one of the listed problems instead.")

@@ -78,3 +78,32 @@ def test_unhandled_error_is_plain_json_and_logged(tmp_path, monkeypatch, caplog)
     assert "Traceback" not in body and "secret internal detail" not in body and "RuntimeError" not in body
     assert set(res.json()) == {"detail"}
     assert "secret internal detail" in caplog.text
+
+
+OBSERVED_PROBES = [
+    "/.env", "/.git/HEAD", "/.git/config", "/.ssh/id_rsa", "/.ssh/id_ed25519", "/.aws/credentials",
+    "/.%67it/HEAD", "/%2eenv", "/assets/.hidden", "/.well-known/security", "/actuator/heapdump",
+    "/actuator/env", "/actuator", "/backup", "/backups/db", "/backup/site", "/wp-admin/setup-config",
+    "/wp-login.php", "/wp-content/uploads", "/wordpress/wp-admin", "/phpmyadmin/index", "/cgi-bin/luci",
+    "/config/env", "/vendor/phpunit/src", "/xmlrpc.php", "/server-status", "/admin/config", "/ACTUATOR/env",
+]
+
+
+@pytest.mark.parametrize("path", OBSERVED_PROBES)
+def test_scanner_probe_paths_are_404_not_spa(client, dist, path):
+    (dist.parent / ".env").write_text("TOP SECRET")
+    res = client.get(path)
+    assert res.status_code == 404
+    assert "SPA SHELL" not in res.text and "TOP SECRET" not in res.text
+    assert client.head(path).status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/", "/compare/some-business", "/compare/a/b", "/plans", "/assets/app.js"])
+def test_probe_rule_keeps_real_pages_and_assets(client, dist, path):
+    assert client.get(path).status_code == 200
+
+
+def test_probe_rule_does_not_touch_api(client, dist):
+    assert client.get("/api/health").json() == {"status": "ok"}
+    res = client.get("/api/.env")
+    assert res.status_code == 404 and res.headers["content-type"].startswith("application/json")

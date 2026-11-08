@@ -485,3 +485,49 @@ def test_routing_cannot_override_explicit_business_with_history(client):
         hermes_routing.apply({'routes': [{'problem_id': 'bookkeeping', 'task_text': 'bookkeeping'}],
                               'trade': 'hvac', 'trade_text': 'hvac'}, client.app.state.catalog,
                              body.profile, body.memory, body)
+
+
+REVIEWS_SUGGESTION = 'I never get around to replying to reviews'
+
+
+@pytest.mark.parametrize('first', [
+    None,
+    {'claim_ids': [], 'followup_id': None, 'routes': [{'problem_id': 'review_replies', 'task_text': REVIEWS_SUGGESTION}],
+     'trade': None, 'trade_text': None},
+])
+def test_review_replies_suggestion_gets_a_validated_answer(client, hermes, first):
+    packages = []
+    def script(package):
+        packages.append(package)
+        output = json.dumps(first) if first and len(packages) == 1 else None
+        return answer(package, output=output)
+    hermes(FakeHermes(script))
+    events = frames(client.post('/api/chat', json={'conversation_id': 'reviews', 'message': REVIEWS_SUGGESTION}))
+    assert any(e['type'] == 'recommendation' and e['problem_id'] == 'review_replies' for e in events)
+    assert texts(events) and all(e['validation'] == 'validated' for e in texts(events))
+    assert 'review_replies:decision' in packages[-1].required_claim_ids
+
+
+def test_rejected_routing_logs_a_fixed_reason_only(client, hermes, caplog):
+    raw = {'claim_ids': [], 'followup_id': None, 'routes': [{'problem_id': 'bookkeeping', 'task_text': 'secret owner words'}],
+           'trade': None, 'trade_text': None}
+    hermes(FakeHermes(lambda p: answer(p, tools=(), output=json.dumps(raw))))
+    with caplog.at_level('INFO', logger='app.chat'):
+        frames(client.post('/api/chat', json={**BODY, 'message': 'private hello text'}))
+    rejected = [r for r in caplog.records if r.getMessage() == 'penny_routing_rejected']
+    assert [(r.stage, r.routing_reason) for r in rejected] == [('routing', 'context_not_affirmative')]
+    logged = json.dumps([vars(r) for r in caplog.records], default=str)
+    assert 'secret owner words' not in logged and 'private hello text' not in logged
+
+
+def test_routing_reason_never_echoes_error_text():
+    from pydantic import BaseModel, ValidationError
+    class Shape(BaseModel):
+        n: int
+    try:
+        Shape(n='model wrote this')
+    except ValidationError as exc:
+        assert chat.routing_reason(exc) == 'invalid_validationerror'
+    assert chat.routing_reason(ValueError('anything the model said')) == 'invalid_valueerror'
+    assert chat.routing_reason(json.JSONDecodeError('x', 'model text', 0)) == 'output_not_json'
+    assert chat.routing_reason(ValueError('routing_already_fixed')) == 'routing_already_fixed'
