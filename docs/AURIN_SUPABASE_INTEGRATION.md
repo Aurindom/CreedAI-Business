@@ -28,4 +28,15 @@ On 2026-11-08, one email sign-in link was requested for existing QA account B, w
 
 Separate live negative-link probes used a deliberately invalid token, never a real confirmation token. Both `http://127.0.0.1:5173` and `http://localhost:5173` were retained as redirect destinations with an `otp_expired` error. An untrusted `https://example.invalid/qa-redirect` destination was rejected and replaced by `http://localhost:3000`. This exposes the project's current fallback Site URL. These probes establish redirect policy, not successful authentication.
 
-**Production remains pending:** no deployed production/staging URL has been supplied, and the fallback Site URL must be set to the intended deployment before release. A fresh signup's confirmation template and final production HTTPS callback were not tested by the existing-account email sign-in flow. Redacted results are in ignored `sandbox/two-account/email-flow-result.json` and `redirect-policy-result.json`. No paid model calls were made. This work does not push or deploy changes.
+**Production remains pending:** no deployed production/staging URL has been supplied, and the fallback Site URL must be set to the intended deployment before release. The fresh-signup flow is now verified separately below; the production HTTPS callback still requires a public deployment URL. Redacted results are in ignored `sandbox/two-account/email-flow-result.json` and `redirect-policy-result.json`. No paid model calls were made. This work does not push or deploy changes.
+
+
+## Fresh signup confirmation
+
+On 2026-11-08, a unique plus-address alias delivering to the existing QA B Gmail inbox was used for one new test account. A generated password was stored only in ignored `sandbox/signup-check/.env`. The actual app signup UI made the real Supabase signup request, which returned HTTP 200 with a new identity, no authenticated session, and email confirmation required. The UI displayed its inbox/spam confirmation notice and requested the correct `http://127.0.0.1:5173` redirect.
+
+After the owner confirmed the newest signup email, independent server verification passed: Supabase password login returned HTTP 200 with `email_confirmed_at` present, and the local app's `/api/auth/me` identified an authenticated account. The verification session was signed out at both the app and Supabase. The redacted report is ignored `sandbox/signup-check/result.json`. This test created one ordinary QA identity; it did not change existing users' passwords or project-wide confirmation settings.
+
+The owner also supplied a local URL containing `error_code=otp_expired`; that is an expired/invalid-link callback, not a production deployment address. The initial server check correctly refused to mark the fresh identity confirmed, and a resend followed by confirmation of the newest email resolved the test. No confirmation links or tokens were retained in tracked documentation.
+
+Production testing remains blocked on the public HTTPS deployment address. Local repository deployment files are templates, and the repository metadata has no homepage and GitHub Pages is disabled. These observations do not rule out an external deployment; no production address has been supplied. No model calls were made and no deployment was created.
