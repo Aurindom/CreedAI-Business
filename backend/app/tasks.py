@@ -30,9 +30,19 @@ def affirmative_excerpt(text: str, excerpt: str) -> bool:
     """Require an exact owner excerpt inside an affirmative clause, not a quote with negation removed."""
     normalize = lambda value: ' '.join(value.casefold().replace('\u2019', "'").split())
     wanted = normalize(excerpt)
-    return len(wanted) >= 3 and any(
+    clauses = [part for clause in _CLAUSE_BREAK.split(text.replace('\u2019', "'"))
+               for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
+    return len(wanted) >= 1 and any(
         wanted in normalize(clause) and not _NEGATION.search(clause)
-        for clause in _CLAUSE_BREAK.split(text.replace('\u2019', "'")))
+        for clause in clauses)
+
+
+def owner_excerpts(text: str) -> list[str]:
+    """Offer exact source spans for structured routing, never catalog prose."""
+    clauses = [part.strip() for clause in _CLAUSE_BREAK.split(text)
+               for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
+    return [part for part in dict.fromkeys([text, *clauses])
+            if 1 <= len(part) <= 500 and affirmative_excerpt(text, part)]
 
 
 def _stem(word: str) -> str:

@@ -61,19 +61,39 @@ def selected_task_ids(catalog, body, arguments):
     if selected in task_ids(catalog, body):
         return [selected]
     excerpt = arguments.get('task_text')
-    if not isinstance(excerpt, str) or not 3 <= len(excerpt) <= 500:
+    if not isinstance(excerpt, str) or not 1 <= len(excerpt) <= 500:
         raise ActionContextError('Task needs an exact owner excerpt')
     current = resolve_task(catalog, body.message)
-    if current.status != 'unsupported':
+    choices = [card.id for card in current.choices]
+    if current.status == 'matched' or (current.status == 'ambiguous' and choices != [selected]):
         raise ActionContextError('Do not override the current task or its ambiguity')
+    pending = pending_tasks(catalog, body)
+    if (current.status == 'unsupported' and pending == [selected]
+            and affirmative_excerpt(body.message, excerpt)):
+        return [selected]
+    if len(excerpt) < 3:
+        raise ActionContextError('A new task needs a meaningful owner excerpt')
+    if current.status == 'unsupported' and len(pending) > 1 and selected in pending:
+        if excerpt.casefold().strip() != catalog.problem(selected).title.casefold().strip():
+            raise ActionContextError('Choose which pending task before recommending one')
     sources = [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')]
     for source in sources:
         if not affirmative_excerpt(source, excerpt):
             continue
         match = resolve_task(catalog, source)
-        if match.status == 'unsupported' or (match.status == 'matched' and match.problem_id == selected):
+        if (match.status == 'unsupported' or (match.status == 'matched' and match.problem_id == selected)
+                or (match.status == 'ambiguous' and [card.id for card in match.choices] == [selected])):
             return [selected]
     raise ActionContextError('Task excerpt must come from an affirmative owner request')
+
+
+def pending_tasks(catalog, body):
+    known = {card.id for card in catalog.problem_cards}
+    pending = [pid for pid in body.memory.pending_task_ids if pid in known]
+    if pending:
+        return pending
+    previous = next((item.text for item in reversed(body.history) if item.role == 'assistant'), '')
+    return [card.id for card in catalog.problem_cards if f'Explore: {card.title}' in previous]
 
 
 def question_repeats(catalog, profile, body, key):

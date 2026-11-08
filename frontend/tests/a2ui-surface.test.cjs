@@ -63,3 +63,23 @@ test('A2UI recommendation retains the print action', async () => {
   assert.equal(printed[0].recommendation, recommendation)
   await React.act(async () => root.unmount())
 })
+
+test('A2UI shows a concise task-specific tool shortlist with expandable detail', async () => {
+  const options = Array.from({ length: 5 }, (_, index) => ({
+    tool_id: `tool-${index}`, tool_name: `Option ${index + 1}`, route: 'separate_tool',
+    added_monthly_usd: null, cost_note: 'Check the required plan.', fit_note: 'Made for this business type.', facts: [],
+  }))
+  const recommendation = { outcome: 'verify_with_vendor', message: 'Check the required plan before buying.', options, check_first: [], set_aside: [] }
+  const root = await render(protocol('recommendation', 'PennyRecommendation', {
+    recommendation, problemTitle: 'Calls go unanswered', taskPurpose: 'answering phone calls', statuses: {},
+  }))
+  assert.match(document.querySelector('.msc-answer').textContent, /Tools for: Calls go unanswered/)
+  assert.match(document.querySelector('.msc-answer').textContent, /These are alternatives/)
+  assert.equal(document.querySelectorAll('.msc-result > .msc-option').length, 3)
+  assert.match(document.querySelector('.msc-option').textContent, /answering phone calls/)
+  const more = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.textContent === 'More alternatives (2)')
+  assert.ok(more)
+  assert.equal(more.open, false)
+  assert.equal(document.querySelector('.msc-option details').open, false)
+  await React.act(async () => root.unmount())
+})

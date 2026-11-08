@@ -20,13 +20,14 @@ from pydantic import BaseModel, Field, PrivateAttr
 from . import chat_guard
 from . import auth
 from .matching import recommend
+from .tasks import owner_excerpts
 from .schemas import BusinessProfile, Catalog, Fact, OwnedSoftware, Tool
 from .agent.grounding import default_answer, validate_answer, FALLBACK
 from .agent.guard import LeakGuard
 from .agent.evidence import EvidencePackage, build_evidence
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
 from .penny_conversation import ConversationReply, validate_conversation
-from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats
+from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats, pending_tasks
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -64,6 +65,8 @@ Rules:
 - Ask about budget as what the owner can ADD to the monthly bill, not their existing subscription total. Zero is a valid preference. Never reinterpret a current bill as a budget. A lower published entry price does not establish savings or the cost of the required plan.
 - If the task is unclear, ask one specific question with 2-4 relevant choices using ask_owner. Preserve negation: an owner saying a task is fine is not asking for help with it. If they ask to compare tools but have not named them, ask which tools; if the task matters, ask what job they need done. Never assume the first named tool is the one they own.
 - For a known task call recommend_tools, then submit_answer selecting relevant claim_ids from the returned evidence_package. Use claim_ids=[] for the backend default. The backend includes required context, uncertainty and winner evidence; you never supply those policy fields. Do not repeat full cards or introduce another tool call merely to restate evidence.
+- An owner describing a clear business problem wants a shortlist of relevant tools. Route it and call recommend_tools immediately. A lack of staff, time or resources describes a problem; it does not reject that task. Quote the affirmative problem or consequence clause in task_text. Ask for confirmation only when the meaning is genuinely unresolved. When the owner confirms a pending task, recommend that task and preserve their business type, existing tools and budget. Prefer the latest explicitly stated business type over older context.
+- An affirmative answer to a pending task confirmation means proceed with recommendations, not small talk. Include the owner's confirmation as task_text. If several tasks were offered, identify which one before proceeding.
 - Catalog phrase matching is only an initial hint, not a limit on understanding the owner's wording. Map an affirmative request semantically to a supported catalog problem_id; include task_text copied exactly from the owner's request when using recommend_tools. Use the recent owner turns to understand short answers and complaints about repetition. Never override an explicit different task, a negation, or an unresolved choice between multiple tasks.
 - Answer the stated task before collecting optional background. Never repeat a question already answered or asked in this conversation. If clarification is genuinely necessary, ask once and supply two or three relevant problem_ids for a task question, rather than unrelated default choices. If no supported task fits, submit the honest no-match evidence instead of restarting intake.
 - Ownership alone never proves entitlement. Select the supplied no_new_tool/check-plan claims exactly as the backend returned them.
@@ -86,7 +89,7 @@ ACTIONS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "problem_id": {"type": "string"},
-                    "task_text": {"type": "string", "minLength": 3, "maxLength": 500, "description": "Exact excerpt from the current or recent owner request that identifies this task; never invent or remove negation."},
+                    "task_text": {"type": "string", "minLength": 1, "maxLength": 500, "description": "Exact affirmative problem/consequence excerpt from the owner request, or the owner's confirmation of a single pending task. Never invent or remove negation."},
                 },
                 "required": ["problem_id"],
             },
@@ -185,6 +188,7 @@ class ChatMemory(BaseModel):
     background_done: bool = False
     active_task_ids: list[str] = Field(default_factory=list, max_length=5)
     pending_question: Literal['business', 'software', 'budget', 'task', 'plan'] | None = None
+    pending_task_ids: list[str] = Field(default_factory=list, max_length=3)
 
 
 class ChatRequest(BaseModel):
@@ -330,12 +334,20 @@ def model_payload(messages):
     data = messages[0].get('_evidence_package') if messages else None
     package = EvidencePackage.model_validate(data) if data is not None else None
     tools = copy.deepcopy(ACTIONS)
+    if package is not None and package.required_claim_ids == ['clarify']:
+        # Resolve intent before selecting a generic clarification as the final answer.
+        tools = [tool for tool in tools if tool['function']['name'] != 'submit_answer']
     for tool in tools:
         if tool['function']['name'] == 'submit_answer':
             tool['function']['parameters'] = selection_schema(package)
+        elif tool['function']['name'] == 'recommend_tools':
+            excerpts = messages[0].get('_owner_excerpts', []) if messages else []
+            if excerpts:
+                tool['function']['parameters']['properties']['task_text']['enum'] = excerpts
+                tool['function']['parameters']['required'] = ['problem_id', 'task_text']
     return {
         "model": DEFAULT_MODEL,
-        "messages": [{key: value for key, value in message.items() if key != '_evidence_package'} for message in messages],
+        "messages": [{key: value for key, value in message.items() if key not in ('_evidence_package', '_owner_excerpts')} for message in messages],
         "tools": tools,
         "tool_choice": "required",
         "max_tokens": MAX_OUTPUT_TOKENS,
@@ -410,6 +422,7 @@ def _clean_memory(catalog: Catalog, memory: ChatMemory) -> ChatMemory:
         background_done=memory.background_done,
         active_task_ids=[pid for pid in dict.fromkeys(memory.active_task_ids) if pid in tasks],
         pending_question=memory.pending_question,
+        pending_task_ids=[pid for pid in dict.fromkeys(memory.pending_task_ids) if pid in tasks],
     )
 
 
@@ -445,6 +458,7 @@ def _prompt(catalog: Catalog, profile: BusinessProfile, memory: ChatMemory) -> s
         "background_done": memory.background_done,
         "active_task_ids": memory.active_task_ids,
         "pending_question": memory.pending_question,
+        "pending_task_ids": memory.pending_task_ids,
     }
     return f"{PENNY}\n\n{_catalog_brief(catalog)}\n\nSelection rules for submit_answer arguments:\n{SELECTION_PROMPT}\nAsk questions ONLY using ask_owner(question_id); the server supplies wording and choices.\n\nWhat you remember in this session: {json.dumps(known)}"
 
@@ -512,6 +526,7 @@ def _run_action(
                         "id": "root", "component": "PennyRecommendation",
                         "recommendation": found.model_dump(mode="json"),
                         "problemTitle": catalog.problem(found.problem_id).title,
+                        "taskPurpose": catalog.capability_label(catalog.problem(found.problem_id).capability),
                         "statuses": {option.tool_id: option.status for option in [*found.options, *found.check_first]},
                     }]}},
                 ],
@@ -658,6 +673,10 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         return
     memory = _clean_memory(catalog, body.memory)
     body.memory = memory
+    if not memory.pending_task_ids:
+        memory.pending_task_ids = pending_tasks(catalog, body)[:3]
+        if memory.pending_task_ids:
+            memory.pending_question = 'task'
     original_catalog = catalog
     catalog, current = filtered_context(catalog, _effective_profile(catalog, body.profile, memory), memory)
     package = qualify_package(catalog, request_package(catalog, current, body), body)
@@ -666,9 +685,20 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     history = [{"role": item.role, "content": item.text} for item in body.history]
     while history and history[0]["role"] != "user":
         history.pop(0)
-    system = (_prompt(catalog, current, memory) + '\ninitial_evidence_package: '
-              + package.model_dump_json())
+    # A lexical no-match is a routing hint, not the owner's requested answer.
+    # Showing the canned clarification here biases semantic routing toward asking
+    # instead of looking up a clearly described need.
+    initial = ('No catalog lookup has been performed for this turn. Interpret the owner request '
+               'and use the catalog actions. A literal phrase-matching failure is not evidence '
+               'that the owner needs to clarify. If a single pending task is confirmed, call '
+               'recommend_tools with that ID and task_text copied from the confirmation.'
+               if package.required_claim_ids == ['clarify'] else
+               'initial_evidence_package: ' + package.model_dump_json())
+    system = _prompt(catalog, current, memory) + '\n' + initial
     conversation = _conversation(system, history, body.message)
+    conversation.messages[0]['_owner_excerpts'] = list(dict.fromkeys(
+        excerpt for source in [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')][:4]
+        for excerpt in owner_excerpts(source)))[:24]
     errors = _provider_errors()
     resolved_tasks: list[str] = []
     yield {"type": "status", "text": "Penny is thinking",
@@ -735,7 +765,10 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             observe_validation(validated)
             if chat_guard.reason(validated.text):
                 validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
-            memory.pending_question = None
+            followup = raw.get('followup_id') if isinstance(raw, dict) else None
+            pending_task = followup[5:] if isinstance(followup, str) and followup.startswith('task:') else None
+            memory.pending_task_ids = [pending_task] if validated.status == 'validated' and pending_task and any(card.id == pending_task for card in catalog.problem_cards) else []
+            memory.pending_question = 'task' if memory.pending_task_ids else None
             yield _memory_event(memory)
             for event in reply_events(validated.text, validated.status):
                 yield event
@@ -758,7 +791,10 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             yield _unavailable()
             yield {'type': 'done'}
             return
-        for call in turn["calls"]:
+        # Parallel tool calls may arrive with lookup before a context correction.
+        # Apply all owner-context updates before building visible recommendations.
+        ordered_calls = sorted(turn['calls'], key=lambda call: call['name'] != 'update_memory')
+        for call in ordered_calls:
             if (call['name'] == 'ask_owner' and call['arguments'].get('question_id') == 'plan'
                     and plan_already_unknown(body)):
                 # No extra paid repair call. Use the already-approved policy
@@ -776,6 +812,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                     validated = validate_answer(default_answer(package), package, guard)
                     observe_validation(validated)
                     memory.pending_question = None
+                    memory.pending_task_ids = []
                     yield _memory_event(memory)
                     for event in reply_events(validated.text, validated.status):
                         event['selection_origin'] = 'backend_known_context'
@@ -803,13 +840,16 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                     resolved_tasks = next_tasks
                     memory.active_task_ids = resolved_tasks
                     memory.pending_question = None
+                    memory.pending_task_ids = []
                     yield _memory_event(memory)
                 elif call['name'] == 'ask_owner':
                     memory.pending_question = call['arguments']['question_id']
+                    memory.pending_task_ids = call['arguments'].get('problem_ids', []) if memory.pending_question == 'task' else []
                     yield _memory_event(memory)
             except ActionContextError:
                 package = qualify_package(catalog, request_package(catalog, current, body), body)
-                result.data = {'error': 'Task choice conflicts with the owner request or lacks an exact affirmative task_text excerpt. Preserve explicit tasks, ambiguity and negation. For a semantic catalog match, include task_text copied from the current or recent owner request.'}
+                result.data = {'error': 'Task choice conflicts with the owner request or lacks an exact affirmative task_text excerpt. Preserve explicit tasks, ambiguity and negation. For a semantic catalog match, quote an affirmative problem or consequence clause exactly. For confirmation of one pending task, task_text must be the current owner confirmation, not an older problem description.',
+                               'pending_task_ids': pending_tasks(catalog, body)}
                 result.events = []
             except (KeyError, ValueError, TypeError):
                 package = build_evidence(catalog, current, [], available=False)
@@ -827,7 +867,10 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             # The model receives approved claims, not arbitrary vendor summaries.
             data = {key: value for key, value in result.data.items()
                     if key in ('error', 'saved', 'asked', 'outcome')}
-            data['evidence_package'] = package.model_dump(mode='json')
+            if package.required_claim_ids == ['clarify']:
+                data['routing_required'] = 'No lookup yet. Choose the closest supported task from the owner request; ask only if its meaning is genuinely unresolved.'
+            else:
+                data['evidence_package'] = package.model_dump(mode='json')
             text = json.dumps(data, default=str)
             results.append((call["id"], text))
             stop = stop or result.stop

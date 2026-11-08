@@ -407,6 +407,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
               <ChatResult
                 key={message.id}
                 recommendation={message.recommendation}
+                problemTitle={message.problemTitle}
                 statuses={message.statuses}
                 ruledOut={memory.ruled_out}
                 onPrint={() => setPrintData(message)}

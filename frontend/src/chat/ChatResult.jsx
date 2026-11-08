@@ -47,7 +47,7 @@ function FactRow({ fact }) {
   )
 }
 
-function OptionCard({ option, status, ruledOut }) {
+function OptionCard({ option, status, ruledOut, taskPurpose }) {
   return (
     <article className="msc-option">
       <div className="msc-option-top">
@@ -59,7 +59,10 @@ function OptionCard({ option, status, ruledOut }) {
       <p className="msc-cost">{costText(option)}</p>
       <p className="msc-note">{option.cost_note}</p>
       <p className="msc-note">{option.fit_note}</p>
-      <ul className="msc-facts">{option.facts.map((fact) => <FactRow fact={fact} key={fact.label} />)}</ul>
+      {taskPurpose && <p className="msc-note"><strong>For this need:</strong> {taskPurpose}</p>}
+      <details className="msc-details"><summary>Details and sources</summary>
+        <ul className="msc-facts">{option.facts.map((fact) => <FactRow fact={fact} key={fact.label} />)}</ul>
+      </details>
     </article>
   )
 }
@@ -84,27 +87,34 @@ function CopyQuestions({ groups }) {
   )
 }
 
-function ChatResult({ recommendation, statuses, ruledOut = [], onPrint }) {
+function ChatResult({ recommendation, statuses, ruledOut = [], onPrint, problemTitle, taskPurpose }) {
   const groups = vendorQuestions(recommendation)
   const noNewTool = recommendation.outcome === 'no_new_tool'
+  const main = recommendation.options.slice(0, 3)
+  const possible = main.length ? [] : recommendation.check_first.slice(0, 3)
+  const more = [...recommendation.options.slice(main.length), ...recommendation.check_first.slice(possible.length)]
+  const renderOption = (option) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} taskPurpose={taskPurpose} key={option.tool_id} />
 
   return (
     <div className="msc-result">
       <div className={`msc-answer${noNewTool ? ' msc-answer-win' : ''}`}>
-        <h3>{HEADLINES[recommendation.outcome] || 'Here is what I found'}</h3>
+        <h3>{!noNewTool && problemTitle && (main.length || possible.length) ? `Tools for: ${problemTitle}` : HEADLINES[recommendation.outcome] || 'Here is what I found'}</h3>
+        {(main.length + possible.length > 1) && <p className="msc-note">These are alternatives. Start with one that covers your need.</p>}
         <p>{recommendation.message}</p>
         {recommendation.tailoring_note && <p className="msc-note">{recommendation.tailoring_note}</p>}
       </div>
 
-      {recommendation.options.map((option) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} key={option.tool_id} />)}
+      {main.map(renderOption)}
 
-      {recommendation.check_first.length > 0 && (
+      {possible.length > 0 && (
         <section>
           <h4 className="msc-section">Check these first</h4>
           <p className="msc-note">We can't confirm these fit yet.</p>
-          {recommendation.check_first.map((option) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} key={option.tool_id} />)}
+          {possible.map(renderOption)}
         </section>
       )}
+
+      {more.length > 0 && <details className="msc-details"><summary>More alternatives ({more.length})</summary>{more.map(renderOption)}</details>}
 
       {recommendation.set_aside.length > 0 && (
         <details className="msc-details" open>
