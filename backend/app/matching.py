@@ -164,7 +164,8 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
         tool_id=tool.id,
         tool_name=tool.name,
         service_url=tool.url,
-        status=tool.status,
+        status=("pending_review" if tool.origin == "discovered" and tool.auto_review
+                and (not tool.auto_review.eligible or tool.auto_review.capability != capability) else tool.status),
         route=route,
         fit=fit,
         fit_note=fit_note,
@@ -262,6 +263,12 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
         return result("no_match", None, "Nothing in the catalog fits this yet.")
     top = options[0]
     if top.status != "verified":
+        review = catalog.tool(top.tool_id).auto_review
+        if review:
+            if review.capability != problem.capability:
+                return result("verify_with_vendor", None, f"{top.tool_name} has not been automatically checked for this task. Confirm its plan and feature support.")
+            return result("verify_with_vendor", None,
+                          f"{top.tool_name}: automatic evidence checks are complete. " + " ".join(review.notes[:2]))
         if top.route in OWNED_ROUTES:
             return result("verify_with_vendor", None, f"{top.tool_name}, which you use, may cover this, but our team hasn't rechecked its details yet. Check with the vendor before paying for anything new.")
         return result("verify_with_vendor", None, f"{top.tool_name} looks like a fit, but our team hasn't rechecked its details yet. Confirm with the vendor first.")

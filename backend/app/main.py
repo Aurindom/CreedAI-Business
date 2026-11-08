@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from . import access, adoption, auth, db, discovery, web
+from .agent import bindings
 from .capacity import Capacity
 from .chat import router as chat_router
 from .chat_history import router as chat_history_router
@@ -69,14 +70,21 @@ async def lifespan(app: FastAPI):
     conn = db.connect(db_path)
     try:
         db.seed(conn, catalog)
+        bindings.ensure_schema(conn)
         app.state.catalog = db.read_catalog(conn)
         app.state.conn = conn
         app.state.lock = threading.Lock()
         app.state.history_lock = asyncio.Lock()
         app.state.capacity = Capacity(1)
         app.state.discovery_finder = None
+        from . import live_discovery
+        if live_discovery.enabled():
+            app.state.discovery_finder = live_discovery.make_finder(catalog, db_path.with_name('discovery.db'))
         yield
     finally:
+        finder = getattr(app.state, 'discovery_finder', None)
+        if callable(getattr(finder, 'close', None)):
+            finder.close()
         conn.close()
 
 
@@ -323,4 +331,69 @@ def discover_route(request: Request, body: discovery.DiscoveryRequest, finder: d
     with request.app.state.lock:
         report = discovery.store(request.app.state.conn, _catalog(request), body, result, _now().date())
         request.app.state.catalog = db.read_catalog(request.app.state.conn)
+    if callable(getattr(finder, 'review', None)) and os.environ.get('DISCOVERY_AUTO_VERIFY', '').lower() in ('1', 'true', 'yes'):
+        from . import auto_verification
+        for tool_id in (report.added + report.updated)[:3]:
+            try:
+                current = _catalog(request)
+                checked = finder.review(current.tool(tool_id), body.capability, current)
+                with request.app.state.lock:
+                    auto_verification.save(request.app.state.conn, checked)
+                    request.app.state.catalog = db.read_catalog(request.app.state.conn)
+                report.automatically_checked.append(tool_id)
+                if checked.auto_review and checked.auto_review.eligible:
+                    report.promoted.append(tool_id)
+                report.verification_notes[tool_id] = checked.auto_review.notes if checked.auto_review else []
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning('Automatic review did not finish: %s', type(exc).__name__)
+                report.verification_notes[tool_id] = ['Automatic checks could not finish. Existing evidence is retained.']
+                from .schemas import AutomaticReview
+                with request.app.state.lock:
+                    original = _catalog(request).tool(tool_id)
+                    failed = original.model_copy(update={'status': 'pending_review', 'auto_review': AutomaticReview(
+                        checked=_now().date(), capability=body.capability, checks={'verification_completed': False},
+                        notes=report.verification_notes[tool_id], sources=[])})
+                    auto_verification.save(request.app.state.conn, failed)
+                    request.app.state.catalog = db.read_catalog(request.app.state.conn)
+    if callable(getattr(finder, 'update_catalog', None)):
+        finder.update_catalog(_catalog(request))
     return report
+
+
+@app.get('/api/discovery/status')
+def discovery_status(request: Request):
+    finder = getattr(request.app.state, 'discovery_finder', None)
+    available = (os.environ.get('DISCOVERY_PUBLIC_ENABLED', '').lower() in ('1', 'true', 'yes') and finder is not None)
+    if available and callable(getattr(finder, 'available', None)):
+        try:
+            available = finder.available()
+        except (OSError, sqlite3.Error):
+            available = False
+    return {'available': available}
+
+
+@app.post('/api/research')
+def public_research(request: Request, body: discovery.DiscoveryRequest):
+    """Bounded public research; operator credentials never leave the backend."""
+    if not discovery_status(request)['available']:
+        raise HTTPException(503, 'Live research is not enabled')
+    try:
+        discovery.check_request(_catalog(request), body)
+    except discovery.DiscoveryFailed as exc:
+        raise HTTPException(422, exc.message) from exc
+    import hashlib
+    import time
+    client = hashlib.sha256((request.client.host if request.client else 'unknown').encode()).hexdigest()
+    hour = int(time.time() // 3600)
+    with request.app.state.lock, request.app.state.conn:
+        conn = request.app.state.conn
+        conn.execute('CREATE TABLE IF NOT EXISTS research_usage (client TEXT, hour INTEGER, count INTEGER NOT NULL, PRIMARY KEY(client,hour))')
+        # Keep the single-worker deployment's public web workload finite and persistent.
+        conn.execute('DELETE FROM research_usage WHERE hour < ?', (hour-24,))
+        own = conn.execute('SELECT count FROM research_usage WHERE client=? AND hour=?', (client, hour)).fetchone()
+        total = conn.execute('SELECT COALESCE(SUM(count),0) FROM research_usage WHERE hour=?', (hour,)).fetchone()[0]
+        if (own and own[0] >= 4) or total >= 20:
+            raise HTTPException(429, 'Research is busy. Try again later.', headers={'Retry-After': '3600'})
+        conn.execute('INSERT INTO research_usage VALUES(?,?,1) ON CONFLICT(client,hour) DO UPDATE SET count=count+1', (client, hour))
+    return discover_route(request, body, request.app.state.discovery_finder)

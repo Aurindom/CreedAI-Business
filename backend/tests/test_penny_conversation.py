@@ -114,3 +114,10 @@ def test_repeated_action_promises_stop_at_the_request_limit(client, monkeypatch)
     assert promise not in text(events)
     assert 'Please retry' in text(events)
     assert events[-1]['type'] == 'done'
+
+
+def test_unrecognized_vendor_claim_cannot_escape_through_social_reply(client):
+    raw = {'intent': 'greeting', 'text': 'TrialNova automates your bookkeeping.'}
+    reply = validate_conversation(raw, client.app.state.catalog, LeakGuard([]))
+    assert reply.text == "Hi! I'm Penny. How can I help today?"
+    assert 'TrialNova' not in reply.text

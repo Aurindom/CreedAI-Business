@@ -73,6 +73,9 @@
 .msc-error { padding: 12px; border: 1px solid #d9a4a0; border-radius: 10px; background: #fbeeec; color: #7a2520; }
 .msc-error p { margin: 0 0 8px; line-height: 1.45; }
 .msc-error p:last-child { margin-bottom: 0; }
+.msc-action { margin: 0; padding: 8px 12px; border-radius: 10px; border: 1px solid #c9ced6; background: #f4f6f8; color: #1f2933; font-weight: 600; line-height: 1.45; }
+.msc-action[data-status='unconfirmed'] { border-color: #d6b25e; background: #fdf6e3; color: #5c4300; }
+.msc-action[data-status='failed'], .msc-action[data-status='not_executed'] { border-color: #d9a4a0; background: #fbeeec; color: #7a2520; }
 
 .msc-secondary { min-height: 44px; padding: 0 14px; border: 1px solid #184f4c; border-radius: 9px; background: #fff; color: #184f4c; font-size: 14px; font-weight: 700; }
 .msc-secondary:hover:not(:disabled) { background: #e9eee8; }

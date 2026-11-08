@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import PrivatePlans from './PrivatePlans'
 
-const money = (value) => value === null ? 'Unknown' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
+const money = (value) => value === null ? 'Check vendor pricing' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
 
 export default function ComparisonWorkspace({ tools, problems, profile, activeProblemId, baseline, onRemove, renderFact, auth }) {
   const [taskIds, setTaskIds] = useState(activeProblemId ? [activeProblemId] : [])

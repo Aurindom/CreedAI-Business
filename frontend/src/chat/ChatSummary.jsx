@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { costText, HEADLINES, ROUTE_LABELS, serviceUrl, statusLabel } from './ChatResult'
+import { vendorQuestions } from './vendorQuestions'
+import { costText, HEADLINES, ROUTE_LABELS, safeUrl, serviceUrl, statusLabel } from './ChatResult'
 
 function SummaryOption({ option, status, fallbackUrl }) {
   const url = serviceUrl(option, fallbackUrl)
@@ -11,6 +12,14 @@ function SummaryOption({ option, status, fallbackUrl }) {
       <p>{option.cost_note}</p>
       <p>{option.fit_note}</p>
       {url && <p><a href={url} target="_blank" rel="noreferrer noopener">{url}</a></p>}
+      <details open className="msc-summary-sources"><summary>Sources and checks</summary>
+      <ul>
+        {option.facts.map((fact) => {
+          const url = safeUrl(fact.source_url)
+          return <li key={fact.label}>{fact.label}: {fact.known ? fact.value : 'Confirm with vendor'}{fact.note ? `; ${fact.note}` : ''}{url ? ` (${url}${fact.checked ? `, checked ${fact.checked}` : ''})` : ''}</li>
+        })}
+      </ul>
+      </details>
     </div>
   )
 }
@@ -25,6 +34,7 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
   const { recommendation, problemTitle, statuses = {} } = data
   const primary = recommendation.options.length ? recommendation.options : recommendation.check_first
   const shortlist = primary.slice(0, 3)
+  const questions = vendorQuestions(recommendation)
   const remaining = recommendation.options.length + recommendation.check_first.length - shortlist.length
 
   function onKeyDown(event) {
@@ -54,6 +64,7 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
       {shortlist.length > 1 && <p>These are alternatives. Choose one that covers your need.</p>}
       {shortlist.map(option => <SummaryOption key={option.tool_id} option={option} status={statuses[option.tool_id]} fallbackUrl={serviceUrls[option.tool_id]} />)}
       {remaining > 0 && <p>{remaining} more alternatives and detailed sources are available in your chat.</p>}
+      {questions.length > 0 && <section><h2>Questions for the vendor</h2>{questions.map(group => <div key={group.toolId}><h3>{group.toolName}</h3><ul>{group.questions.map(question => <li key={question}>{question}</li>)}</ul></div>)}</section>}
       <p className="msc-print-footer">Confirm the required plan, current pricing, business fit and data handling with the service before subscribing.</p>
     </section>
     </div>

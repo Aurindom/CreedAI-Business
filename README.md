@@ -1,5 +1,7 @@
 # Main Street AI
 
+This is the independent V2 integration checkout. Start with [V2 integration and acceptance](docs/V2_INTEGRATION_REPORT.md) for merge decisions, real API/browser results, cost accounting and Claude review instructions.
+
 A task-first marketplace that helps small business owners who aren't technical find, compare and adopt AI tools. Every fact on a tool card has a source and the date it was checked.
 
 Built for the UMD AI for Small Business Hack-a-thon, Fall 2026. This is a working prototype.

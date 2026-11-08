@@ -39,7 +39,7 @@ RuntimeEvent = Union[TextDelta, ActionStarted, ActionResult, RunEnded]
 
 ActionStatus = Literal["started", "succeeded", "failed", "unconfirmed"]
 TurnStatus = Literal["completed", "failed", "cancelled", "timed_out", "interrupted", "rejected", "unavailable", "blocked"]
-NoticeCode = Literal["busy", "unavailable", "timeout", "interrupted", "blocked", "run_failed", "run_cancelled"]
+NoticeCode = Literal["busy", "unavailable", "timeout", "interrupted", "blocked", "run_failed", "run_cancelled", "session_ended"]
 
 
 class ActionSpec(_Strict):
@@ -76,6 +76,7 @@ class DoneFrame(_Strict):
     failed: int = 0
     unconfirmed: int = 0
     fallback: Literal["browse"] | None = None
+    code: str | None = None
 
 
 Frame = Annotated[Union[TextFrame, ActionFrame, NoticeFrame, DoneFrame], Field(discriminator="type")]
