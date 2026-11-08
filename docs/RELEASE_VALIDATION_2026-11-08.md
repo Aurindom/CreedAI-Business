@@ -66,3 +66,11 @@ separately; sandbox acceptance alone does not prove the hosted environment.
 Remaining external gates: real account B, production SMTP/confirmation/reset
 redirect journeys, and provider-key rotation when the key owner is available.
 W14 scheduler/browser-rendered pricing-table verification remains deferred.
+
+The first Azure rebuild exposed restrictive Linux checkout file modes inherited
+from the deployment shell's umask 077. COPY preserved mode 0600 on source/logging
+files, preventing the non-root app from starting. The Dockerfile now normalizes
+public source/static file permissions and runs non-root app/gateway imports and
+frontend/logging readability checks at build time. Runtime secrets remain outside
+these directories and retain restrictive permissions. No paid calls occurred in
+this failed startup. Hosted acceptance follows the corrected image build.
