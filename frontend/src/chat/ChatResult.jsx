@@ -36,6 +36,14 @@ export function safeUrl(url) {
   return /^https?:\/\//i.test(url || '') ? url : null
 }
 
+export function ServiceText({ text = '' }) {
+  return text.split(/(https?:\/\/[^\s<>]+)/g).map((part, index) => {
+    if (!/^https?:\/\//i.test(part)) return part
+    const url = part.replace(/[.,;!?]+$/, '')
+    return <React.Fragment key={index}><a href={url} target="_blank" rel="noopener noreferrer">View official service details</a>{part.slice(url.length)}</React.Fragment>
+  })
+}
+
 export function serviceUrl(option, fallback) {
   return safeUrl(option.service_url) || safeUrl(fallback) || option.facts.map((fact) => safeUrl(fact.source_url)).find(Boolean) || null
 }
@@ -111,7 +119,7 @@ function ChatResult({ recommendation, statuses, ruledOut = [], onPrint, problemT
       <div className={`msc-answer${noNewTool ? ' msc-answer-win' : ''}`}>
         <h3>{!noNewTool && problemTitle && (main.length || possible.length) ? `Tools for: ${problemTitle}` : HEADLINES[recommendation.outcome] || 'Here is what I found'}</h3>
         {(main.length + possible.length > 1) && <p className="msc-note">These are alternatives. Start with one that covers your need.</p>}
-        <p>{recommendation.message}</p>
+        <p><ServiceText text={recommendation.message} /></p>
         {recommendation.tailoring_note && <p className="msc-note">{recommendation.tailoring_note}</p>}
       </div>
 

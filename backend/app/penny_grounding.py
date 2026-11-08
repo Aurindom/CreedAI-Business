@@ -73,6 +73,12 @@ def selected_task_ids(catalog, body, arguments):
     if not isinstance(excerpt, str) or not 1 <= len(excerpt) <= 500:
         raise ActionContextError('Task needs an exact owner excerpt')
     current = resolve_task(catalog, body.message)
+    active = list(dict.fromkeys(body.memory.active_task_ids))
+    if arguments.get('use_active_task') is True:
+        if (active == [selected] and current.status == 'unsupported'
+                and affirmative_excerpt(body.message, excerpt.rstrip(' .!?'))):
+            return [selected]
+        raise ActionContextError('A contextual follow-up needs one active task and a current affirmative excerpt')
     choices = [card.id for card in current.choices]
     excerpt_match = resolve_task(catalog, excerpt)
     specific_excerpt = excerpt_match.status == 'matched' and excerpt_match.problem_id == selected
@@ -192,9 +198,48 @@ def details_package(tools):
     return _finish('ok', claims, sources, ids, [], {}, ids)
 
 
+def recommendation_catalog(catalog, arguments):
+    """Alternative exclusions are validated and scoped to this lookup only."""
+    excluded = arguments.get('exclude_tool_ids', [])
+    if (not isinstance(excluded, list) or len(excluded) > 3
+            or any(not isinstance(tool_id, str) for tool_id in excluded)
+            or len(set(excluded)) != len(excluded)):
+        raise ValueError('Invalid alternative exclusions')
+    for tool_id in excluded:
+        catalog.tool(tool_id)
+    return catalog.model_copy(update={'tools': [tool for tool in catalog.tools if tool.id not in excluded]})
+
+
+def alternatives_note(catalog, excluded, has_candidates):
+    names = ', '.join(catalog.tool(tool_id).name for tool_id in excluded)
+    text = f'Looking for alternatives to {names} for the same task.'
+    if not has_candidates:
+        text += ' No other tool in our catalog is confirmed for this task yet. This does not mean no alternatives exist.'
+    else:
+        text += ' These are other catalog options; check their stated fit and plan requirements.'
+    links = [url for tool_id in excluded if (url := _safe(catalog.tool(tool_id).url))]
+    if links:
+        text += ' Official service details: ' + ', '.join(links)
+    return text
+
+
+def recommendation_package(catalog, profile, task_ids, arguments):
+    lookup = recommendation_catalog(catalog, arguments)
+    excluded = arguments.get('exclude_tool_ids', [])
+    lookup_profile = profile.model_copy(update={'owned': [entry for entry in profile.owned if entry.tool_id not in excluded]})
+    package = build_evidence(lookup, lookup_profile, task_ids)
+    if not excluded:
+        return package
+    text = alternatives_note(catalog, excluded, any(claim.tool_id for claim in package.claims))
+    scope = Claim(id='alternatives:scope', text=text, evidence_ids=['policy'])
+    return _finish(package.status, [scope, *package.claims], list(package.sources),
+                   [scope.id, *package.required_claim_ids], list(package.winner_tool_ids),
+                   dict(package.followups), [scope.id, *package.default_claim_ids])
+
+
 def action_package(catalog, profile, body, name, arguments):
     if name == 'recommend_tools':
-        return build_evidence(catalog, profile, selected_task_ids(catalog, body, arguments))
+        return recommendation_package(catalog, profile, selected_task_ids(catalog, body, arguments), arguments)
     if name == 'get_tool_details':
         return details_package([catalog.tool(str(arguments['tool_id']))])
     if name == 'compare_tools':

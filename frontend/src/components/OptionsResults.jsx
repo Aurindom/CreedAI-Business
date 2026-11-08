@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
+import React, { useMemo, useState } from 'react'
 import './options.css'
 import { FavouriteButton } from '../favourites/Favourites'
 
@@ -131,51 +130,7 @@ function CopyButton({ text }) {
 }
 
 // "Did you mean": asks the backend about a few related problems and keeps only confirmed answers.
-function useRelatedProblems({ needed, activeProblem, problems, categories, profile }) {
-  const [related, setRelated] = useState([])
-  const profileKey = JSON.stringify(profile)
-
-  useEffect(() => {
-    if (!needed || !activeProblem) {
-      setRelated([])
-      return undefined
-    }
-    const category = categories.find((item) => item.capabilities.includes(activeProblem.capability))
-    const trade = profile?.trade || null
-    const suits = (problem) => !trade || problem.trades?.includes('all') || problem.trades?.includes(trade)
-    // Closest first: same category, then similar wording ("scheduling" and "schedule"), then problems common for this business.
-    const stems = (text) => new Set((text.toLowerCase().match(/[a-z]{5,}/g) || []).map((word) => word.slice(0, 5)))
-    const activeStems = stems(`${activeProblem.title} ${activeProblem.plain_words || ''}`)
-    const score = (problem) => {
-      let points = 0
-      if (category?.capabilities.includes(problem.capability)) points += 3
-      if ([...stems(`${problem.title} ${problem.plain_words || ''}`)].some((stem) => activeStems.has(stem))) points += 2
-      if (suits(problem)) points += 1
-      return points
-    }
-    const candidates = problems
-      .filter((problem) => problem.id !== activeProblem.id)
-      .map((problem) => ({ problem, points: score(problem) }))
-      .filter((entry) => entry.points >= 2)
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 4)
-      .map((entry) => entry.problem)
-    let active = true
-    Promise.allSettled(candidates.map((problem) => api.recommend(profile, problem.id).then((found) => ({ problem, found }))))
-      .then((results) => {
-        if (!active) return
-        setRelated(results
-          .filter((result) => result.status === 'fulfilled' && result.value.found.winner_tool_id && ['new_tool', 'add_on', 'no_new_tool'].includes(result.value.found.outcome))
-          .slice(0, 2)
-          .map((result) => result.value.problem))
-      })
-    return () => { active = false }
-  }, [needed, activeProblem?.id, profileKey, problems.length, categories.length])
-
-  return related
-}
-
-export default function OptionsResults({ recommendation, toolsById, activeProblem, business, budgetProvided, profile, problems, categories, compareProps, onChooseProblem, onAskPenny, onCompareThese, showRelated = true }) {
+export default function OptionsResults({ recommendation, toolsById, activeProblem, business, budgetProvided, compareProps, onAskPenny, onCompareThese }) {
   const groups = useMemo(() => {
     // A tool only counts as confirmed when the backend's answer is confirmed.
     // When it says "check with the vendor", even its leading option belongs under "Worth checking".
@@ -193,7 +148,6 @@ export default function OptionsResults({ recommendation, toolsById, activeProble
   }, [recommendation])
 
   const unconfirmed = ['verify_with_vendor', 'no_match'].includes(recommendation.outcome)
-  const related = useRelatedProblems({ needed: unconfirmed && showRelated, activeProblem, problems, categories, profile })
   const businessName = business ? business.toLowerCase() : 'business like yours'
   const confirmedCount = (groups.best ? 1 : 0) + groups.others.length
   const questions = questionsFor([...groups.owned, ...groups.checking].map(({ option }) => option).filter((option) => option.fit === 'unconfirmed' || option.added_monthly_usd === null || option.route === 'check_plan'), activeProblem?.title || 'this task', businessName)
@@ -203,7 +157,7 @@ export default function OptionsResults({ recommendation, toolsById, activeProble
     no_new_tool: 'Good news: you may not need a new tool',
     add_on: 'A small add-on may be all you need',
     new_tool: "Here's your best match",
-    verify_with_vendor: "We couldn't confirm a perfect fit yet",
+    verify_with_vendor: "Tools to check for this task",
     no_match: "We don't have a checked tool for this yet",
   }[recommendation.outcome] || "Here's what we found"
 
@@ -225,16 +179,7 @@ export default function OptionsResults({ recommendation, toolsById, activeProble
         <h3>{headline}</h3>
         <p>{recommendation.message}</p>
         {recommendation.tailoring_note && <p className="opt-muted">{recommendation.tailoring_note}</p>}
-        {unconfirmed && (
-          <>
-            {related.length > 0 && <p className="opt-did-you-mean">Did you mean one of these? We found checked tools for them:</p>}
-            <div className="opt-help-actions">
-              {related.map((problem) => <button type="button" key={problem.id} className="opt-chip" onClick={() => onChooseProblem(problem.id)}>{problem.title} <span aria-hidden="true">→</span></button>)}
-              <button type="button" className="opt-chip" onClick={onAskPenny}>Ask Penny to help decide</button>
-              {groups.checking.length > 1 && <button type="button" className="opt-chip" onClick={() => onCompareThese(groups.checking.slice(0, 3).map(({ option }) => option.tool_id))}>Compare these {Math.min(3, groups.checking.length)}</button>}
-            </div>
-          </>
-        )}
+
       </div>
 
       {groups.best && <section aria-labelledby="opt-best"><h4 className="opt-group" id="opt-best">Best match</h4><div className="opt-grid">{card(groups.best, true)}</div></section>}
@@ -247,6 +192,11 @@ export default function OptionsResults({ recommendation, toolsById, activeProble
           <div className="opt-grid">{groups.checking.map((item) => card(item))}</div>
         </section>
       )}
+
+      <div className="opt-help-actions">
+        <button type="button" className="opt-chip" onClick={() => onAskPenny({ problemIds: [activeProblem.id] })}>Ask Penny about these options</button>
+        {groups.checking.length > 1 && <button type="button" className="opt-chip" onClick={() => onCompareThese(groups.checking.slice(0, 3).map(({ option }) => option.tool_id))}>Compare these {Math.min(3, groups.checking.length)}</button>}
+      </div>
 
       {questions.length > 0 && (
         <details className="opt-more">

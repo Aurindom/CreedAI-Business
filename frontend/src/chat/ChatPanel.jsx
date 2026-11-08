@@ -61,7 +61,7 @@ function latestResult(list) {
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
 
-function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) {
+function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, handoff }) {
   const adapter = useMemo(() => createChatAdapter(), [])
   const [restored] = useState(() => auth?.configured ? null : loadSession(EMPTY_MEMORY))
   const [conversationId, setConversationId] = useState(() => restored?.conversationId || newConversationId())
@@ -89,6 +89,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
   const memoryRef = useRef(memory)
   const speakTimer = useRef(null)
   const abortRef = useRef(null)
+  const handledHandoff = useRef(null)
 
   messagesRef.current = messages
   memoryRef.current = memory
@@ -233,6 +234,37 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     setBusy(false)
     setStatus('')
   }
+
+  // A page selection is already a resolved catalog task. Load its actual results
+  // directly, after account hydration, and carry the same context into live chat.
+  useEffect(() => {
+    if (!handoff || handledHandoff.current === handoff.key || busy || deletingHistory) return
+    if (auth?.configured && (!auth.ready || (userId && hydratedFor !== userId))) return
+    handledHandoff.current = handoff.key
+    const run = begin()
+    const selectedProfile = handoff.profile
+    loadCatalog().then(async (catalog) => {
+      if (run !== runRef.current) return
+      const tasks = handoff.problemIds.map(id => catalog.problems.find(problem => problem.id === id)).filter(Boolean)
+      if (!tasks.length) return
+      setMemory(current => ({
+        ...current,
+        trade: selectedProfile.trade || null,
+        owned: selectedProfile.owned.map(entry => entry.tool_id),
+        plans: Object.fromEntries(selectedProfile.owned.filter(entry => entry.plan).map(entry => [entry.tool_id, entry.plan])),
+        budget_monthly_usd: selectedProfile.budget_monthly_usd ?? null,
+        active_task_ids: tasks.map(task => task.id),
+        pending_question: null,
+        pending_task_ids: [],
+        background_done: true,
+      }))
+      setResumed(false)
+      addMessage({ kind: 'user', text: `Help me with my selected ${tasks.length === 1 ? 'task' : 'tasks'}: ${tasks.map(task => task.title).join('; ')}.` })
+      await Promise.all(tasks.map(task => fetchRecommendation(task.id, selectedProfile, run)))
+    }).catch(() => {
+      if (run === runRef.current) setNotice('Could not load your selected tasks. Your selections are still on the page. Please try again.')
+    }).finally(() => finish(run))
+  }, [handoff, auth?.configured, auth?.ready, userId, hydratedFor, busy, deletingHistory])
 
   async function send(rawText, { isRetry = false } = {}) {
     if (auth?.configured && (!auth.ready || (userId && hydratedFor !== userId))) {
@@ -681,33 +713,22 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
 }
 
 const LAUNCHER_KEY = 'main-street-penny-launcher-v1'
-const FIGURE_SCROLL_LIMIT = 240
 
 function savedLauncher() {
   try {
     const mode = window.sessionStorage.getItem(LAUNCHER_KEY)
-    return mode === 'compact' || mode === 'hidden' ? mode : 'figure'
+    return mode === 'hidden' ? 'hidden' : 'figure'
   } catch {
     return 'figure'
   }
 }
 
-function useNearTop() {
-  const [nearTop, setNearTop] = useState(() => typeof window === 'undefined' || window.scrollY < FIGURE_SCROLL_LIMIT)
-  useEffect(() => {
-    const update = () => setNearTop(window.scrollY < FIGURE_SCROLL_LIMIT)
-    window.addEventListener('scroll', update, { passive: true })
-    return () => window.removeEventListener('scroll', update)
-  }, [])
-  return nearTop
-}
-
-function ChatPanelInner({ profile, auth }) {
+function ChatPanelInner({ profile, auth, pageProblemIds }) {
   const [open, setOpen] = useState(false)
   const [activity, setActivity] = useState('idle')
+  const [handoff, setHandoff] = useState(null)
   const [launcherMode, setLauncherMode] = useState(savedLauncher)
-  const nearTop = useNearTop()
-  const showFigure = launcherMode === 'figure' && nearTop && !open
+  const showFigure = launcherMode === 'figure' && !open
   const phone = useIsPhone()
   const bubble = useDraggable({ storageKey: 'main-street-penny-bubble-v1' })
   const chatWindow = useDraggable({ storageKey: 'main-street-penny-window-v1', enabled: !phone })
@@ -720,8 +741,6 @@ function ChatPanelInner({ profile, auth }) {
 
   useEffect(() => {
     if (wasOpen.current && !open) {
-      // After a first chat Penny stays small, so she doesn't cover the page.
-      if (launcherMode === 'figure') changeLauncher('compact')
       returnFocus.current = true
     }
     wasOpen.current = open
@@ -750,24 +769,35 @@ function ChatPanelInner({ profile, auth }) {
   }, [open, chatWindow, bubble.position])
 
   useEffect(() => {
-    function openFromPage() {
+    function openFromPage(event) {
       anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+      takeSelection(event.detail)
       setOpen(true)
     }
     window.addEventListener('penny:open', openFromPage)
     return () => window.removeEventListener('penny:open', openFromPage)
-  }, [bubble.ref])
+  }, [bubble.ref, profile, pageProblemIds])
+
+  function takeSelection(selection = {}) {
+    const problemIds = [...new Set(selection?.problemIds || pageProblemIds || [])].filter(id => typeof id === 'string').slice(0, 3)
+    if (!problemIds.length) return
+    const sourceProfile = selection?.profile || profile
+    const selectedProfile = { trade: sourceProfile.trade || null, owned: sourceProfile.owned || [], budget_monthly_usd: sourceProfile.budget_monthly_usd ?? null }
+    const context = { problemIds, profile: selectedProfile }
+    setHandoff({ ...context, key: JSON.stringify(context) })
+  }
 
   function openChat() {
     if (bubble.wasDragged()) return
     anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+    takeSelection()
     setOpen(true)
   }
 
   return (
     <div className="msc-root">
       {!open && launcherMode === 'hidden' && (
-        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('compact')} aria-label="Show Penny, your AI guide">
+        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('figure')} aria-label="Show Penny, your AI guide">
           <PennyAvatar size={28} />
           <span>Penny</span>
         </button>
@@ -789,15 +819,15 @@ function ChatPanelInner({ profile, auth }) {
           <button type="button" className="penny-hide" onClick={() => changeLauncher('hidden')} aria-label="Hide Penny" title="Hide Penny">×</button>
         </div>
       )}
-      <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} drag={chatWindow} phone={phone} />
+      <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} drag={chatWindow} phone={phone} handoff={handoff} />
     </div>
   )
 }
 
-function ChatPanel({ profile = {}, auth }) {
+function ChatPanel({ profile = {}, auth, pageProblemIds = [] }) {
   return (
     <ChatErrorBoundary>
-      <ChatPanelInner profile={profile} auth={auth} />
+      <ChatPanelInner key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} pageProblemIds={pageProblemIds} />
     </ChatErrorBoundary>
   )
 }

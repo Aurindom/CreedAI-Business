@@ -46,7 +46,8 @@
     },
     {
       "id": "auto",
-      "name": "Auto shop"
+      "name": "Auto shop",
+      "aliases": ["Mechanic", "Mechanic shop", "Auto mechanic", "Auto repair", "Auto repair shop", "Car repair", "Car repair shop", "Vehicle repair", "Vehicle repair shop", "Automotive repair", "Automotive repair shop"]
     },
     {
       "id": "professional_services",

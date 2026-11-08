@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, ownedProfile, planChoices, isSingleOffering, PLAN_UNKNOWN, PLAN_LABEL_MAX } from './api'
+import { resolveTrade } from './businessTypes'
 import ChatPanel from './chat/ChatPanel'
 import ProductShowcase from './components/ProductShowcase'
 import QuickCompare from './components/QuickCompare'
@@ -9,6 +10,7 @@ import OwnerLaunchpad from './components/OwnerLaunchpad'
 import ComparisonTray from './components/ComparisonTray'
 import ComparisonWorkspace from './components/ComparisonWorkspace'
 import HowItWorks from './components/HowItWorks'
+import BusinessToolkit from './components/BusinessToolkit'
 import OptionsResults from './components/OptionsResults'
 import MultiPlan from './components/MultiPlan'
 import AccountControls from './auth/AccountControls'
@@ -72,20 +74,8 @@ function dollars(amount) {
 
 const OWNED_PREVIEW = 10
 
-// Opens Penny's chat from anywhere on the page.
-function askPenny() {
-  window.dispatchEvent(new window.CustomEvent('penny:open'))
-}
-
 function stageAnchor(anchor) {
   document.getElementById(anchor)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })
-}
-
-// Mirrors Catalog.resolve_trade on the backend so directory labels agree with the ranking.
-function resolveTrade(trades, text) {
-  const wanted = (text || '').trim().toLowerCase().replaceAll(' ', '_')
-  if (!wanted) return null
-  return trades.find((t) => wanted === t.id || wanted === t.name.toLowerCase().replaceAll(' ', '_'))?.id ?? null
 }
 
 function tradeNames(trades, ids, limit = 3) {
@@ -230,7 +220,6 @@ function Marketplace({ auth }) {
   const [taskError, setTaskError] = useState('')
   const [isResolving, setIsResolving] = useState(false)
   const taskRequest = useRef(0)
-  const [motionPaused, setMotionPaused] = useState(false)
   const [quickCompare, setQuickCompare] = useState(false)
   const [baseline, setBaseline] = useState('')
 
@@ -403,6 +392,13 @@ function Marketplace({ auth }) {
     })
   }
 
+  function askPenny(selection = {}) {
+    window.dispatchEvent(new window.CustomEvent('penny:open', { detail: {
+      profile: { ...ownedProfile(businessType.trim(), owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) },
+      problemIds: Array.isArray(selection.problemIds) ? selection.problemIds : selectedProblems,
+    } }))
+  }
+
   function chooseProblem(id) {
     taskRequest.current += 1
     setIsResolving(false)
@@ -441,7 +437,7 @@ function Marketplace({ auth }) {
     : multiProblem ? plural(selectedProblems.length, 'problem') : recommendation ? plural(recommendation.options.length + recommendation.check_first.length, 'tool') + ' to look at' : 'No task chosen'
 
   return (
-    <div className={`site-shell${motionPaused ? ' motion-paused' : ''}${quickCompare ? ' quick-compare-mode' : ''}`}>
+    <div className={`site-shell${quickCompare ? ' quick-compare-mode' : ''}`}>
       <a className="skip-link" href="#business" onClick={() => setQuickCompare(false)}>Skip to the tool finder</a>
       <aside className="sidebar street-header">
         <StreetHeaderScene />
@@ -481,17 +477,17 @@ function Marketplace({ auth }) {
         </div>
         <div className="topbar">
           <span className="topbar-route">Find AI tools that fit your small business</span>
-          <div className="topbar-right"><button className="motion-toggle" type="button" aria-pressed={motionPaused} onClick={() => setMotionPaused((paused) => !paused)}>{motionPaused ? 'Play animations' : 'Pause animations'}</button></div>
         </div>
 
         <div className="content">
           {loadError && <div className="error-banner" role="alert"><strong>We couldn't reach the catalog service.</strong> {loadError}</div>}
 
           {quickCompare ? <QuickCompare tools={allTools} baseline={baseline} selected={selectedTools} plans={ownedPlans} onBaseline={selectBaseline} onPlan={(id, plan) => setOwnedPlans((current) => ({ ...current, [id]: plan }))} onToggle={toggleCompare} onBack={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('business')) }} /> : <>
-            <ProductShowcase part="hero" scene={scene} onSceneChange={setScene} tools={allTools} paused={motionPaused} onCompare={openQuickCompare} onAskPenny={askPenny}
+            <ProductShowcase part="hero" scene={scene} onSceneChange={setScene} tools={allTools} onCompare={openQuickCompare} onAskPenny={askPenny}
               onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }}
               onChooseProblem={(type, problemId) => { setBusinessType(type); setCategory(''); chooseProblem(problemId) }} />
-            <HowItWorks onStart={() => stageAnchor('business')} onAskPenny={askPenny} onCompare={openQuickCompare} />
+            <ProductShowcase part="story" scene={scene} tools={allTools} />
+            <HowItWorks accent={scene.theme} onStart={() => stageAnchor('business')} onAskPenny={askPenny} onCompare={openQuickCompare} />
           </>}
           {!quickCompare && <OwnerLaunchpad categories={categories} favouritesCount={favourites.items.length} onFind={() => stageAnchor('challenge')} onCompare={openQuickCompare} onFavourites={() => stageAnchor('favourites')} onCategory={id => { chooseCategory(id); setShowDirectory(false); setDirectoryQuery(''); window.requestAnimationFrame(() => stageAnchor('challenge')) }} />}
 
@@ -514,6 +510,7 @@ function Marketplace({ auth }) {
                 <span>Type of business <small>optional, type anything</small></span>
                 <input type="text" list="trade-list" value={businessType} onChange={(event) => setBusinessType(event.target.value)} placeholder="e.g. Bakery, Plumbing, Dog grooming" maxLength={100} />
                 <datalist id="trade-list">{trades.map((t) => <option key={t.id} value={t.name} />)}</datalist>
+                {tradeId && <small role="status">Business category: {tradeLabel}</small>}
               </label>
               <label className="field budget-field"><span>How much more could you spend each month? <small>optional, in dollars</small></span><input type="number" min="0" step="0.01" value={budget} onChange={(event) => { const value = event.target.value; if (value === '' || (Number.isFinite(Number(value)) && Number(value) >= 0)) setBudget(value) }} placeholder="e.g. 100" /><small>On top of what you already pay. Leave it blank if you're not sure.</small></label>
               <details className="owned-picker"><summary><span>Already using software?</span><small>{owned.length ? `${owned.length} selected` : 'Add your subscriptions, optional'}</small></summary>
@@ -537,6 +534,9 @@ function Marketplace({ auth }) {
               </details>
               <div className="form-note"><span>✳</span><p>{businessNote}</p></div>
             </div>
+            <BusinessToolkit business={tradeLabel || typedTrade} tradeId={tradeId} tools={allTools} categories={categories}
+              onCategory={(id) => { chooseCategory(id); window.requestAnimationFrame(() => stageAnchor('challenge')) }}
+              onBrowse={() => { setCategory(''); setShowDirectory(true); setDirectoryQuery(''); window.requestAnimationFrame(() => stageAnchor('explore')) }} />
           </section>
 
           <section className="section-block" id="challenge" hidden={quickCompare}>
@@ -662,14 +662,12 @@ function Marketplace({ auth }) {
             <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
           </section>
 
-          {!quickCompare && <ProductShowcase part="story" scene={scene} tools={allTools} paused={motionPaused} />}
-
           <section className="next-panel" hidden={quickCompare}><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Confirm task assignments and save a private adoption plan for your next steps.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>
           <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>
         </div>
       </main>
       <ComparisonTray tools={comparison} onRemove={toggleCompare} onClear={() => { setSelectedTools([]); setBaseline('') }} onView={() => stageAnchor('compare')} />
-      <ChatPanel auth={auth} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
+      <ChatPanel pageProblemIds={selectedProblems} auth={auth} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
     </div>
   )
 }

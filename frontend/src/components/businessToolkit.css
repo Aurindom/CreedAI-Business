@@ -1,0 +1,22 @@
+.business-toolkit { margin-top: 28px; padding: clamp(20px, 3vw, 32px); border: 1px solid var(--line); border-radius: 24px; background: radial-gradient(ellipse at 0 0, #3c2d4c40, transparent 65%), var(--surface); }
+.business-toolkit-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+.business-toolkit-heading .section-kicker { margin: 0 0 12px; }
+.business-toolkit-heading h3 { margin: 0; font-size: clamp(24px, 3vw, 34px); font-weight: 550; letter-spacing: -.035em; color: var(--text); }
+.business-toolkit-scope { border: 1px solid #665174; border-radius: 24px; padding: 8px 12px; color: var(--accent); font-size: 13px; }
+.business-toolkit-note { max-width: 780px; color: var(--muted); font-size: 15px; line-height: 1.7; }
+.business-toolkit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 16px; margin: 24px 0; }
+.business-toolkit-card { display: flex; flex-direction: column; min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: #15121d; }
+.business-toolkit-category { display: flex; align-items: center; gap: 12px; }
+.business-toolkit-category > span { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 12px; background: #d8c8ff12; color: var(--accent); font-size: 12px; }
+.business-toolkit-category h4 { font-size: 18px; font-weight: 550; line-height: 1.4; margin: 0; color: var(--text); }
+.business-toolkit-card ul { padding: 0; margin: 16px 0 20px; list-style: none; }
+.business-toolkit-card li { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px solid #ffffff0c; }
+.business-toolkit-card li > div { min-width: 0; overflow-wrap: anywhere; }
+.business-toolkit-card a { display: inline-block; color: #eee3ff; font-weight: 600; font-size: 15px; text-underline-offset: 4px; }
+.business-toolkit-card li p { margin: 6px 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.business-toolkit-card li small { color: var(--subtle); font-size: 12px; }
+.business-toolkit-card > button { display: flex; justify-content: space-between; gap: 12px; min-height: 44px; margin-top: auto; padding: 10px 0; border: 0; background: transparent; color: var(--accent); font-size: 14px; text-align: left; }
+.business-toolkit-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; }
+.business-toolkit-footer p { flex: 1 1 300px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.business-toolkit-footer button { min-height: 48px; padding: 12px 18px; border: 1px solid #77618e; border-radius: 24px; background: #211a2d; color: var(--accent); font-size: 14px; }
+@media (max-width: 480px) { .business-toolkit { padding: 18px 14px; }.business-toolkit-card { padding: 16px; } }

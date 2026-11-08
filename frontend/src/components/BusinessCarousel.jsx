@@ -39,8 +39,8 @@ const CHALLENGE_PROBLEMS = {
 
 export default function BusinessCarousel({ paused = false, onChooseBusiness, onChooseProblem, onAskPenny, onCompare, onSceneChange }) {
   const [active, setActive] = useState(0)
-  // The slideshow waits for the owner. Changing slides on its own makes the page hard to read.
-  const [playing, setPlaying] = useState(false)
+  // Advance by default; interaction and reduced-motion preferences suspend playback.
+  const [playing, setPlaying] = useState(true)
   const [engaged, setEngaged] = useState(false)
   const [reduced, setReduced] = useState(false)
   const root = useRef(null)
@@ -87,7 +87,6 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness, onC
   }, [active, reduced, paused])
 
   function navigate(index) {
-    setPlaying(false)
     setActive((index + businesses.length) % businesses.length)
   }
 

@@ -38,7 +38,7 @@ from .agent.hermes_runtime import HermesError, HermesRun
 from .agent.prompts import SYSTEM_PROMPT as GROUNDED_PROMPT
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
 from .penny_conversation import ConversationReply, validate_conversation, reply_choices
-from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats, pending_tasks
+from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats, pending_tasks, recommendation_catalog, recommendation_package, alternatives_note
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,6 +82,7 @@ Rules:
 - Ask about budget as what the owner can ADD to the monthly bill, not their existing subscription total. Zero is a valid preference. Never reinterpret a current bill as a budget. A lower published entry price does not establish savings or the cost of the required plan.
 - If the task is unclear, ask one specific question with 2-4 relevant choices using ask_owner. Preserve negation: an owner saying a task is fine is not asking for help with it. If they ask to compare tools but have not named them, ask which tools; if the task matters, ask what job they need done. Never assume the first named tool is the one they own.
 - For a known task call recommend_tools, then submit_answer selecting relevant claim_ids from the returned evidence_package. Use claim_ids=[] for the backend default. The backend includes required context, uncertainty and winner evidence; you never supply those policy fields. Do not repeat full cards or introduce another tool call merely to restate evidence.
+- When the owner asks for alternatives to a suggested tool, keep the same task. Call recommend_tools with use_active_task=true, task_text copied from the current request, and exclude_tool_ids containing the suggested tool IDs. Use this reference only with one active task; otherwise clarify which task. Do not permanently rule out a tool merely because the owner wants alternatives. If the lookup finds no other supported option, select the supplied alternatives:scope claim and explain the catalog limitation with its official service link. Never invent a substitute or repeat the excluded recommendation.
 - An owner describing a clear business problem wants a shortlist of relevant tools. Route it and call recommend_tools immediately. A lack of staff, time or resources describes a problem; it does not reject that task. Quote the affirmative problem or consequence clause in task_text. Ask for confirmation only when the meaning is genuinely unresolved. When the owner confirms a pending task, recommend that task and preserve their business type, existing tools and budget. Prefer the latest explicitly stated business type over older context.
 - An affirmative answer to a pending task confirmation means proceed with recommendations, not small talk. Include the owner's confirmation as task_text. If several tasks were offered, identify which one before proceeding.
 - Catalog phrase matching is only an initial hint, not a limit on understanding the owner's wording. Map an affirmative request semantically to a supported catalog problem_id; include task_text copied exactly from the owner's request when using recommend_tools. Use the recent owner turns to understand short answers and complaints about repetition. Never override an explicit different task, a negation, or an unresolved choice between multiple tasks.
@@ -106,6 +107,8 @@ ACTIONS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "problem_id": {"type": "string"},
+                    "use_active_task": {"type": "boolean", "description": "True for a follow-up referring to the one active task, such as asking for alternatives to the suggested tool. Still include the exact current owner excerpt in task_text. Do not use for a different or ambiguous task."},
+                    "exclude_tool_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 3, "uniqueItems": True, "description": "For alternatives, catalog IDs of the suggested tools to leave out of this lookup. This does not permanently reject them or imply the owner subscribes."},
                     "task_text": {"type": "string", "minLength": 1, "maxLength": 500, "description": "Exact affirmative problem/consequence excerpt from the owner request, or the owner's confirmation of a single pending task. Never invent or remove negation."},
                 },
                 "required": ["problem_id"],
@@ -527,8 +530,13 @@ def _run_action(
     """Everything the model may do. Unknown names and bad ids return an error for it to recover from."""
     try:
         if name == "recommend_tools":
+            source_catalog = catalog
+            catalog = recommendation_catalog(catalog, arguments)
             current = _effective_profile(catalog, profile, memory)
             found = recommend(catalog, current, catalog.problem(str(arguments.get("problem_id"))))
+            if arguments.get('exclude_tool_ids'):
+                note = alternatives_note(source_catalog, arguments['exclude_tool_ids'], bool(found.options or found.check_first))
+                found = found.model_copy(update={'message': note + (' ' + found.message if found.options or found.check_first else '')})
             result = found.model_dump(mode="json")
             result["ruled_out_by_owner"] = memory.ruled_out
             surface_id = f"penny-recommendation-{secrets.token_urlsafe(8)}"
@@ -685,6 +693,18 @@ def observe_validation(reply):
     # The reason is an internal enum, never model text/arguments or owner content.
     logger.info('penny_validation', extra={'validation_status': reply.status,
                                          'validation_reason': reply.reason or 'ok'})
+
+
+def recover_alternatives(reply, package, guard):
+    """Discard invalid model output; a completed alternatives lookup can still answer.
+
+    The replacement is rebuilt from the checked package, never from rejected prose.
+    Guard interceptions and unavailable lookups remain closed.
+    """
+    if (reply.status == 'fallback' and not guard.tripped and package.status == 'ok'
+            and 'alternatives:scope' in package.required_claim_ids):
+        return validate_answer(default_answer(package), package, guard)
+    return reply
 
 
 def register_expected(gate: RunGate, body: ChatRequest) -> None:
@@ -895,6 +915,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                 return
             validated = submit_selection(raw, package, guard)
             observe_validation(validated)
+            validated = recover_alternatives(validated, package, guard)
             if chat_guard.reason(validated.text):
                 validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
             followup = raw.get('followup_id') if isinstance(raw, dict) else None
@@ -916,6 +937,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                 return
             validated = validate_answer(turn['text'], package, guard)
             observe_validation(validated)
+            validated = recover_alternatives(validated, package, guard)
             if chat_guard.reason(validated.text):
                 validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
             for event in catalog_reply_events(catalog, body.profile, memory, validated, guard, resolved_tasks):
@@ -998,7 +1020,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                                 else action_package(catalog, current, body, call['name'], call['arguments']))
                 if call['name'] == 'recommend_tools':
                     next_tasks = list(dict.fromkeys([*resolved_tasks, str(call['arguments']['problem_id'])]))
-                    next_package = build_evidence(catalog, current, next_tasks)
+                    next_package = recommendation_package(catalog, current, next_tasks, call['arguments'])
                 package = qualify_package(catalog, next_package, body)
                 if call['name'] == 'recommend_tools':
                     resolved_tasks = next_tasks
