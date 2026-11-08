@@ -1,5 +1,14 @@
 # Grounding quality evaluation, dataset version 2
 
+Final integrated-release note (2026-11-08): the 30 scenarios below passed as part
+of the 1,261-test backend gate. Current Penny/Hermes/MCP wiring and real Azure API
+evaluation evidence are in `docs/FINAL_MAIN_VALIDATION.md` and its sanitized JSON
+artifact. Historical statements below about unwired runtime/UI adapters describe
+the original patch, not the final main application. For the deployed application,
+use `python scripts/api_canary.py --base-url <HTTPS_URL> --live --edges` from the
+repository root with an explicitly approved finite budget. The older direct
+runtime evaluation CLI is not evidence for native Hermes/MCP execution.
+
 Run from the workspace parent using the installed sandbox interpreter. Set
 `PYTHONDONTWRITEBYTECODE=1` and `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`. All runtime
 output must remain in sandbox:

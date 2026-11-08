@@ -144,9 +144,84 @@ Local live ledgers settled **99 provider requests / USD 0.562227** (gateway
 Including the previously tracked conservative USD 1.294227 gives USD 1.856454
 before hosted final-release tests, below the USD 10 ceiling.
 
-Final concurrency/outage, accounting, main promotion and Azure results are added
-below when complete. The previously running Azure release is `468cdf5`; a passing
-local gate alone does not update it.
+**Completed:** application release `c969974` is pushed on main and running on
+Azure as `penny-app:c969974`. The prior `468cdf5` and intermediate `a664b80`
+images remain available for rollback. All six services are healthy. The final
+Git evidence commit may be newer than this application SHA because it changes
+documentation only.
+
+Public URL: <https://mainstreet-penny-aurin.belgiumcentral.cloudapp.azure.com>.
+
+- The final eight-turn public HTTPS canary passed, including the original review
+  prompt, booking, negation, greetings, both alternatives paths and clarification.
+- Real Supabase account-A API checks passed login, identity, authenticated live
+  Penny, saved Redis history, immediate logout revocation and fresh-login recovery.
+  Chrome also passed login, favourite persistence, live Penny cards and logout.
+- Directory/toolkit/selection browser journeys passed on the hosted frontend at
+  desktop, tablet and mobile widths, without page errors or horizontal overflow.
+- Five simultaneous **real-provider Azure** turns produced three validated
+  answers in 10.28–10.84s and two graceful busy responses in 0.44–0.45s. Twenty
+  concurrent catalog reads returned 200. This demonstrates the single worker's
+  admission limit, not a claim of unlimited VM capacity.
+- Native discovery added Wave and Zoho on Azure: catalog 28 -> 30, unique IDs,
+  two automatic reviews, no false promotions. The scan was partial because some
+  page evidence could not be fully read; verification notes remain visible.
+- Private routes reject guests/forged credentials. Sign-in and comparison routes
+  load successfully. Secret/Git probe paths return 404. HTTPS validation is enabled.
+- Final database check: `ok`; zero active unfinished public-read operations.
+  One expired pending operation from the old release remains historical; it
+  cannot satisfy a new run. Twenty-three stored public reads succeeded.
+- Public frontend assets contain only the public Supabase configuration, with
+  private provider/service credentials absent. VM service memory at final idle
+  audit was about 480 MiB combined, excluding OS/cache. This is not a load ceiling.
+
+Consistent configuration/database/ledger snapshots are retained in
+`/srv/penny/backups/pre-final-main-a664b80` and
+`/srv/penny/backups/pre-final-main-c969974`. The VM's original single-branch clone
+now tracks main, so future reviewed updates can use `git fetch origin`, an
+explicit fast-forward and `scripts/deploy_vm.sh TESTED_SHA`. A failed first
+tracking setup was recovered only after confirming the entire index and worktree
+equalled the approved target; no reset or user edits were discarded.
+
+The operator hold acknowledgement ran from the VM checkout using system Python,
+not inside the runtime image (operator scripts are deliberately outside that
+image). Its existing audit row records attempt 8 with the full USD 0.25 charge
+still held. Do not rerun acknowledgement blindly.
+
+After testing, the owner explicitly approved **24 lifetime discovery requests,
+with the existing USD 1 cap and all charges retained**. That setting is applied;
+11 attempts have been used. The app was reloaded and a further live review-reply
+canary validated. Gateway controls remain 500 requests / USD 4. Discovery still
+allows four public runs per client/hour and twenty globally/hour. These are
+lifetime provider counters; restarting does not replenish them.
+
+Owned local test containers and QA servers have been stopped. Their volumes,
+ledgers and ignored evidence remain. Azure stays running.
+
+## Final spend and remaining handoff
+
+| Component | Conservative USD |
+| --- | ---: |
+| Previously tracked project testing | 1.294227 |
+| New local stack and isolated native diagnostics | 0.682624 |
+| New hosted work, including both unknown-charge holds | 0.757392 |
+| **Tracked total** | **2.734243 / 10.00** |
+
+This new batch accounts for 154 provider attempts: 152 settled and two held.
+The USD 0.50 in unknown charges is included in full; this is conservative ledger
+accounting, not a claim that every reservation was billed. USD 7.265757 remains
+under the user's testing ceiling. Existing Azure lifetime spend/holds total
+USD 0.997341, including earlier work already counted in the first row.
+
+Remaining acceptance items are a fresh hosted real A/B run with two working
+confirmed accounts, and owner/project-admin confirmation of production email
+confirmation/reset redirect settings. Local synthetic A/B and teammate-reported
+real A/B results must not be misrepresented as that hosted test. Automatically
+discovered records need their remaining evidence checks before promotion;
+rendered-page and pricing-table improvements remain queued separately.
+
+Machine-readable sanitized evidence is in
+`validation/2026-11-08-final-main.json`. Detailed ignored artifacts remain local.
 
 ## Cost and Git
 

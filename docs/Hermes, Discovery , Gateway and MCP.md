@@ -1,5 +1,13 @@
 # Hermes, Discovery , Gateway and MCP
 
+Final integrated/Azure release update (2026-11-08): see
+[FINAL_MAIN_VALIDATION.md](FINAL_MAIN_VALIDATION.md) for the final fixes, 1,261-test
+backend gate, live Hermes/MCP/Penny/discovery/browser/concurrency evidence,
+retained-charge accounting, and remaining real-account-B/production-email checks.
+Application release `c969974` is running on Azure. Discovery explicitly uses
+native search and an approved 24-request/USD1 lifetime limit. Earlier checkpoint
+notes below are historical and do not supersede that report.
+
 ## Later checkpoint: more discovery and automatic evidence verification
 
 2026-11-08, after the initial checkpoint below: automatic verification is now
