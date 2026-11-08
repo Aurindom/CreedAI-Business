@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, PrivateAttr
 from . import chat_guard
 from . import auth
 from .matching import recommend
+from .ownership import stated_ownership
 from .tasks import owner_excerpts
 from .schemas import BusinessProfile, Catalog, Fact, OwnedSoftware, Tool
 from .agent.grounding import default_answer, validate_answer, FALLBACK
@@ -194,6 +195,7 @@ class ChatMemory(BaseModel):
     active_task_ids: list[str] = Field(default_factory=list, max_length=5)
     pending_question: Literal['business', 'software', 'budget', 'task', 'plan'] | None = None
     pending_task_ids: list[str] = Field(default_factory=list, max_length=3)
+    plans: dict[str, str] = Field(default_factory=dict, max_length=20)
 
 
 class ChatRequest(BaseModel):
@@ -428,13 +430,18 @@ def _clean_memory(catalog: Catalog, memory: ChatMemory) -> ChatMemory:
         active_task_ids=[pid for pid in dict.fromkeys(memory.active_task_ids) if pid in tasks],
         pending_question=memory.pending_question,
         pending_task_ids=[pid for pid in dict.fromkeys(memory.pending_task_ids) if pid in tasks],
+        plans={tool_id: plan.strip()[:100] for tool_id, plan in memory.plans.items() if tool_id in known and isinstance(plan, str) and plan.strip()},
     )
 
 
 def _effective_profile(catalog: Catalog, profile: BusinessProfile, memory: ChatMemory) -> BusinessProfile:
     known = {tool.id for tool in catalog.tools if tool.status != "rejected"}
-    owned = [entry for entry in profile.owned if entry.tool_id in known]
-    owned += [OwnedSoftware(tool_id=tool_id) for tool_id in memory.owned if all(e.tool_id != tool_id for e in owned)]
+    plans = memory.plans or {}
+    owned = [
+        OwnedSoftware(tool_id=entry.tool_id, plan=entry.plan or plans.get(entry.tool_id))
+        for entry in profile.owned if entry.tool_id in known
+    ]
+    owned += [OwnedSoftware(tool_id=tool_id, plan=plans.get(tool_id)) for tool_id in memory.owned if all(e.tool_id != tool_id for e in owned)]
     return BusinessProfile(
         trade=memory.trade or profile.trade,
         owned=owned,
@@ -701,6 +708,20 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         yield {"type": "done"}
         return
     memory = _clean_memory(catalog, body.memory)
+    # Software the owner plainly says they already use is recorded before any lookup,
+    # so a first answer never treats an existing subscription as a new purchase.
+    stated = stated_ownership(catalog, body.message)
+    learned_ownership = False
+    for tool_id, plan in stated:
+        if tool_id not in memory.owned:
+            memory.owned.append(tool_id)
+            learned_ownership = True
+        if plan and memory.plans.get(tool_id) != plan:
+            memory.plans[tool_id] = plan
+            learned_ownership = True
+    if learned_ownership:
+        memory.ruled_out = [tool_id for tool_id in memory.ruled_out if tool_id not in memory.owned]
+        memory = _clean_memory(catalog, memory)
     body.memory = memory
     if not memory.pending_task_ids:
         memory.pending_task_ids = pending_tasks(catalog, body)[:3]
@@ -733,6 +754,8 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     yield {"type": "status", "text": "Penny is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
+    if learned_ownership:
+        yield _memory_event(memory)
 
     for _ in range(MAX_ROUNDS):
         if body._check_session is not None:

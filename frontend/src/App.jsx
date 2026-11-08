@@ -6,6 +6,9 @@ import QuickCompare from './components/QuickCompare'
 import MainStreetBrand from './components/MainStreetBrand'
 import StreetHeaderScene from './components/StreetHeaderScene'
 import ComparisonWorkspace from './components/ComparisonWorkspace'
+import HowItWorks from './components/HowItWorks'
+import OptionsResults from './components/OptionsResults'
+import MultiPlan from './components/MultiPlan'
 import AccountControls from './auth/AccountControls'
 import { useOwnerAuth } from './auth/ownerAuth'
 
@@ -62,6 +65,13 @@ function priceOf(tool) {
 
 function dollars(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(amount)
+}
+
+const OWNED_PREVIEW = 10
+
+// Opens Penny's chat from anywhere on the page.
+function askPenny() {
+  window.dispatchEvent(new window.CustomEvent('penny:open'))
 }
 
 function stageAnchor(anchor) {
@@ -188,11 +198,17 @@ function Marketplace({ auth }) {
   const [businessName, setBusinessName] = useState('')
   const [businessType, setBusinessType] = useState('')
   const [owned, setOwned] = useState([])
+  const [showAllOwned, setShowAllOwned] = useState(false)
+  const [scene, setScene] = useState({ image: 'coffee-shop', type: 'Coffee shop', theme: '#edc49e' })
   const [ownedPlans, setOwnedPlans] = useState({})
   const [budget, setBudget] = useState('')
   const [comparisonFacts, setComparisonFacts] = useState({})
   const [category, setCategory] = useState('')
-  const [selectedProblem, setSelectedProblem] = useState('')
+  const [selectedProblems, setSelectedProblems] = useState([])
+  const [problemNotice, setProblemNotice] = useState('')
+  const [showOtherProblems, setShowOtherProblems] = useState(false)
+  const selectedProblem = selectedProblems[0] || ''
+  const setSelectedProblem = (id) => setSelectedProblems(id ? [id] : [])
   const [recommendation, setRecommendation] = useState(null)
   const [recommendError, setRecommendError] = useState('')
   const [isRecommending, setIsRecommending] = useState(false)
@@ -211,7 +227,8 @@ function Marketplace({ auth }) {
   const tradeId = resolveTrade(trades, typedTrade)
   const tradeLabel = tradeId ? trades.find((t) => t.id === tradeId)?.name : typedTrade
   const toolsById = useMemo(() => Object.fromEntries(allTools.map((t) => [t.id, t])), [allTools])
-  const activeProblem = problems.find((p) => p.id === selectedProblem) || null
+  const activeProblem = allProblems.find((p) => p.id === selectedProblem) || problems.find((p) => p.id === selectedProblem) || null
+  const multiProblem = selectedProblems.length > 1
   const activeCategory = categories.find((c) => c.id === category) || null
 
   useEffect(() => {
@@ -318,6 +335,25 @@ function Marketplace({ auth }) {
     setOwned((current) => (current.includes(toolId) ? current.filter((id) => id !== toolId) : [...current, toolId]))
   }
 
+  const MAX_PROBLEMS = 3
+
+  // Cards can be picked together. Up to three, so Step 3 stays readable.
+  function toggleProblem(id) {
+    setShowDirectory(false)
+    setSelectedProblems((current) => {
+      if (current.includes(id)) {
+        setProblemNotice('')
+        return current.filter((item) => item !== id)
+      }
+      if (current.length >= MAX_PROBLEMS) {
+        setProblemNotice(`You can pick up to ${MAX_PROBLEMS}. Remove one to add another.`)
+        return current
+      }
+      setProblemNotice('')
+      return [...current, id]
+    })
+  }
+
   function chooseProblem(id) {
     taskRequest.current += 1
     setIsResolving(false)
@@ -330,7 +366,12 @@ function Marketplace({ auth }) {
   function chooseCategory(id) {
     setCategory(id)
     const next = categories.find((c) => c.id === id)
-    if (activeProblem && next && !next.capabilities.includes(activeProblem.capability)) setSelectedProblem('')
+  }
+
+  // Adds several tools to the comparison at once, keeping the three-tool limit.
+  function compareThese(toolIds) {
+    setSelectedTools((current) => [...new Set([...current, ...toolIds])].slice(0, 3))
+    window.requestAnimationFrame(() => stageAnchor('compare'))
   }
 
   function compareProps(toolId) {
@@ -341,16 +382,17 @@ function Marketplace({ auth }) {
     ? `We haven't checked tools for "${typedTrade}" yet. You'll still see tools offered to many kinds of business, and we'll say so.`
     : 'Pick a suggestion or type your own. If we have not checked your kind of business, we rank tools offered to many kinds of business.'
 
-  const exploreHeading = showDirectory ? 'Browse the directory' : 'What fits this task'
+  const exploreHeading = showDirectory ? 'Browse the directory' : multiProblem ? 'Your options' : 'What fits this task'
   const exploreLead = showDirectory
     ? `Every tool in ${activeCategory ? activeCategory.name : 'the catalog'}, with who it is built for.`
-    : activeProblem ? `For “${activeProblem.title.toLowerCase()}”.` : 'Choose a task above to see what fits.'
+    : multiProblem ? `For your ${selectedProblems.length} problems${tradeLabel ? ` at a ${tradeLabel.toLowerCase()}` : ''}.` : activeProblem ? `For “${activeProblem.title.toLowerCase()}”${tradeLabel ? ` at a ${tradeLabel.toLowerCase()}` : ''}.` : 'Choose a task above to see what fits.'
   const exploreCount = showDirectory
     ? plural(directory.length, 'tool')
-    : recommendation ? plural(recommendation.options.length, 'ranked option') : 'No task chosen'
+    : multiProblem ? plural(selectedProblems.length, 'problem') : recommendation ? plural(recommendation.options.length + recommendation.check_first.length, 'tool') + ' to look at' : 'No task chosen'
 
   return (
     <div className={`site-shell${motionPaused ? ' motion-paused' : ''}${quickCompare ? ' quick-compare-mode' : ''}`}>
+      <a className="skip-link" href="#business" onClick={() => setQuickCompare(false)}>Skip to the tool finder</a>
       <aside className="sidebar street-header">
         <StreetHeaderScene />
         <MainStreetBrand />
@@ -387,20 +429,27 @@ function Marketplace({ auth }) {
           </svg>
         </div>
         <div className="topbar">
-          <span className="topbar-route">Discover what comes next</span>
-          <div className="topbar-right"><button className="motion-toggle" type="button" aria-pressed={motionPaused} onClick={() => setMotionPaused((paused) => !paused)}>{motionPaused ? 'Resume motion' : 'Pause motion'}</button><span className="status-dot" /> Prototype preview <span className="topbar-divider" /> <span className="topbar-avatar">AM</span></div>
+          <span className="topbar-route">Find AI tools that fit your small business</span>
+          <div className="topbar-right"><button className="motion-toggle" type="button" aria-pressed={motionPaused} onClick={() => setMotionPaused((paused) => !paused)}>{motionPaused ? 'Play animations' : 'Pause animations'}</button></div>
         </div>
 
         <div className="content">
           {loadError && <div className="error-banner" role="alert"><strong>We couldn't reach the catalog service.</strong> {loadError}</div>}
 
-          {quickCompare ? <QuickCompare tools={allTools} baseline={baseline} selected={selectedTools} plans={ownedPlans} onBaseline={selectBaseline} onPlan={(id, plan) => setOwnedPlans((current) => ({ ...current, [id]: plan }))} onToggle={toggleCompare} onBack={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('business')) }} /> : <ProductShowcase tools={allTools} paused={motionPaused} onCompare={openQuickCompare} onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }} />}
+          {quickCompare ? <QuickCompare tools={allTools} baseline={baseline} selected={selectedTools} plans={ownedPlans} onBaseline={selectBaseline} onPlan={(id, plan) => setOwnedPlans((current) => ({ ...current, [id]: plan }))} onToggle={toggleCompare} onBack={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('business')) }} /> : <>
+            <ProductShowcase part="hero" scene={scene} onSceneChange={setScene} tools={allTools} paused={motionPaused} onCompare={openQuickCompare} onAskPenny={askPenny}
+              onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }}
+              onChooseProblem={(type, problemId) => { setBusinessType(type); setCategory(''); chooseProblem(problemId) }} />
+            <HowItWorks onStart={() => stageAnchor('business')} onAskPenny={askPenny} onCompare={openQuickCompare} />
+          </>}
 
           <div className="metrics-row" hidden={quickCompare}>
             <div><strong>{allTools.length}</strong><span>tools in the catalog</span></div>
             <div><strong>{categories.length}</strong><span>categories of everyday work</span></div>
             <div><strong>{trades.length}</strong><span>business types in the catalog</span></div>
           </div>
+
+          <div className="finder-intro" hidden={quickCompare}><p>STEP BY STEP</p><h2>Let's find your fit.</h2><span>A few details. Relevant options. A more informed decision.</span></div>
 
           <section className="section-block" id="business" hidden={quickCompare}>
             <div className="section-heading"><div><div className="section-kicker">STEP 01 <span /> GET ORIENTED</div><h2>Tell us about your business</h2><p>A little context helps us find relevant options. Every field is optional.</p></div><div className="section-counter">01 / 04</div></div>
@@ -411,14 +460,15 @@ function Marketplace({ auth }) {
                 <input type="text" list="trade-list" value={businessType} onChange={(event) => setBusinessType(event.target.value)} placeholder="e.g. Bakery, Plumbing, Dog grooming" maxLength={100} />
                 <datalist id="trade-list">{trades.map((t) => <option key={t.id} value={t.name} />)}</datalist>
               </label>
-              <label className="field budget-field"><span>Added monthly budget <small>optional, USD</small></span><input type="number" min="0" step="0.01" value={budget} onChange={(event) => { const value = event.target.value; if (value === '' || (Number.isFinite(Number(value)) && Number(value) >= 0)) setBudget(value) }} placeholder="e.g. 100" /><small>What you can add to your current bill each month. Leave blank for no budget preference.</small></label>
+              <label className="field budget-field"><span>How much more could you spend each month? <small>optional, in dollars</small></span><input type="number" min="0" step="0.01" value={budget} onChange={(event) => { const value = event.target.value; if (value === '' || (Number.isFinite(Number(value)) && Number(value) >= 0)) setBudget(value) }} placeholder="e.g. 100" /><small>On top of what you already pay. Leave it blank if you're not sure.</small></label>
               <div className="field owned-field">
                 <span>Tools you already pay for <small>optional</small></span>
                 <div className="chip-list">
-                  {allTools.map((t) => (
+                  {(showAllOwned ? allTools : allTools.filter((t, index) => index < OWNED_PREVIEW || owned.includes(t.id))).map((t) => (
                     <button key={t.id} type="button" className={`chip ${owned.includes(t.id) ? 'chip-on' : ''}`} aria-pressed={owned.includes(t.id)} onClick={() => toggleOwned(t.id)}>{owned.includes(t.id) && <CheckIcon />}{t.name}</button>
                   ))}
                 </div>
+                {allTools.length > OWNED_PREVIEW && <button type="button" className="chip-more" aria-expanded={showAllOwned} onClick={() => setShowAllOwned((value) => !value)}>{showAllOwned ? 'Show fewer tools' : `Show all ${allTools.length} tools`}</button>}
               </div>
               {owned.some((id) => !isSingleOffering(toolsById[id])) && <div className="owned-plans">
                 <div className="owned-plans-heading"><strong>Which plans do you use?</strong><p>Choose a plan so we can check what you already pay for. It is fine if you do not know.</p></div>
@@ -433,19 +483,55 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block" id="challenge" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 02 <span /> NAME THE PROBLEM</div><h2>What would you like help with?</h2><p>Browse by category, then pick a task.</p></div><div className="section-counter">02 / 04</div></div>
-            <div className="category-tabs" role="tablist" aria-label="Categories">
+            <div className="section-heading"><div><div className="section-kicker">STEP 02 <span /> NAME THE PROBLEM</div><h2>What's slowing you down?</h2><p>{tradeId ? `We've put the most common problems for a ${tradeLabel.toLowerCase()} first. ` : ''}Pick one, or up to {MAX_PROBLEMS} at once.</p></div><div className="section-counter">02 / 04</div></div>
+            <div className="category-tabs" role="tablist" aria-label="Filter by type of work">
               <button type="button" role="tab" aria-selected={category === ''} className={`tab ${category === '' ? 'tab-on' : ''}`} onClick={() => chooseCategory('')}>All</button>
               {categories.map((c) => (
                 <button key={c.id} type="button" role="tab" aria-selected={category === c.id} className={`tab ${category === c.id ? 'tab-on' : ''}`} onClick={() => chooseCategory(c.id)}>{c.name}</button>
               ))}
             </div>
-            <div className="problem-grid">
-              {problems.map((problem) => (
-                <button className={`problem-card ${selectedProblem === problem.id ? 'selected' : ''}`} type="button" key={problem.id} onClick={() => chooseProblem(problem.id)}>
-                  <span className="problem-icon">{categoryIcons[categories.find((item) => item.capabilities.includes(problem.capability))?.id] || '✦'}</span><span className="problem-title">{problem.title}</span><span className="problem-description">{problem.plain_words}</span><span className="problem-arrow"><ArrowIcon size={16} /></span>
+            {(() => {
+              const card = (problem) => {
+                const picked = selectedProblems.includes(problem.id)
+                return (
+                  <button className={`problem-card ${picked ? 'selected' : ''}`} type="button" key={problem.id} aria-pressed={picked} onClick={() => toggleProblem(problem.id)}>
+                    <span className="problem-icon">{categoryIcons[categories.find((item) => item.capabilities.includes(problem.capability))?.id] || '✦'}</span>
+                    <span className="problem-title">{problem.title}</span>
+                    <span className="problem-description">{problem.plain_words}</span>
+                    <span className={`problem-pick${picked ? ' is-picked' : ''}`} aria-hidden="true">{picked ? <><CheckIcon /> Selected</> : '+ Select'}</span>
+                  </button>
+                )
+              }
+              const forBusiness = tradeId ? problems.filter((problem) => problem.trades?.includes(tradeId)) : []
+              const everyone = tradeId ? problems.filter((problem) => !forBusiness.includes(problem) && problem.trades?.includes('all')) : []
+              const others = tradeId ? problems.filter((problem) => !forBusiness.includes(problem) && !everyone.includes(problem)) : problems
+              if (!tradeId) return <div className="problem-grid">{problems.map(card)}</div>
+              return (
+                <>
+                  {forBusiness.length > 0 && <><h3 className="problem-group">Most common for a {tradeLabel.toLowerCase()}</h3><div className="problem-grid">{forBusiness.map(card)}</div></>}
+                  {everyone.length > 0 && <><h3 className="problem-group">Common for every business</h3><div className="problem-grid">{everyone.map(card)}</div></>}
+                  {others.length > 0 && <>
+                    <button type="button" className="problem-more" aria-expanded={showOtherProblems} onClick={() => setShowOtherProblems((value) => !value)}>
+                      {showOtherProblems ? 'Hide other problems' : `Show ${others.length} other ${others.length === 1 ? 'problem' : 'problems'}`}
+                    </button>
+                    {showOtherProblems && <div className="problem-grid">{others.map(card)}</div>}
+                  </>}
+                </>
+              )
+            })()}
+            <div className={`problem-selection${selectedProblems.length ? ' has-picks' : ''}`} role="region" aria-label="Your selected problems">
+              <p aria-live="polite">
+                {selectedProblems.length
+                  ? <><strong>{selectedProblems.length} of {MAX_PROBLEMS} selected:</strong> {selectedProblems.map((id) => allProblems.find((problem) => problem.id === id)?.title).filter(Boolean).join(' · ')}</>
+                  : 'Nothing selected yet. Tap a problem above.'}
+              </p>
+              {problemNotice && <p className="problem-notice" role="alert">{problemNotice}</p>}
+              <div className="problem-selection-actions">
+                {selectedProblems.length > 0 && <button type="button" className="problem-clear" onClick={() => { setSelectedProblems([]); setProblemNotice('') }}>Clear</button>}
+                <button type="button" className="problem-go" disabled={!selectedProblems.length} onClick={() => stageAnchor('explore')}>
+                  {selectedProblems.length > 1 ? `See tools for these ${selectedProblems.length}` : 'See tools for this'} <ArrowIcon size={16} />
                 </button>
-              ))}
+              </div>
             </div>
             <div className="custom-task">
               <div><span className="custom-task-icon">✳</span><div><strong>Something different?</strong><small>Describe the task you want to improve.</small></div></div>
@@ -470,37 +556,50 @@ function Marketplace({ auth }) {
 
             {!showDirectory && !activeProblem && <div className="empty-state"><span>◇</span><strong>Choose a task first</strong><p>That lets us rank tools for the job you actually need done.</p><button type="button" onClick={() => stageAnchor('challenge')}>See the tasks <ArrowIcon size={16} /></button></div>}
 
-            {!showDirectory && activeProblem && isRecommending && <div className="loading-state" role="status"><span className="loading-dot" />Finding options for your business...</div>}
+            {!showDirectory && !multiProblem && activeProblem && isRecommending && <div className="loading-state" role="status"><span className="loading-dot" />Finding options for your business...</div>}
 
-            {!showDirectory && activeProblem && recommendError && <div className="error-banner" role="alert"><strong>We couldn't get an answer.</strong> {recommendError}</div>}
+            {!showDirectory && !multiProblem && activeProblem && recommendError && <div className="error-banner" role="alert"><strong>We couldn't get an answer.</strong> {recommendError}</div>}
 
-            {!showDirectory && activeProblem && !recommendError && recommendation && <>
-              <div className={`answer-banner answer-${outcomeTones[recommendation.outcome]}`}>
-                <strong>{recommendation.message}</strong>
-                {recommendation.tailoring_note && <p>{recommendation.tailoring_note}</p>}
-                {recommendation.budget_note && <p className="budget-explanation">{recommendation.budget_note}</p>}
-              </div>
-              {recommendation.options.length > 0 && <div className="tool-grid">{recommendation.options.map((option) => (
-                <OptionCard key={option.tool_id} option={option} tool={toolsById[option.tool_id]} {...compareProps(option.tool_id)} />
-              ))}</div>}
-              {recommendation.check_first.length > 0 && <>
-                <h3 className="subhead">Check with the vendor first</h3>
-                <p className="subhead-note">These cover the task, but we haven't confirmed they suit your kind of business. They are never picked as the answer.</p>
-                <div className="tool-grid">{recommendation.check_first.map((option) => (
-                  <OptionCard key={option.tool_id} option={option} tool={toolsById[option.tool_id]} {...compareProps(option.tool_id)} uncertain />
-                ))}</div>
-              </>}
-              {recommendation.set_aside.length > 0 && <details className="set-aside">
-                <summary>{plural(recommendation.set_aside.length, 'tool')} set aside because they are built for other businesses</summary>
-                <ul>{recommendation.set_aside.map((item) => <li key={item.tool_id}><strong>{item.tool_name}</strong> <span className={`tool-status ${item.status === 'verified' ? 'verified' : 'pending'}`}>{item.status === 'verified' ? 'Source checked' : 'Pending review'}</span> · {item.reason}</li>)}</ul>
-              </details>}
-            </>}
+            {!showDirectory && multiProblem && (
+              <MultiPlan
+                problemIds={selectedProblems}
+                problems={allProblems}
+                profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }}
+                toolsById={toolsById}
+                business={tradeLabel}
+                budgetProvided={budget !== ''}
+                categories={categories}
+                compareProps={compareProps}
+                onChooseProblem={(id) => { setCategory(''); chooseProblem(id) }}
+                onAskPenny={askPenny}
+                onCompareThese={compareThese}
+              />
+            )}
+
+            {!showDirectory && !multiProblem && activeProblem && !recommendError && recommendation && (
+              <OptionsResults
+                recommendation={recommendation}
+                toolsById={toolsById}
+                activeProblem={activeProblem}
+                business={tradeLabel}
+                budgetProvided={budget !== ''}
+                profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }}
+                problems={allProblems}
+                categories={categories}
+                compareProps={compareProps}
+                onChooseProblem={(id) => { setCategory(''); chooseProblem(id) }}
+                onAskPenny={askPenny}
+                onCompareThese={compareThese}
+              />
+            )}
           </section>
 
           <section className="section-block compare-section" id="compare">
             <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We leave unknown facts visible.'}</p></div><div className="section-counter">04 / 04</div></div>
             <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
           </section>
+
+          {!quickCompare && <ProductShowcase part="story" scene={scene} tools={allTools} paused={motionPaused} />}
 
           <section className="next-panel" hidden={quickCompare}><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Confirm task assignments and save a private adoption plan for your next steps.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>
           <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>

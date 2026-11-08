@@ -1,0 +1,93 @@
+/*
+  Readability and accessibility layer for owners who aren't technical.
+  Loaded last, so it sets minimum text sizes, bigger tap targets and clear focus
+  without changing Giri's layout or animations.
+*/
+
+/* Skip link: the first thing a keyboard reaches, hidden until focused */
+.skip-link { position: fixed; top: 12px; left: 12px; z-index: 2000; padding: 12px 18px; border-radius: 12px; background: var(--accent, #d8c8ff); color: var(--accent-ink, #211731); font-size: 16px; font-weight: 700; transform: translateY(-150%); transition: transform .2s ease; }
+.skip-link:focus, .skip-link:focus-visible { transform: none; outline: 3px solid #fff; outline-offset: 2px; }
+
+/* Clear, consistent focus everywhere */
+.site-shell a:focus-visible, .site-shell button:focus-visible, .site-shell input:focus-visible, .site-shell select:focus-visible, .site-shell summary:focus-visible { outline: 3px solid var(--accent, #d8c8ff); outline-offset: 3px; }
+
+/* Small caps labels: never below 12px */
+.site-shell .day-label, .site-shell .product-topline span, .site-shell .product-category, .site-shell .photo-credit,
+.site-shell .business-jump label, .site-shell .pagination-index, .site-shell .bridge-copy > p, .site-shell .story-intro > p,
+.site-shell .product-review-label, .site-shell .product-card-bottom span, .site-shell .story-caption, .site-shell .business-kicker,
+.site-shell .business-jump span, .site-shell .carousel-count, .site-shell .finder-intro > p, .site-shell .section-kicker,
+.site-shell .section-counter, .site-shell .sidebar-label { font-size: 12px; }
+
+/* Everyday text: at least 14px, most at 15-16px */
+.site-shell .topbar-route, .site-shell .motion-toggle, .site-shell .business-pagination span, .site-shell .metrics-row span,
+.site-shell .field small, .site-shell .bridge-caption span, .site-shell footer span, .site-shell .nav-quick-compare,
+.site-shell .owner-account-trigger, .site-shell .business-explore, .site-shell .chip, .site-shell .tab,
+.site-shell .explore-toolbar button, .site-shell .empty-state button, .site-shell .bridge-skip, .site-shell .custom-task small { font-size: 14px; }
+.site-shell .field > span, .site-shell .form-note p, .site-shell .problem-description, .site-shell .comparison-task-picker p,
+.site-shell .empty-state p, .site-shell .comparison-empty p, .site-shell .next-panel p, .site-shell .product-tagline,
+.site-shell .custom-task button, .site-shell .next-panel button { font-size: 15px; }
+.site-shell .field small small, .site-shell .field span small { font-size: 13px; }
+.site-shell .business-start { font-size: 16px; }
+.site-shell .business-story { font-size: 17px; line-height: 1.6; }
+.site-shell .problem-title { font-size: 17px; }
+.site-shell .section-heading p { font-size: 16px; line-height: 1.6; }
+.site-shell .field input, .site-shell .field select, .site-shell .custom-task input { font-size: 16px; }
+
+/* Tap targets: at least 44px tall */
+.site-shell .chip, .site-shell .tab, .site-shell .explore-toolbar button, .site-shell .empty-state button,
+.site-shell .motion-toggle, .site-shell .nav-quick-compare, .site-shell .owner-account-trigger, .site-shell .business-explore,
+.site-shell .custom-task button, .site-shell .next-panel button, .site-shell .carousel-controls button, .site-shell .bridge-skip { min-height: 44px; }
+.site-shell .photo-credit { display: inline-flex; align-items: center; min-height: 32px; padding: 0 8px; }
+.site-shell .carousel-controls button { min-width: 44px; }
+
+/* Hero: "What's slowing you down?" problems are real, roomy buttons */
+.site-shell .business-day .day-label { color: var(--text, #f4f1fa); letter-spacing: .04em; }
+.site-shell .business-day button.day-challenge { min-height: 44px; padding: 10px 16px; font-size: 15px; cursor: pointer; border: 1px solid #ffffff40; transition: background .2s ease, transform .2s ease; }
+.site-shell .business-day button.day-challenge:hover { background: #ffffff1f; transform: translateX(-3px); }
+.site-shell .business-ask-penny { display: inline-flex; align-items: center; gap: 10px; min-height: 52px; margin-left: 10px; padding: 0 22px; border: 1px solid #ffffff70; border-radius: 30px; background: #00000059; color: #fff; font-size: 16px; font-weight: 600; backdrop-filter: blur(6px); transition: background .2s ease, transform .2s ease; }
+.site-shell .business-ask-penny:hover { background: #ffffff26; transform: translateY(-2px); }
+
+/* Owned tools: show the common ones first */
+.site-shell .chip-more { margin-top: 10px; min-height: 44px; padding: 0 16px; border: 1px dashed var(--accent, #d8c8ff); border-radius: 22px; background: transparent; color: var(--accent, #d8c8ff); font-size: 14px; font-weight: 600; }
+.site-shell .chip-more:hover { background: #ffffff10; }
+
+/* How it works: the core features, right after the hero */
+.how-it-works { position: relative; z-index: 1; margin: 56px auto 40px; padding: 40px clamp(20px, 4vw, 48px); max-width: 1100px; border: 1px solid #3a3146; border-radius: 28px; background: #14111bcc; }
+.how-kicker { margin: 0 0 10px; color: var(--accent, #d8c8ff); font-size: 12px; font-weight: 600; letter-spacing: .14em; }
+.how-it-works h2 { margin: 0 0 10px; color: var(--text, #f4f1fa); font-size: clamp(28px, 4vw, 40px); font-weight: 550; letter-spacing: -.03em; line-height: 1.15; }
+.how-lead { margin: 0 0 28px; color: #cfc6dc; font-size: 17px; line-height: 1.6; }
+.how-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0 0 28px; padding: 0; list-style: none; }
+@media (min-width: 1180px) { .how-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .how-steps { grid-template-columns: 1fr; } }
+.how-step { padding: 22px; border: 1px solid #3a3146; border-radius: 20px; background: #1c1725; opacity: 0; transform: translateY(18px); transition: opacity .5s ease var(--step-delay, 0ms), transform .5s ease var(--step-delay, 0ms), border-color .2s ease; }
+.how-it-works.is-visible .how-step { opacity: 1; transform: none; }
+.how-step:hover { border-color: #6e547f; }
+.how-number { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 14px; border-radius: 50%; background: var(--accent, #d8c8ff); color: var(--accent-ink, #211731); font-size: 18px; font-weight: 700; }
+.how-step h3 { margin: 0 0 8px; color: var(--text, #f4f1fa); font-size: 18px; font-weight: 600; line-height: 1.3; }
+.how-step p { margin: 0; color: #cfc6dc; font-size: 15px; line-height: 1.6; }
+.how-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.how-primary { display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 24px; border: 0; border-radius: 28px; background: var(--accent, #d8c8ff); color: var(--accent-ink, #211731); font-size: 16px; font-weight: 700; transition: transform .2s ease, background .2s ease; }
+.how-primary:hover { background: #eee3ff; transform: translateY(-2px); }
+.how-secondary { min-height: 52px; padding: 0 22px; border: 1px solid var(--accent, #d8c8ff); border-radius: 28px; background: transparent; color: var(--accent, #d8c8ff); font-size: 16px; font-weight: 600; transition: background .2s ease; }
+.how-secondary:hover { background: #ffffff10; }
+.how-link { min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: #e4dcef; font-size: 15px; text-decoration: underline; text-underline-offset: 4px; }
+
+@media (max-width: 640px) {
+  .how-it-works { margin: 32px 0; padding: 28px 18px; border-radius: 20px; }
+  .site-shell .business-ask-penny { margin: 10px 0 0; }
+  .site-shell .owner-account-trigger { min-width: 0; padding: 0 12px; }
+}
+
+/* Motion stays gentle, and stops completely for owners who ask for less motion */
+@media (prefers-reduced-motion: reduce) {
+  .skip-link, .how-step, .site-shell .business-day button.day-challenge, .site-shell .business-ask-penny, .how-primary { transition: none; }
+  .how-step { opacity: 1; transform: none; }
+}
+.motion-paused .how-step { transition: none; opacity: 1; transform: none; }
+
+/* Small phones: the header holds the logo and Account; Compare is offered in the hero and How it works */
+@media (max-width: 480px) {
+  .street-header .nav-quick-compare { display: none; }
+  .site-shell .owner-account-trigger { min-height: 44px; padding: 0 14px; }
+}
+.product-sticky, .showcase-bridge { overflow-x: clip; }

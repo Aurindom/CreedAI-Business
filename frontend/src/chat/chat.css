@@ -230,3 +230,47 @@
 .msc-root .msc-memory summary small { color: var(--muted, #b5afc2); }
 .msc-root .msc-cost { color: var(--text, #f4f1fa); }
 .msc-root .msc-move { color: var(--muted, #b5afc2); }
+
+/* Readable, easy-to-tap Penny for owners on phones or with reading glasses */
+.msc-root .msc-row p, .msc-root .msc-clarify-question p { font-size: 15px; line-height: 1.6; }
+.msc-root .msc-row-user p { font-size: 15px; }
+.msc-root .msc-choices button, .msc-root .msc-starters button { min-height: 44px; font-size: 14px; }
+.msc-root .msc-quick button, .msc-root .msc-chips button { min-height: 44px; font-size: 14px; }
+.msc-root .msc-text-button, .msc-root .msc-close, .msc-root .msc-move { min-width: 44px; min-height: 44px; }
+.msc-root .msc-note, .msc-root .msc-route, .msc-root .msc-facts, .msc-root .msc-steps { font-size: 14px; }
+.msc-root .msc-progress { font-size: 12px; }
+.msc-root .msc-memory, .msc-root .msc-memory summary { font-size: 13px; }
+.msc-root .msc-memory-list li { font-size: 13px; }
+.msc-root .msc-welcome > p:not(.penny-welcome-kicker) { font-size: 15px; line-height: 1.6; }
+.msc-root .msc-welcome .penny-welcome-kicker { font-size: 11px; }
+.msc-root .penny-panel-eyebrow { font-size: 11px; }
+.msc-root .penny-composer-note { font-size: 12px; }
+.msc-root .penny-boundaries summary { min-height: 44px; display: flex; align-items: center; font-size: 13px; }
+.msc-root .penny-boundaries p { font-size: 14px; line-height: 1.6; }
+.msc-root .msc-form textarea { font-size: 16px; }
+.msc-root .msc-typing small { font-size: 13px; }
+
+/* Small round launcher after the first visit, so Penny doesn't cover the page */
+.msc-bubble.msc-bubble-compact { right: 20px; bottom: 20px; }
+.msc-bubble .penny-compact-launcher { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 6px 16px 6px 6px; border: 2px solid var(--accent, #d8c8ff); border-radius: 32px; background: #21182d; color: var(--text, #f4f1fa); font-size: 15px; font-weight: 600; box-shadow: 0 10px 28px #0007; cursor: grab; touch-action: none; }
+.msc-bubble .penny-compact-launcher:hover { background: #2c2139; }
+.msc-bubble .penny-compact-launcher:active { cursor: grabbing; }
+.msc-bubble .penny-compact-launcher .msc-avatar { border-radius: 50%; }
+.msc-bubble .penny-hide { position: absolute; top: -10px; right: -10px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid #6e547f; border-radius: 50%; background: #14111b; color: var(--text, #f4f1fa); font-size: 18px; line-height: 1; opacity: 0; transition: opacity .15s ease; }
+.msc-bubble:hover .penny-hide, .msc-bubble:focus-within .penny-hide { opacity: 1; }
+.penny-show-tab { position: fixed; right: 0; bottom: 96px; z-index: 1000; display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 6px 12px 6px 8px; border: 1px solid #6e547f; border-right: 0; border-radius: 24px 0 0 24px; background: #21182d; color: var(--text, #f4f1fa); font-size: 14px; font-weight: 600; box-shadow: 0 8px 22px #0006; }
+.penny-show-tab:hover { background: #2c2139; }
+@media (hover: none) { .msc-bubble .penny-hide { opacity: 1; } }
+@media (max-width: 640px) {
+  .msc-bubble.msc-bubble-compact { right: 12px; bottom: 12px; }
+  .msc-bubble .penny-compact-label { display: none; }
+  .msc-bubble .penny-compact-launcher { padding: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .msc-bubble .penny-hide { transition: none; } }
+.msc-root .msc-mic { width: 44px; height: 44px; }
+.msc-root .msc-text-button, .msc-root .msc-close, .msc-root .msc-move { height: auto; }
+.msc-bubble.msc-bubble-compact { bottom: 84px; }
+@media (max-width: 640px) {
+  .msc-bubble.msc-bubble-compact { bottom: 16px; right: 16px; }
+  .msc-bubble .penny-hide { top: -12px; right: 0; }
+}

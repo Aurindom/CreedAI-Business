@@ -52,7 +52,7 @@ export default function AccountControls({ auth }) {
 
   return <div className="owner-account">
     {auth.error && <p role="status">{auth.error}</p>}
-    <button type="button" className="owner-account-trigger" onClick={() => setOpen((current) => !current)} disabled={!auth.client || !auth.ready} aria-expanded={open} aria-label={auth.user ? 'Your account' : auth.configured ? 'Sign in' : 'Account setup pending'} title={!auth.configured ? 'Account setup pending' : undefined}>{auth.user ? 'Account' : auth.configured && (!auth.ready || auth.client) ? 'Sign in' : 'Account'}</button>
+    <button type="button" className="owner-account-trigger" onClick={() => setOpen((current) => !current)} disabled={!auth.client || !auth.ready} aria-expanded={open} aria-label={auth.user ? 'Your account' : auth.configured ? 'Sign in' : 'Accounts are coming soon'} title={!auth.configured ? 'Accounts are coming soon' : undefined}>{auth.user ? 'Account' : auth.configured && (!auth.ready || auth.client) ? 'Sign in' : 'Account'}</button>
     {open && <div className="owner-account-popover">
       {auth.user ? <>
         <div className="owner-account-label">YOUR ACCOUNT</div>

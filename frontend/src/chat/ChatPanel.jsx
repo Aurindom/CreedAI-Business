@@ -496,6 +496,11 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
 
   function forget({ field, id }) {
     setMemory((current) => {
+      if (id && field === 'owned') {
+        const plans = { ...(current.plans || {}) }
+        delete plans[id]
+        return { ...current, owned: current.owned.filter((item) => item !== id), plans }
+      }
       if (id) return { ...current, [field]: current[field].filter((item) => item !== id) }
       return { ...current, [field]: null }
     })
@@ -538,7 +543,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
           </div>
         </header>
 
-        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence and flags unknowns.</p></details>
+        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence, which means facts we have checked, and tells you when something is unknown.</p></details>
         {live === false && !adapter.demo && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
 
@@ -636,7 +641,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
               rows={1}
               value={input}
               maxLength={MAX_LENGTH}
-              placeholder="Ask about a tool or business task..."
+              placeholder="Type what is slowing you down..."
               aria-label="Tell Penny what's going on"
               onChange={(event) => {
                 setInput(event.target.value)
@@ -662,7 +667,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
             />
             <button type="submit" className="msc-send" disabled={busy}>{busy ? 'Working' : 'Send'}</button>
           </div>
-          <p className="penny-composer-note">Catalog-backed guidance. Verify details before subscribing.</p>
+          <p className="penny-composer-note">Penny uses checked facts. Confirm prices with the company before you pay.</p>
         </form>
       </section>
       <ChatSummary data={printData} serviceUrls={names.urls} onClose={() => setPrintData(null)} onPrint={() => printSummary(printData)} />
@@ -670,9 +675,34 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
   )
 }
 
+const LAUNCHER_KEY = 'main-street-penny-launcher-v1'
+const FIGURE_SCROLL_LIMIT = 240
+
+function savedLauncher() {
+  try {
+    const mode = window.sessionStorage.getItem(LAUNCHER_KEY)
+    return mode === 'compact' || mode === 'hidden' ? mode : 'figure'
+  } catch {
+    return 'figure'
+  }
+}
+
+function useNearTop() {
+  const [nearTop, setNearTop] = useState(() => typeof window === 'undefined' || window.scrollY < FIGURE_SCROLL_LIMIT)
+  useEffect(() => {
+    const update = () => setNearTop(window.scrollY < FIGURE_SCROLL_LIMIT)
+    window.addEventListener('scroll', update, { passive: true })
+    return () => window.removeEventListener('scroll', update)
+  }, [])
+  return nearTop
+}
+
 function ChatPanelInner({ profile, auth }) {
   const [open, setOpen] = useState(false)
   const [activity, setActivity] = useState('idle')
+  const [launcherMode, setLauncherMode] = useState(savedLauncher)
+  const nearTop = useNearTop()
+  const showFigure = launcherMode === 'figure' && nearTop && !open
   const phone = useIsPhone()
   const bubble = useDraggable({ storageKey: 'main-street-penny-bubble-v1' })
   const chatWindow = useDraggable({ storageKey: 'main-street-penny-window-v1', enabled: !phone })
@@ -681,16 +711,47 @@ function ChatPanelInner({ profile, auth }) {
   const anchor = useRef(null)
   const close = useMemo(() => () => setOpen(false), [])
 
+  const returnFocus = useRef(false)
+
   useEffect(() => {
-    if (wasOpen.current && !open) launcher.current?.focus()
+    if (wasOpen.current && !open) {
+      // After a first chat Penny stays small, so she doesn't cover the page.
+      if (launcherMode === 'figure') changeLauncher('compact')
+      returnFocus.current = true
+    }
     wasOpen.current = open
   }, [open])
+
+  // Runs after the launcher has re-rendered, so focus lands on the button that is actually on screen.
+  useEffect(() => {
+    if (!returnFocus.current || open || !launcher.current) return
+    returnFocus.current = false
+    launcher.current.focus()
+  })
+
+  function changeLauncher(mode) {
+    setLauncherMode(mode)
+    try {
+      window.sessionStorage.setItem(LAUNCHER_KEY, mode)
+    } catch {
+      // Only remembered for convenience.
+    }
+  }
 
   useEffect(() => {
     if (!open || chatWindow.position || !bubble.position || !anchor.current) return undefined
     const frame = requestAnimationFrame(() => chatWindow.placeNear(anchor.current))
     return () => cancelAnimationFrame(frame)
   }, [open, chatWindow, bubble.position])
+
+  useEffect(() => {
+    function openFromPage() {
+      anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+      setOpen(true)
+    }
+    window.addEventListener('penny:open', openFromPage)
+    return () => window.removeEventListener('penny:open', openFromPage)
+  }, [bubble.ref])
 
   function openChat() {
     if (bubble.wasDragged()) return
@@ -700,13 +761,27 @@ function ChatPanelInner({ profile, auth }) {
 
   return (
     <div className="msc-root">
-      {!open && (
-        <div className="msc-bubble" ref={bubble.ref} style={bubble.style} {...bubble.handleProps}>
-        <button type="button" className={`msc-launcher penny-character-launcher penny-is-${activity}`} data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Penny. Drag to move, or use arrow keys." title="Talk to Penny. Drag to move." aria-expanded={open} aria-controls="penny-chat-panel">
-          <span className="penny-speech"><strong>Hi, I'm Penny.</strong><span>{activity === 'thinking' ? 'Checking the catalog...' : activity === 'speaking' ? 'Your answer is coming in' : 'Your business. A little backup.'}</span></span>
-          <span className="penny-character-stage"><span className="penny-stage-glow" aria-hidden="true" /><PennyAvatar size={130} variant="figure" state={activity} /></span>
-          <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Penny <span aria-hidden="true">&#8599;</span></span>
+      {!open && launcherMode === 'hidden' && (
+        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('compact')} aria-label="Show Penny, your AI guide">
+          <PennyAvatar size={28} />
+          <span>Penny</span>
         </button>
+      )}
+      {!open && launcherMode !== 'hidden' && (
+        <div className={`msc-bubble${showFigure ? '' : ' msc-bubble-compact'}`} ref={bubble.ref} style={bubble.style} {...bubble.handleProps}>
+          {showFigure ? (
+            <button type="button" className={`msc-launcher penny-character-launcher penny-is-${activity}`} data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Penny. Drag to move, or use arrow keys." title="Talk to Penny. Drag to move." aria-expanded={open} aria-controls="penny-chat-panel">
+              <span className="penny-speech"><strong>Hi, I'm Penny.</strong><span>{activity === 'thinking' ? 'Checking the catalog...' : activity === 'speaking' ? 'Your answer is coming in' : 'Ask me what is slowing you down.'}</span></span>
+              <span className="penny-character-stage"><span className="penny-stage-glow" aria-hidden="true" /><PennyAvatar size={130} variant="figure" state={activity} /></span>
+              <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Penny <span aria-hidden="true">&#8599;</span></span>
+            </button>
+          ) : (
+            <button type="button" className="penny-compact-launcher" data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Penny, your AI guide. Drag to move, or use arrow keys." title="Talk to Penny" aria-expanded={open} aria-controls="penny-chat-panel">
+              <PennyAvatar size={48} state={activity} />
+              <span className="penny-compact-label">Ask Penny</span>
+            </button>
+          )}
+          <button type="button" className="penny-hide" onClick={() => changeLauncher('hidden')} aria-label="Hide Penny" title="Hide Penny">×</button>
         </div>
       )}
       <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} drag={chatWindow} phone={phone} />

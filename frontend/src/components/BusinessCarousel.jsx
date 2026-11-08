@@ -23,9 +23,24 @@ const businesses = [
 
 ]
 
-export default function BusinessCarousel({ paused = false, onChooseBusiness, onCompare, onSceneChange }) {
+// Hero challenge labels map to catalog problem cards, so a tap goes straight to matching tools.
+const CHALLENGE_PROBLEMS = {
+  'Staff scheduling': 'staff_scheduling',
+  Bookkeeping: 'bookkeeping',
+  'Customer reviews': 'review_requests',
+  'Review replies': 'review_replies',
+  'Missed calls': 'missed_calls',
+  Appointments: 'appointment_booking',
+  'Customer follow-up': 'slow_lead_replies',
+  'Email marketing': 'email_marketing',
+  Invoicing: 'invoicing',
+  'Job scheduling': 'job_scheduling',
+}
+
+export default function BusinessCarousel({ paused = false, onChooseBusiness, onChooseProblem, onAskPenny, onCompare, onSceneChange }) {
   const [active, setActive] = useState(0)
-  const [playing, setPlaying] = useState(true)
+  // The slideshow waits for the owner. Changing slides on its own makes the page hard to read.
+  const [playing, setPlaying] = useState(false)
   const [engaged, setEngaged] = useState(false)
   const [reduced, setReduced] = useState(false)
   const root = useRef(null)
@@ -92,18 +107,20 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness, onC
             <h1>{business.title}<br /><em>{business.accent}</em></h1>
             <p className="business-story">{business.copy}</p>
             <button className="business-start" type="button" onClick={() => onChooseBusiness(business.type)}>Find tools for my business <span aria-hidden="true">&#8599;</span></button>
-            <button className="business-explore business-compare-shortcut" type="button" onClick={onCompare}>Already subscribed? Compare tools <span aria-hidden="true">&#8599;</span></button>
+            <button className="business-ask-penny" type="button" onClick={onAskPenny}>Ask Penny <span aria-hidden="true">&#8599;</span></button>
+            <button className="business-explore business-compare-shortcut" type="button" onClick={onCompare}>Already pay for a tool? Compare it <span aria-hidden="true">&#8599;</span></button>
           </div>
-          <div className="business-day"><span className="day-label">SOUND FAMILIAR?</span>{business.challenges.map((challenge) => <span className="day-challenge" key={challenge}><span aria-hidden="true">&#10022;</span>{challenge}</span>)}</div>
+          <div className="business-day" role="group" aria-label={`Common problems for a ${business.type.toLowerCase()}`}><span className="day-label">What's slowing you down?</span>{business.challenges.map((challenge) => CHALLENGE_PROBLEMS[challenge]
+            ? <button type="button" className="day-challenge" key={challenge} onClick={() => onChooseProblem?.(business.type, CHALLENGE_PROBLEMS[challenge])}><span aria-hidden="true">&#10022;</span>{challenge}</button>
+            : <span className="day-challenge" key={challenge}><span aria-hidden="true">&#10022;</span>{challenge}</span>)}</div>
           <a className="photo-credit" href={business.source} target="_blank" rel="noopener noreferrer">Photo / Unsplash</a>
         </article>
       ))}
       <div className="business-jump"><label htmlFor="business-story-select">Your kind of business</label><select id="business-story-select" value={active} onChange={(event) => navigate(Number(event.target.value))}>{businesses.map((business, index) => <option value={index} key={business.type}>{business.type}</option>)}</select><span>{businesses.length} businesses. Find your story.</span></div>
       <div className="carousel-bottom">
-        <div className="business-pagination" ref={pagination} aria-label="Choose a business story">{businesses.map((business, index) => <button type="button" key={business.type} className={active === index ? 'is-active' : ''} aria-label={`Show ${business.type} story`} aria-current={active === index ? 'true' : undefined} onClick={() => navigate(index)}><span className="pagination-index">{String(index + 1).padStart(2, '0')}</span><span>{business.type}</span><i aria-hidden="true" /></button>)}</div>
-        <div className="carousel-controls"><span className="carousel-count" aria-live={autoPlaying ? 'off' : 'polite'}>{String(active + 1).padStart(2, '0')} / {businesses.length}</span><button type="button" aria-label="Previous business story" onClick={() => navigate(active - 1)}>&#8592;</button><button type="button" aria-label="Next business story" onClick={() => navigate(active + 1)}>&#8594;</button>{!paused && !reduced && <button type="button" aria-label={playing ? 'Pause carousel' : 'Play carousel'} aria-pressed={!playing} onClick={() => setPlaying((value) => !value)}>{playing ? <span aria-hidden="true">&#10074;&#10074;</span> : <span aria-hidden="true">&#9654;</span>}</button>}</div>
+        <div className="business-pagination" ref={pagination} aria-hidden="true">{businesses.map((business, index) => <button type="button" key={business.type} tabIndex={-1} className={active === index ? 'is-active' : ''} aria-label={`Show ${business.type} story`} aria-current={active === index ? 'true' : undefined} onClick={() => navigate(index)}><span className="pagination-index">{String(index + 1).padStart(2, '0')}</span><span>{business.type}</span><i aria-hidden="true" /></button>)}</div>
+        <div className="carousel-controls"><span className="carousel-count" aria-live={autoPlaying ? 'off' : 'polite'}>{String(active + 1).padStart(2, '0')} / {businesses.length}</span><button type="button" aria-label="Previous business story" onClick={() => navigate(active - 1)}>&#8592;</button><button type="button" aria-label="Next business story" onClick={() => navigate(active + 1)}>&#8594;</button>{!paused && !reduced && <button type="button" aria-label={playing ? 'Pause slideshow' : 'Play slideshow'} aria-pressed={!playing} onClick={() => setPlaying((value) => !value)}>{playing ? <span aria-hidden="true">&#10074;&#10074;</span> : <span aria-hidden="true">&#9654;</span>}</button>}</div>
       </div>
-      <a className="carousel-skip" href="#business">Skip to tool finder</a>
     </section>
   )
 }
