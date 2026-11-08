@@ -14,7 +14,7 @@ The browser sends a signed-in owner's Supabase access token to the backend. The 
 
 When Supabase is configured, chat history does not use browser `sessionStorage`. Existing anonymous saved plans use a separate private-session token; they are **not** linked to new accounts by this change. Account migration for plans needs a separate ownership flow.
 
-The local Redis container is available through `backend/compose.redis.yml`. The frontend preview still needs a Supabase project URL and publishable key before owner login and five-minute history can be exercised end to end. Unit tests use a fake expiring cache and mocked Auth responses; they do not create an owner or store real chat in a live provider.
+The local Redis container is available through `backend/compose.redis.yml`. To exercise owner login and five-minute history end to end, configure the frontend and backend with the same Supabase project URL and publishable key, then sign in with a confirmed owner account. Unit tests use a fake expiring cache and mocked Auth responses; they do not create an owner or store real chat in a live provider.
 
 ## A2UI scope
 
