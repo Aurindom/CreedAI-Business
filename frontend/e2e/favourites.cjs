@@ -29,9 +29,9 @@ fs.writeFileSync('sandbox/favourites-qa-clock.json', JSON.stringify({ seconds: 0
     })
     async function signIn(name) {
       await page.locator('.owner-account-trigger').click()
-      await page.locator('.owner-account-form input[type=email]').fill(`${name}@example.test`)
-      await page.locator('.owner-account-form input[type=password]').fill('synthetic-password')
-      await page.locator('.owner-account-form button[type=submit]').click()
+      await page.locator('.signin-form input[type=email]').fill(`${name}@example.test`)
+      await page.locator('.signin-form input[type=password]').fill('synthetic-password')
+      await page.locator('.signin-form button[type=submit]').click()
       await page.locator('.owner-account-trigger').filter({ hasText: 'Account' }).waitFor()
       await page.locator('#favourites .favourites-empty, #favourites .tool-card').first().waitFor()
     }

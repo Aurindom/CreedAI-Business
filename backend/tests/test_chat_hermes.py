@@ -466,6 +466,41 @@ def test_hermes_semantic_routing_rebuilds_evidence_and_requires_new_reads(client
     assert any(e.get('validation') == 'validated' for e in texts(events))
 
 
+@pytest.mark.parametrize('task,excluded,name', [
+    ('review_replies', 'google_business_profile', 'Google Business Profile'),
+    ('missed_calls', 'jobber', 'Jobber'),
+])
+def test_hermes_alternatives_scope_facts_and_cards_without_rejecting_subscription(client, hermes, task, excluded, name):
+    fake = hermes(FakeHermes(lambda p: answer(p)))
+    events = frames(client.post('/api/chat', json={**BODY,
+        'message': 'Is there an alternative to that tool?',
+        'memory': {'active_task_ids': [task]},
+        'history': [{'role': 'assistant', 'text': f'I suggested {name}.'}]}))
+    assert excluded not in fake.package.winner_tool_ids
+    assert not any(claim.tool_id == excluded for claim in fake.package.claims)
+    assert 'alternatives:scope' in fake.package.required_claim_ids
+    assert any(e.get('validation') == 'validated' for e in texts(events))
+    card = next(e for e in events if e.get('surface') == 'recommendation')
+    recommendation = card['messages'][1]['updateComponents']['components'][0]['recommendation']
+    assert excluded not in [option['tool_id'] for option in recommendation['options'] + recommendation['check_first']]
+    assert 'Looking for alternatives to' in recommendation['message']
+    memories = [e['memory'] for e in events if e['type'] == 'memory']
+    assert all(excluded not in m['ruled_out'] for m in memories)
+    assert all(row[2] == 'succeeded' for row in rows())
+
+
+@pytest.mark.parametrize('message,active', [
+    ('Any alternatives for bookkeeping?', ['review_replies']),
+    ('Any alternatives?', ['review_replies', 'bookkeeping']),
+    ('I do not want alternatives', ['review_replies']),
+])
+def test_contextual_alternatives_cannot_revive_another_or_negated_task(client, message, active):
+    from app.penny_grounding import contextual_alternatives
+    body = chat.ChatRequest(**{**BODY, 'message': message, 'memory': {'active_task_ids': active},
+        'history': [{'role': 'assistant', 'text': 'Google Business Profile'}]})
+    assert contextual_alternatives(client.app.state.catalog, body) is None
+
+
 @pytest.mark.parametrize('routes', [
     [{'problem_id': 'bookkeeping', 'task_text': 'made up owner text'}],
     [{'problem_id': 'not-a-task', 'task_text': 'hello'}],

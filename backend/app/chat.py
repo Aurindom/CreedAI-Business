@@ -42,7 +42,7 @@ from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema,
 from .penny_conversation import ConversationReply, validate_conversation, reply_choices
 from .penny_grounding import (ActionContextError, action_package, filtered_context, question, request_package, qualify_package,
                               plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, is_generic_request, ambiguous_choices,
-                              recommendation_catalog, recommendation_package, alternatives_note)
+                              recommendation_catalog, recommendation_package, alternatives_note, contextual_alternatives)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -784,7 +784,7 @@ def _settle_run(gate: RunGate, extra_codes: tuple[str, ...] = ()) -> tuple[bool,
                   for r in done.actions]
 
 
-def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, force_cards=False):
+def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, force_cards=False, recommendation_arguments=None):
     """Always pair validated task answers with cards, including direct selections."""
     tasks = [card.id for card in catalog.problem_cards
              if reply.status == 'validated' and (force_cards or 'stack' not in reply.claim_ids)
@@ -792,7 +792,7 @@ def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, fo
     for task in tasks:
         if task in shown_tasks:
             continue
-        result = run_action(catalog, 'recommend_tools', {'problem_id': task}, profile, memory)
+        result = run_action(catalog, 'recommend_tools', {**(recommendation_arguments or {}), 'problem_id': task}, profile, memory)
         if result.data.get('error') or guard.leaks(json.dumps(result.events, default=str)):
             yield from reply_events(FALLBACK, 'fallback')
             return
@@ -891,6 +891,9 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     original_catalog = catalog
     catalog, current = filtered_context(catalog, _effective_profile(catalog, body.profile, memory), memory)
     package = qualify_package(catalog, request_package(catalog, current, body), body)
+    alternatives = contextual_alternatives(catalog, body)
+    if alternatives:
+        package = qualify_package(catalog, recommendation_package(catalog, current, [alternatives['problem_id']], alternatives), body)
     guard = output_guard()
     spend = ledger()
     history = [{"role": item.role, "content": item.text} for item in body.history]
@@ -903,7 +906,8 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             yield event
         return
     if runtime() == "hermes":
-        async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory):
+        async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory,
+                                     recommendation_arguments=alternatives):
             yield event
         return
     # A lexical no-match is a routing hint, not the owner's requested answer.
@@ -1261,7 +1265,7 @@ def _release_inflight() -> None:
 
 async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest, guard: LeakGuard,
                      spend: SpendLedger, catalog: Catalog, profile: BusinessProfile,
-                     memory: ChatMemory, routing_done: bool = False) -> AsyncIterator[dict[str, Any]]:
+                     memory: ChatMemory, routing_done: bool = False, recommendation_arguments=None) -> AsyncIterator[dict[str, Any]]:
     """At most two Hermes runs: one intent proposal and, if changed, one factual run.
     No blind retry. Private actions never go to Hermes. Readiness is checked and the
     reads are registered before any budget is reserved. The app can't see what the run cost, so the full
@@ -1300,6 +1304,12 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
     instructions = hermes_instructions(package, operations, run_context.build(body, profile, memory, guard), catalog, routing_done,
         list(dict.fromkeys(excerpt for source in [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')][:4]
                            for excerpt in owner_excerpts(source, catalog)))[:24])
+    if recommendation_arguments:
+        instructions = instructions.replace('\ninitial_evidence_package:',
+            '\nThe backend already resolved this alternatives follow-up to the active task and scoped '
+            'the excluded tools out of this evidence. Keep routes, trade and trade_text null. '
+            'Select the supplied alternatives:scope claim, including when there are no substitutes.'
+            '\ninitial_evidence_package:')
     yield {"type": "status", "text": "Penny is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
@@ -1482,6 +1492,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             validated = submit_selection(cleaned, package, guard)
         else:
             validated = validate_answer(run.output, package, guard)
+    validated = recover_alternatives(validated, package, guard)
     observe_validation(validated)
     if chat_guard.reason(validated.text):
         validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
@@ -1497,7 +1508,8 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
         "validate_ms": _ms(marks["verified"], done),
         "total_ms": _ms(began, done)}))
     events = (reply_events(validated.text, validated.status) if conversational else
-              catalog_reply_events(catalog, profile, memory, validated, guard, [], force_cards=True))
+              catalog_reply_events(catalog, profile, memory, validated, guard, [], force_cards=True,
+                                   recommendation_arguments=recommendation_arguments))
     for event in events:
         if conversational:
             event['response_mode'] = 'conversation'

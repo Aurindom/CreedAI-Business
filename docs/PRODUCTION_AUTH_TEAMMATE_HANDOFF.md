@@ -1,5 +1,14 @@
 # Teammate handoff: Supabase and Penny production hardening
 
+Final integration update: use the tested release from **main** after promotion,
+and read [FINAL_MAIN_VALIDATION.md](FINAL_MAIN_VALIDATION.md). The public HTTPS
+deployment address is now
+`https://mainstreet-penny-aurin.belgiumcentral.cloudapp.azure.com`.
+This supersedes historical statements below that no deployment address exists.
+Password sign-in is independently tested; production confirmation/reset redirect
+configuration and a fresh hosted real-account A/B check remain separate acceptance
+items. Never change project auth settings merely to make a test pass.
+
 Updated 2026-11-08. Start from the latest **aurin-test** commit, which contains
 this document and `backend/scripts/check_two_accounts.py`. Put `git rev-parse HEAD`
 in anything you report back. Make your own branch for changes, e.g. `auth-production`.

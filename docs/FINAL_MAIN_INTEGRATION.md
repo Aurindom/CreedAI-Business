@@ -1,5 +1,9 @@
 # Final main integration checkpoint
 
+Current results and remaining evidence boundaries are in
+[FINAL_MAIN_VALIDATION.md](FINAL_MAIN_VALIDATION.md). The checkpoint details below
+are historical; the approval service resumed and the formerly blocked checks ran.
+
 ## Resumed candidate checkpoint
 
 The checkout is now `hackathon-app/main`; the comparison copy of latest Arvind is

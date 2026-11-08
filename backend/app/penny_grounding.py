@@ -263,6 +263,31 @@ def recommendation_catalog(catalog, arguments):
     return catalog.model_copy(update={'tools': [tool for tool in catalog.tools if tool.id not in excluded]})
 
 
+def contextual_alternatives(catalog, body):
+    """Bind a follow-up to one active task and named catalog entries, never vendor facts.
+
+    Exclusions apply to this answer only. A different task, negation, or multiple
+    active tasks must go through normal intent routing instead.
+    """
+    if not re.search(r'\b(?:alternatives?|alternates?|other (?:tools?|options?))\b', body.message, re.I):
+        return None
+    active = list(dict.fromkeys(body.memory.active_task_ids))
+    if len(active) != 1:
+        return None
+    arguments = {'problem_id': active[0], 'task_text': body.message, 'use_active_task': True}
+    try:
+        selected_task_ids(catalog, body, arguments)
+    except (ActionContextError, KeyError):
+        return None
+    previous = next((item.text for item in reversed(body.history) if item.role == 'assistant'), '')
+    for source in (body.message, previous):
+        excluded = [tool.id for tool in catalog.tools
+                    if re.search(r'(?<!\w)' + re.escape(tool.name) + r'(?!\w)', source, re.I)]
+        if excluded:
+            return {**arguments, 'exclude_tool_ids': excluded[:3]}
+    return None
+
+
 def alternatives_note(catalog, excluded, has_candidates):
     names = ', '.join(catalog.tool(tool_id).name for tool_id in excluded)
     text = f'Looking for alternatives to {names} for the same task.'
