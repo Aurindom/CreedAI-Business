@@ -12,6 +12,14 @@ retention policy now supersede the original short cache policy. See
 synthetic identity-provider seam with real API/SQLite/Redis, so it does not
 resolve the live second-account Supabase check below.
 
+Later SMTP session update: custom **Mailjet SMTP** was configured in the Creed
+Supabase project. The owner confirmed receiving the confirmation email in spam
+and then successfully signing in. This supersedes the earlier pre-SMTP setup
+notes for the development project; production sender/domain/redirect checks
+and a second real-mailbox signup remain unverified. The old HTTP429 result is
+historical, not a fresh statement about the current quota. Two mock-email
+browser identities pass isolation checks but do not exercise SMTP delivery.
+
 Own production authentication/signup/cache/plan-access hardening and its release
 evidence. Claude continues agent/discovery work under CLAUDE_WXX_RESUME.md. This is
 a tested integration baseline, not a claim that public production is ready.

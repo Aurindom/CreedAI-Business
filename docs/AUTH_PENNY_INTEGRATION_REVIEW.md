@@ -101,6 +101,14 @@ is not a provider/account hard cap. No direct Anthropic calls were made.
 
 ## Remaining gaps before public production
 
+**Later session update:** Mailjet custom SMTP was subsequently configured for
+the Creed Supabase project. The owner found the confirmation email in spam
+and successfully logged in. The SMTP and HTTP429 notes below describe the
+earlier review baseline; current SMTP dashboard settings were not re-audited
+in the mock-email tests. A second real-mailbox signup/confirmation and deployed
+redirect test remain open. Mock-account favourites tests use a synthetic
+identity provider and do not demonstrate email delivery.
+
 **Second account:** its corrected signup was rate-limited (HTTP429). The user chose
 to wait. No retry loop or confirmation bypass was used. Real two-account browser/
 service isolation remains pending; offline cross-owner/forged-token checks pass.
