@@ -87,7 +87,7 @@ export default function ProductShowcase({ tools, paused, onChooseBusiness, onCom
         <div className="bridge-photo" style={{ backgroundImage: `url(/images/${scene.image}.jpg)` }} aria-hidden="true" />
         <div className="bridge-line" aria-hidden="true" />
         <div className="bridge-copy"><p>YOUR CRAFT IS PERSONAL. YOUR TOOLS SHOULD FIT.</p><h2>Keep doing what you love.<br /><span>Find support for the rest.</span></h2><div className="bridge-caption"><span>{scene.type}</span><span aria-hidden="true">&#8594;</span><span>Your next advantage</span></div></div>
-        <a href="#business" className="bridge-skip">Go straight to your tool finder <span aria-hidden="true">&#8599;</span></a>
+        <a href="#start" className="bridge-skip">Go straight to your tool finder <span aria-hidden="true">&#8599;</span></a>
       </section>
       <section className="product-story" id="product-story" ref={section} aria-labelledby="story-title">
         <div className="product-sticky">
@@ -126,7 +126,6 @@ export default function ProductShowcase({ tools, paused, onChooseBusiness, onCom
           <span className="story-caption">DISCOVER. UNDERSTAND. DECIDE.</span>
         </div>
       </section>
-      <div className="finder-intro"><p>YOUR BUSINESS. YOUR NEXT CHAPTER.</p><h2>Let's find your fit.</h2><span>A few details. Relevant options. A more informed decision.</span></div>
     </>
   )
 }

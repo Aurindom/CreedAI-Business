@@ -103,7 +103,7 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness, onC
         <div className="business-pagination" ref={pagination} aria-label="Choose a business story">{businesses.map((business, index) => <button type="button" key={business.type} className={active === index ? 'is-active' : ''} aria-label={`Show ${business.type} story`} aria-current={active === index ? 'true' : undefined} onClick={() => navigate(index)}><span className="pagination-index">{String(index + 1).padStart(2, '0')}</span><span>{business.type}</span><i aria-hidden="true" /></button>)}</div>
         <div className="carousel-controls"><span className="carousel-count" aria-live={autoPlaying ? 'off' : 'polite'}>{String(active + 1).padStart(2, '0')} / {businesses.length}</span><button type="button" aria-label="Previous business story" onClick={() => navigate(active - 1)}>&#8592;</button><button type="button" aria-label="Next business story" onClick={() => navigate(active + 1)}>&#8594;</button>{!paused && !reduced && <button type="button" aria-label={playing ? 'Pause carousel' : 'Play carousel'} aria-pressed={!playing} onClick={() => setPlaying((value) => !value)}>{playing ? <span aria-hidden="true">&#10074;&#10074;</span> : <span aria-hidden="true">&#9654;</span>}</button>}</div>
       </div>
-      <a className="carousel-skip" href="#business">Skip to tool finder</a>
+      <a className="carousel-skip" href="#start">Skip to tool finder</a>
     </section>
   )
 }

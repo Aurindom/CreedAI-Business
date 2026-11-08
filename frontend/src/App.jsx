@@ -4,6 +4,8 @@ import ProductShowcase from './components/ProductShowcase'
 import QuickCompare from './components/QuickCompare'
 import MainStreetBrand from './components/MainStreetBrand'
 import StreetHeaderScene from './components/StreetHeaderScene'
+import OwnerLaunchpad from './components/OwnerLaunchpad'
+import ComparisonTray from './components/ComparisonTray'
 import ComparisonWorkspace from './components/ComparisonWorkspace'
 import ChatPanel from './chat/ChatPanel'
 import AccountControls from './auth/AccountControls'
@@ -66,7 +68,7 @@ function dollars(amount) {
 }
 
 function stageAnchor(anchor) {
-  document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  document.getElementById(anchor)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })
 }
 
 // Mirrors Catalog.resolve_trade on the backend so directory labels agree with the ranking.
@@ -128,7 +130,7 @@ function OptionCard({ option, tool, selected, full, onCompare, uncertain, budget
       </div>
       <p className="cost-note">{option.cost_note}</p>
       {budgetProvided && <p className={`budget-status budget-${option.within_budget === true ? 'within' : option.within_budget === false ? 'over' : 'unknown'}`}>{option.within_budget === true ? 'Within your added monthly budget' : option.within_budget === false ? 'Over your added monthly budget' : 'Confirm vendor pricing to assess budget fit'}</p>}
-      <dl className="fact-list">
+      <details className="tool-evidence"><summary>Plan details and sources</summary><dl className="fact-list">
         {option.facts.map((fact) => (
           <div key={fact.label} className={fact.known ? 'fact-known' : 'fact-unknown'}>
             <dt>{fact.label}</dt>
@@ -136,7 +138,7 @@ function OptionCard({ option, tool, selected, full, onCompare, uncertain, budget
             </dd>
           </div>
         ))}
-      </dl>
+      </dl></details>
       {tool && <a className="source-link" href={tool.url} target="_blank" rel="noopener noreferrer">Visit vendor website <ArrowIcon size={14} /></a>}
     </article>
   )
@@ -187,6 +189,8 @@ function Marketplace({ auth }) {
   const [problems, setProblems] = useState([])
   const [allProblems, setAllProblems] = useState([])
   const [directory, setDirectory] = useState([])
+  const [directoryQuery, setDirectoryQuery] = useState('')
+  const [directoryLoading, setDirectoryLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
   const [businessName, setBusinessName] = useState('')
@@ -220,6 +224,13 @@ function Marketplace({ auth }) {
   const toolsById = useMemo(() => Object.fromEntries(allTools.map((t) => [t.id, t])), [allTools])
   const activeProblem = problems.find((p) => p.id === selectedProblem) || null
   const activeCategory = categories.find((c) => c.id === category) || null
+  const visibleDirectory = useMemo(() => {
+    const words = directoryQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+    return directory.filter(tool => {
+      const text = [tool.name, tool.summary, ...tool.capabilities.map(item => item.capability.replaceAll('_', ' '))].join(' ').toLocaleLowerCase()
+      return words.every(word => text.includes(word))
+    })
+  }, [directory, directoryQuery])
 
   useEffect(() => {
     let current = true
@@ -237,6 +248,7 @@ function Marketplace({ auth }) {
       const [all, filtered] = await Promise.all([api.tools(), api.tools(typedTrade, category)])
       setAllTools(all)
       setDirectory(filtered)
+      setDirectoryQuery('')
       setShowDirectory(true)
       setResearchMessage(report.added.length
         ? `Found ${report.added.length} new research candidates. ${report.promoted?.length || 0} passed automatic verification. Check the evidence notes and vendor sources.`
@@ -262,6 +274,7 @@ function Marketplace({ auth }) {
 
   useEffect(() => {
     let current = true
+    setDirectoryLoading(true)
     Promise.all([api.problems(typedTrade, category), api.tools(typedTrade, category)])
       .then(([cards, tools]) => {
         if (!current) return
@@ -270,6 +283,7 @@ function Marketplace({ auth }) {
         setLoadError('')
       })
       .catch((error) => { if (current) setLoadError(error.message) })
+      .finally(() => { if (current) setDirectoryLoading(false) })
     return () => { current = false }
   }, [typedTrade, category])
 
@@ -359,6 +373,7 @@ function Marketplace({ auth }) {
     setSelectedProblem(id)
     setSelectedTools([])
     setShowDirectory(false)
+    setDirectoryQuery('')
     window.setTimeout(() => stageAnchor('explore'), 80)
   }
 
@@ -381,7 +396,7 @@ function Marketplace({ auth }) {
     ? `Every tool in ${activeCategory ? activeCategory.name : 'the catalog'}, with who it is built for.`
     : activeProblem ? `For “${activeProblem.title.toLowerCase()}”.` : 'Choose a task above to see what fits.'
   const exploreCount = showDirectory
-    ? plural(directory.length, 'tool')
+    ? plural(visibleDirectory.length, 'tool')
     : recommendation ? plural(recommendation.options.length, 'ranked option') : 'No task chosen'
 
   return (
@@ -431,6 +446,7 @@ function Marketplace({ auth }) {
           {loadError && <div className="error-banner" role="alert"><strong>We couldn't reach the catalog service.</strong> {loadError}</div>}
 
           {quickCompare ? <QuickCompare tools={allTools} baseline={baseline} selected={selectedTools} plans={ownedPlans} onBaseline={selectBaseline} onPlan={(id, plan) => setOwnedPlans((current) => ({ ...current, [id]: plan }))} onToggle={toggleCompare} onBack={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('business')) }} /> : <ProductShowcase tools={allTools} paused={motionPaused} onCompare={openQuickCompare} onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }} />}
+          {!quickCompare && <OwnerLaunchpad categories={categories} favouritesCount={favourites.items.length} onFind={() => stageAnchor('challenge')} onCompare={openQuickCompare} onFavourites={() => stageAnchor('favourites')} onCategory={id => { chooseCategory(id); setShowDirectory(false); setDirectoryQuery(''); window.requestAnimationFrame(() => stageAnchor('challenge')) }} />}
 
           <div className="metrics-row" hidden={quickCompare}>
             <div><strong>{allTools.length}</strong><span>tools in the catalog</span></div>
@@ -453,6 +469,7 @@ function Marketplace({ auth }) {
                 <datalist id="trade-list">{trades.map((t) => <option key={t.id} value={t.name} />)}</datalist>
               </label>
               <label className="field budget-field"><span>Added monthly budget <small>optional, USD</small></span><input type="number" min="0" step="0.01" value={budget} onChange={(event) => { const value = event.target.value; if (value === '' || (Number.isFinite(Number(value)) && Number(value) >= 0)) setBudget(value) }} placeholder="e.g. 100" /><small>What you can add to your current bill each month. Leave blank for no budget preference.</small></label>
+              <details className="owned-picker"><summary><span>Already using software?</span><small>{owned.length ? `${owned.length} selected` : 'Add your subscriptions, optional'}</small></summary>
               <div className="field owned-field">
                 <span>Tools you already pay for <small>optional</small></span>
                 <div className="chip-list">
@@ -469,6 +486,7 @@ function Marketplace({ auth }) {
                   return <label className="field" key={id}><span>{tool.name} plan <small>optional</small></span>{choices.length ? <select value={ownedPlans[id] ?? PLAN_UNKNOWN} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))}><option value={PLAN_UNKNOWN}>I do not know</option>{choices.map((plan) => <option value={plan} key={plan}>{plan}</option>)}</select> : <><input value={ownedPlans[id] ?? ''} maxLength={PLAN_LABEL_MAX} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))} placeholder="Plan name, if you know it" /><small>Not checked by us. We will ask you to verify an unrecognized plan.</small></>}</label>
                 })}
               </div>}
+              </details>
               <div className="form-note"><span>✳</span><p>{businessNote}</p></div>
             </div>
           </section>
@@ -501,15 +519,17 @@ function Marketplace({ auth }) {
           <section className="section-block" id="explore" hidden={quickCompare}>
             <div className="section-heading"><div><div className="section-kicker">STEP 03: YOUR OPTIONS</div><h2>{exploreHeading}</h2><p>{exploreLead}</p></div><div className="section-counter">03 / 04</div></div>
             <div className="explore-toolbar">
-              <div><strong>{exploreCount}</strong><span>{tradeLabel ? ` · ${tradeLabel}` : ' · Any business'}</span></div>
-              <button type="button" onClick={() => setShowDirectory((value) => !value)}>{showDirectory ? 'Back to my options' : 'Browse directory'} <ArrowIcon size={15} /></button>
+              <div aria-live="polite"><strong>{directoryLoading && showDirectory ? 'Loading tools…' : exploreCount}</strong><span>{tradeLabel ? ` · ${tradeLabel}` : ' · Any business'}</span></div>
+              <button type="button" onClick={() => { setShowDirectory(value => !value); setDirectoryQuery('') }}>{showDirectory ? 'Back to my options' : 'Browse directory'} <ArrowIcon size={15} /></button>
             </div>
+            <div className="directory-search" role="search" aria-label="Find tools in the directory"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.7" /><path d="m16 16 5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg><label className="sr-only" htmlFor="directory-search">Search tools</label><input id="directory-search" type="search" value={directoryQuery} maxLength={100} onChange={event => { setDirectoryQuery(event.target.value); setShowDirectory(true) }} placeholder="Find a tool by name or what it does" /><span className="search-hint">YOUR NEXT GOOD FIND</span></div>
 
             {researchEnabled && activeProblem && <div className="research-controls">
               <button type="button" disabled={researchBusy} onClick={researchMore}>{researchBusy ? 'Researching public sources...' : 'Research more tools'}</button>
               {researchMessage && <p role="status">{String(researchMessage)}</p>}
             </div>}
-            {showDirectory && <div className="tool-grid">{directory.map((tool) => (
+            {showDirectory && !directoryLoading && visibleDirectory.length === 0 && !loadError && <div className="directory-empty"><span aria-hidden="true">⌕</span><h3>No matches just yet</h3><p>Try a tool name or a simpler search, or explore the full directory.</p><button type="button" onClick={() => { setDirectoryQuery(''); chooseCategory('') }}>Clear search and filters <ArrowIcon size={16} /></button></div>}
+            {showDirectory && <div className="tool-grid">{visibleDirectory.map((tool) => (
               <DirectoryCard key={tool.id} tool={tool} trades={trades} tradeId={tradeId} {...compareProps(tool.id)} />
             ))}</div>}
 
@@ -551,6 +571,7 @@ function Marketplace({ auth }) {
           <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>
         </div>
       </main>
+      <ComparisonTray tools={comparison} onRemove={toggleCompare} onClear={() => { setSelectedTools([]); setBaseline('') }} onView={() => stageAnchor('compare')} />
       <ChatPanel auth={auth} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
     </div>
   )
