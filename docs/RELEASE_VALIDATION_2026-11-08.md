@@ -74,3 +74,14 @@ public source/static file permissions and runs non-root app/gateway imports and
 frontend/logging readability checks at build time. Runtime secrets remain outside
 these directories and retain restrictive permissions. No paid calls occurred in
 this failed startup. Hosted acceptance follows the corrected image build.
+
+After recovery the hosted canary exposed stale Hermes MCP registration following
+dependency replacement: the gateway saw an empty tools array and the application
+rejected the run as `tool_missing`. Restarting Hermes after MCP/gateway readiness
+restored the actual tool attachment. All four Azure canaries then passed (reviews,
+appointments, explicit negation, greeting), ~2.3-7.5s in that small sample.
+Compose now declares dependency restart propagation; `scripts/deploy_vm.sh` also
+explicitly refreshes Hermes after dependency updates. Hermes `/v1/toolsets` does
+not enumerate this dynamic MCP registration in the pinned version, so it is not
+used as false proof of readiness. Stored receipts and the real canary remain the
+acceptance gate.

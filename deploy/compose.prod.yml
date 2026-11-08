@@ -107,8 +107,8 @@ services:
       test: [CMD, /opt/hermes/.venv/bin/python, -c, "import socket; socket.create_connection(('127.0.0.1', 8642), 4).close()"]
       <<: *tcp-check
     depends_on:
-      gateway: {condition: service_healthy}
-      actions: {condition: service_healthy}
+      gateway: {condition: service_healthy, restart: true}
+      actions: {condition: service_healthy, restart: true}
 
   redis:
     image: redis:7.4.12-alpine

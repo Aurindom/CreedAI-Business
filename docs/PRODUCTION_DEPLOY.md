@@ -117,6 +117,13 @@ docker compose -f compose.prod.yml ps
 curl -fsS https://$PENNY_DOMAIN/api/health
 curl -s https://$PENNY_DOMAIN/api/chat/ready
 ```
+For reviewed updates, use `bash scripts/deploy_vm.sh APPROVED_SHA` from the
+repository root after backups. It builds with the non-root gate, updates services,
+refreshes Hermes after MCP/gateway replacement, recreates Caddy to load the new
+bind-mounted configuration, checks readiness and persists the image tag. Existing
+Hermes tool registration can go stale across dependency replacement: a healthy
+TCP/HTTP process alone does not prove the tool was attached to the next model
+request. Always follow with the bounded canary and actual MCP outcome checks.
 - `/api/health` is liveness. Compose uses it for the app health check. Browsing
   works whenever this is up.
 - `/api/chat/ready` is readiness for chat: provider (Hermes plus gateway status),
