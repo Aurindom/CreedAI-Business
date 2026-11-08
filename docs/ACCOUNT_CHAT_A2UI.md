@@ -1,23 +1,76 @@
-# Owner accounts, short Penny history, and A2UI
+# Supabase accounts, temporary conversation recovery and A2UI
 
-## Configure accounts
+## Configuration
 
-Create a Supabase project with email/password sign-in enabled and email confirmation configured. Use its **project URL** and **publishable key** in `frontend/.env.local` as shown in `frontend/.env.example`. Put the same values in the backend environment as `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The publishable key is intended for browser use; do not put a Supabase secret or service-role key in the frontend. Restart Vite after changing its environment.
+Frontend: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` at build time.
+Backend: matching `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `REDIS_URL`, persistent
+`APP_DB_PATH`, and a server-only OpenRouter key/spending configuration for Penny.
+Use the publishable key, never a service-role key in browser code. Test account
+emails/passwords are for private harness files only and are never deployed.
 
-Set `REDIS_URL` on the backend to a managed Redis endpoint. Prefer TLS (`rediss://`) in deployment. For local development, `docker compose -f backend/compose.redis.yml up -d` starts an ephemeral Redis bound only to `127.0.0.1:6379`; use `redis://127.0.0.1:6379/0` for the local backend. The backend will return 503 for account history if the Supabase or Redis configuration is absent. The public catalog and guest Penny chat remain available. No shared or hardcoded account is created: each owner signs up with their own email and password through Supabase Auth.
+Signup requests use the app origin as their confirmation return URL. The project
+Site URL and allowed redirect list must include the intended addresses. Email
+confirmation, SMTP and rate-limit configuration remain operator settings; this
+code does not disable confirmation or bypass limits. Configure production SMTP
+before public signup. The local launcher loads allowed server settings from an
+explicit `-EnvFile`, never test account passwords. It provisions no services.
 
-For the local backend, put `REDIS_URL` and any Supabase public settings alongside the existing Claude key in the ignored `backend/app/.env`, then run `backend/scripts/run-local.ps1 -Python <path-to-your-venv-python>`. The script reads only an allowlist of backend variables, prints no secrets, and keeps the local Claude test cap at $2 unless explicitly configured otherwise. Deployment should inject secrets through its hosting environment, not run this local script.
+## Identity and ownership
 
-## What the five-minute cache does
+Protected requests verify the exact bearer token with Supabase `/user` before
+reading its subject/session claims. Subject, issuer, audience, expiry and app
+revocation are checked. Identity verification is independent of Redis. Invalid
+credentials never become guest requests; anonymous Supabase users are not
+private accounts.
 
-The browser sends a signed-in owner's Supabase access token to the backend. The backend verifies it with that project's Auth `/user` endpoint before any history read or write. It hashes the verified user ID for the Redis key and stores at most 40 display messages plus Penny memory. Each save sets a 300-second Redis expiry. Signing out flushes the latest state and refreshes the expiry, then ends the browser's Supabase session. A login to the same account within five minutes can restore the chat; another account cannot read it. Once Redis expires the key, the history is gone. The HTTP routes send `Cache-Control: no-store` and never log tokens or chat text.
+Plans belong to the verified Supabase user via `account_owner`, with one initial
+owner workspace per account. Internal random ownership anchors are not bearer
+credentials. Plan operations remain owner-scoped. Plans persist across logout
+and cache expiry; new browser-only sessions are deprecated (410).
 
-When Supabase is configured, chat history does not use browser `sessionStorage`. Existing anonymous saved plans use a separate private-session token; they are **not** linked to new accounts by this change. Account migration for plans needs a separate ownership flow.
+Old browser plans are not deleted or silently assigned to the next login. An
+explicit import requires possession of the valid old private token. Migration
+and token revocation commit together. Account ownership anchors are rejected as
+legacy credentials, including anchors created by an older deterministic scheme.
 
-The local Redis container is available through `backend/compose.redis.yml`. To exercise owner login and five-minute history end to end, configure the frontend and backend with the same Supabase project URL and publishable key, then sign in with a confirmed owner account. Unit tests use a fake expiring cache and mocked Auth responses; they do not create an owner or store real chat in a live provider.
+## Logout and history
 
-## A2UI scope
+The UI flushes history, calls `/api/auth/logout`, then signs out Supabase locally.
+The app immediately records the verified session as revoked; old tokens from
+that session cannot access plans/history/Penny even before JWT expiry. A fresh
+login has a new session and the same account ID.
 
-Penny sends versioned A2UI v0.9 `createSurface` and `updateComponents` messages for its agent-generated text, source links, follow-up questions, and recommendation results. The allowlisted catalog contains `PennyText`, `PennySources`, `PennyQuestion`, and `PennyRecommendation`. Trusted React components render those surfaces in the existing visual theme; model output cannot add arbitrary components or executable markup. The server cache and renderer validate the surface before displaying it. Legacy `message_delta`, `sources`, `clarify`, and `recommendation` events remain in the stream for older clients, while the current UI displays the A2UI surfaces. User messages, input controls, account controls, and the authored site pages remain application UI. The official A2UI React package was evaluated, but its dependency tree had a critical security advisory at that version; this bounded renderer avoids shipping that dependency while using the A2UI message protocol.
+History is scoped to account AND conversation. Active history has a bounded
+24-hour inactivity TTL, not durable storage. The last active session's logout
+starts a 300-second recovery window; another active session is not expired.
+Same-account login within that window can restore/reactivate the conversation.
+After expiry the account/plans persist, but the temporary history is unavailable.
 
-Official setup: https://a2ui.org/guides/client-setup/ and https://a2ui.org/guides/defining-your-own-catalog/ .
+SQLite metadata enforces the recovery deadline even if Redis expiry cannot be
+confirmed; logout reports that condition. Cache failures never disable identity,
+grant private data to guests or report a failed save as successful. Private
+responses use `Cache-Control: no-store`.
+
+History serialization and in-memory request limits assume one app worker.
+Multiple workers/replicas require coordinated cache lifecycle/rate limits before
+scaling. Persist the app database, including revocation records, across restarts.
+
+## Penny and guest behavior
+
+Signed-in tokens travel in headers, never model context. Backend verification
+derives identity; client `user_id` fields have no authority. Guests have separate
+anonymous conversations and no account plans/history. Accounts restore their
+cached messages/memory before sending. Identity changes remount workspace/chat/
+plan state, cancel old requests and clear the prior account's intake/results.
+Failed history recovery does not silently overwrite stored history.
+
+Penny receives only needed business context/public evidence. `submit_answer`
+selects allowed IDs; backend validation/rendering owns citations, prices and
+uncertainty. The A2UI allowlist remains PennyText, PennySources, PennyQuestion and
+PennyRecommendation; presentation does not grant private-action authority or
+execute model-supplied markup.
+
+## Evidence
+
+See AUTH_PENNY_INTEGRATION_REVIEW.md for mocked, real-service, browser and model
+checks, costs and remaining production gaps. Test credentials are never deployed.

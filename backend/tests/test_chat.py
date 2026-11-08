@@ -10,12 +10,12 @@ from app.main import app
 
 
 def reply(text):
-    return {"choices": [{"message": {"content": text}}], "usage": {"cost": 0.001}}
+    return {"choices": [{"message": {"content": text}}], "usage": {"cost": 0.001, 'prompt_tokens': 1200, 'completion_tokens': 100}}
 
 
 def calls(*items):
     tool_calls = [{"id": f"c{i}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}} for i, (name, args) in enumerate(items)]
-    return {"choices": [{"message": {"content": "", "tool_calls": tool_calls}}], "usage": {"prompt_tokens": 1000, "completion_tokens": 100}}
+    return {"choices": [{"message": {"content": "", "tool_calls": tool_calls}}], "usage": {"prompt_tokens": 1000, "completion_tokens": 100, 'cost': 0.001}}
 
 
 @pytest.fixture
@@ -62,11 +62,12 @@ def test_status_is_off_without_a_key(client, monkeypatch):
     assert client.post("/api/chat", json={"conversation_id": "c", "message": "hi"}).status_code == 503
 
 
-def test_plain_reply_streams_and_finishes(client, monkeypatch):
+def test_unstructured_reply_falls_back_and_finishes(client, monkeypatch):
     script(monkeypatch, reply("Happy to help."))
     events = send(client)
     assert kinds(events) == ["status", "a2ui", "message_delta", "done"]
-    assert events[1]["messages"][1]["updateComponents"]["components"][0]["text"] == "Happy to help."
+    assert events[1]["messages"][1]["updateComponents"]["components"][0]["text"] == chat.FALLBACK
+    assert events[1]['validation'] == 'fallback'
 
 
 def test_recommendation_uses_real_catalog_logic_and_memory(client, monkeypatch):
@@ -98,13 +99,14 @@ def test_plan_from_the_page_is_kept(client, monkeypatch):
 
 def test_invented_price_is_replaced(client, monkeypatch):
     script(monkeypatch, reply("Jobber is only $7 a month."))
-    assert next(e for e in send(client) if e["type"] == "message_delta")["text"] == chat.NO_GUESSING
+    assert next(e for e in send(client) if e["type"] == "message_delta")["text"] == chat.FALLBACK
 
 
-def test_price_from_an_action_is_allowed(client, monkeypatch):
+def test_even_a_sourced_price_requires_structured_selection(client, monkeypatch):
     script(monkeypatch, calls(("get_tool_details", {"tool_id": "quickbooks_online"})), reply("It starts at $38 a month."))
     events = send(client)
-    assert next(e for e in events if e["type"] == "message_delta")["text"] == "It starts at $38 a month."
+    # Even a plausible sourced number must use the structured claim contract.
+    assert next(e for e in events if e["type"] == "message_delta")["text"] == chat.FALLBACK
     assert any(e["type"] == "sources" and e["items"] for e in events)
 
 
@@ -143,12 +145,12 @@ def test_memory_keeps_only_real_ids(client, monkeypatch):
 
 
 def test_clarify_ends_the_turn(client, monkeypatch):
-    seen = script(monkeypatch, calls(("ask_owner", {"question": "Which one?", "choices": ["Staff", "Jobs"]})))
+    seen = script(monkeypatch, calls(("ask_owner", {"question_id": "budget"})))
     events = send(client)
     assert kinds(events) == ["status", "a2ui", "clarify", "done"]
     surface = events[1]["messages"]
     assert surface[0]["createSurface"]["catalogId"] == "https://mainstreet.ai/catalogs/penny/v1"
-    assert surface[1]["updateComponents"]["components"][0]["choices"] == ["Staff", "Jobs"]
+    assert surface[1]["updateComponents"]["components"][0]["choices"] == ['$0 added', 'I will type my budget', 'Skip these questions']
     assert len(seen) == 1
 
 
@@ -185,9 +187,9 @@ def test_spend_records_actual_cost(client, monkeypatch):
 
 
 def test_failed_call_keeps_the_reservation(client, monkeypatch):
-    script(monkeypatch, httpx.ConnectError("x"))
+    seen = script(monkeypatch, httpx.ConnectError("x"))
     send(client)
-    assert chat.ledger().total() == pytest.approx(chat.DEFAULT_RESERVE_USD)
+    assert chat.ledger().total() == pytest.approx(chat.request_reservation(seen[0])[1])
 
 
 def test_ledger_refuses_past_the_cap(tmp_path):
@@ -196,8 +198,8 @@ def test_ledger_refuses_past_the_cap(tmp_path):
     assert not book.reserve(0.01)
 
 
-def test_token_pricing_is_used_when_cost_is_missing():
-    assert chat.usage_cost({"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000}) == pytest.approx(0.6)
+def test_missing_cost_is_unverified_even_with_token_counts():
+    assert chat.usage_cost({"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000}) is None
 
 
 def test_daily_limit(client, monkeypatch):
@@ -250,12 +252,12 @@ def test_background_comes_before_recommendations(client, monkeypatch):
     seen = script(
         monkeypatch,
         calls(("recommend_tools", {"problem_id": "bookkeeping"})),
-        calls(("ask_owner", {"question": "What kind of business do you run?", "choices": ["Coffee shop", "Skip these questions"], "progress": "Question 1 of 3"})),
+        calls(("ask_owner", {"question_id": "business"})),
     )
     events = send(client)
     assert "background first" in seen[1][-1]["content"].lower()
     assert not any(e["type"] == "recommendation" for e in events)
-    assert next(e for e in events if e["type"] == "clarify")["progress"] == "Question 1 of 3"
+    assert next(e for e in events if e["type"] == "clarify")["question"] == 'What kind of business do you run?'
 
 
 def test_background_is_not_forced_twice_in_one_turn(client, monkeypatch):
@@ -276,10 +278,10 @@ def test_skipping_background_is_remembered(client, monkeypatch):
 
 @pytest.mark.parametrize("env,expected", [
     ({}, None),
-    ({"ANTHROPIC_API_KEY": "a"}, "anthropic"),
+    ({"ANTHROPIC_API_KEY": "a"}, None),
     ({"OPENROUTER_API_KEY": "o"}, "openrouter"),
     ({"OPENROUTER_API_KEY": "o", "ANTHROPIC_API_KEY": "a"}, "openrouter"),
-    ({"OPENROUTER_API_KEY": "o", "ANTHROPIC_API_KEY": "a", "CHAT_PROVIDER": "anthropic"}, "anthropic"),
+    ({"OPENROUTER_API_KEY": "o", "ANTHROPIC_API_KEY": "a", "CHAT_PROVIDER": "anthropic"}, None),
 ])
 def test_provider_choice(monkeypatch, env, expected):
     for name in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "CHAT_PROVIDER"):

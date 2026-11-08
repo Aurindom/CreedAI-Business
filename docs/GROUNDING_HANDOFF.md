@@ -1,5 +1,11 @@
 # Grounding checkpoint for teammate integration
 
+**Current integration update:** grounded Penny and Supabase/account ownership
+are now wired in source. Read AUTH_PENNY_INTEGRATION_REVIEW.md and
+PRODUCTION_AUTH_TEAMMATE_HANDOFF.md; Claude follows CLAUDE_WXX_RESUME.md. Current
+697 backend/23 frontend tests/build passed. Historical sandbox-only and
+login-not-inspected statements below describe the earlier checkpoint.
+
 2026-11-07. This checkpoint adds backend grounding modules and quality tests,
 not a public chat endpoint or login implementation. Coordinate shared-file changes
 with the backend integrator; preserve each teammate's branch work.

@@ -6,7 +6,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from datetime import datetime, timedelta, timezone
+from functools import wraps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError
 from redis import asyncio as redis
@@ -14,9 +16,11 @@ from redis.exceptions import RedisError
 
 from .chat import ChatMemory
 from .schemas import Recommendation
+from . import auth
 
 router = APIRouter()
 TTL_SECONDS = 300
+ACTIVE_TTL_SECONDS = 86400
 MAX_SNAPSHOT_BYTES = 128_000
 ALLOWED_KINDS = {"user", "assistant", "clarify", "a2ui", "result", "sources", "error"}
 PENNY_CATALOG = "https://mainstreet.ai/catalogs/penny/v1"
@@ -172,67 +176,136 @@ class ChatSnapshot(BaseModel):
         return self
 
 
-def _configuration() -> tuple[str, str, str]:
-    base = os.environ.get("SUPABASE_URL", "").rstrip("/")
-    publishable = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
-    cache_url = os.environ.get("REDIS_URL", "")
-    parsed = urlparse(base)
-    if (not publishable or urlparse(cache_url).scheme not in ("redis", "rediss")
-            or parsed.scheme != "https" or not parsed.hostname):
-        raise HTTPException(status_code=503, detail="Account history is unavailable")
-    return base, publishable, cache_url
+def now():
+    return datetime.now(timezone.utc)
 
 
-async def _user_id(authorization: str | None) -> tuple[str, str]:
-    base, publishable, cache_url = _configuration()
-    if not authorization or not authorization.startswith("Bearer ") or not authorization[7:]:
-        raise HTTPException(status_code=401, detail="Sign in to access chat history")
+def _configuration():
+    url = os.environ.get('REDIS_URL', '')
+    if urlparse(url).scheme not in ('redis', 'rediss'):
+        raise HTTPException(503, 'Conversation storage is unavailable')
+    return url
+
+
+def _cache():
+    return redis.from_url(_configuration(), decode_responses=True, socket_timeout=3)
+
+
+def _key(user_id, conversation_id):
+    digest = hashlib.sha256((user_id + ':' + conversation_id).encode()).hexdigest()
+    return 'penny:conversation:' + digest
+
+
+def _touch(request, principal, conversation_id):
+    auth.check_active(request, principal)
+    with request.app.state.lock, request.app.state.conn:
+        changed = request.app.state.conn.execute('UPDATE chat_conversation SET session_id=?,updated_at=?,recover_until=NULL WHERE user_id=? AND conversation_id=? AND (recover_until IS NULL OR recover_until>?)',
+                                      (principal.session_id, now().isoformat(), principal.user_id, conversation_id, now().isoformat()))
+        if changed.rowcount != 1:
+            raise HTTPException(409, 'This conversation expired. Start a new conversation.')
+        request.app.state.conn.execute('INSERT OR IGNORE INTO chat_session_usage VALUES(?,?,?)',
+                                      (principal.user_id, conversation_id, principal.session_id))
+
+
+def serialized(function):
+    @wraps(function)
+    async def wrapped(*args, **kwargs):
+        request = kwargs['request']
+        async with request.app.state.history_lock:
+            return await function(*args, **kwargs)
+    return wrapped
+
+
+@router.get('/api/chat/history')
+@serialized
+async def load_history(request: Request, conversation_id: str | None = Query(default=None, max_length=100),
+                       principal: auth.Principal = Depends(auth.require_account)):
+    with request.app.state.lock:
+        sql = 'SELECT conversation_id FROM chat_conversation WHERE user_id=? AND (recover_until IS NULL OR recover_until>?)'
+        args = [principal.user_id, now().isoformat()]
+        if conversation_id is not None:
+            sql += ' AND conversation_id=?'
+            args.append(conversation_id)
+        row = request.app.state.conn.execute(sql + ' ORDER BY updated_at DESC LIMIT 1', args).fetchone()
+    if row is None:
+        return Response('null', media_type='application/json', headers={'Cache-Control': 'no-store'})
+    client = _cache()
     try:
-        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
-            result = await client.get(
-                f"{base}/auth/v1/user",
-                headers={"apikey": publishable, "Authorization": authorization},
-            )
-    except httpx.HTTPError:
-        raise HTTPException(status_code=503, detail="Account verification is unavailable") from None
-    if result.status_code in (401, 403):
-        raise HTTPException(status_code=401, detail="Sign in to access chat history")
-    if result.status_code != 200:
-        raise HTTPException(status_code=503, detail="Account verification is unavailable")
-    try:
-        user_id = result.json()["id"]
-    except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=503, detail="Account verification is unavailable") from None
-    if not isinstance(user_id, str) or not user_id:
-        raise HTTPException(status_code=503, detail="Account verification is unavailable")
-    return user_id, cache_url
-
-
-def _key(user_id: str) -> str:
-    return f"penny:history:{hashlib.sha256(user_id.encode('utf-8')).hexdigest()}"
-
-
-@router.get("/api/chat/history")
-async def load_history(authorization: str | None = Header(default=None)) -> Response:
-    user_id, cache_url = await _user_id(authorization)
-    client = redis.from_url(cache_url, decode_responses=True, socket_timeout=3)
-    try:
-        stored = await client.get(_key(user_id))
-    except RedisError:
-        raise HTTPException(status_code=503, detail="Chat history is unavailable") from None
+        stored = await client.get(_key(principal.user_id, row[0]))
+        if stored:
+            snapshot = ChatSnapshot.model_validate_json(stored)
+            if snapshot.conversationId != row[0]:
+                raise ValueError('cache binding mismatch')
+            auth.check_active(request, principal)
+            _touch(request, principal, row[0])
+            await client.expire(_key(principal.user_id, row[0]), ACTIVE_TTL_SECONDS)
+    except (RedisError, ValueError):
+        raise HTTPException(503, 'Conversation storage is unavailable') from None
     finally:
         await client.aclose()
-    return Response(content=stored or "null", media_type="application/json", headers={"Cache-Control": "no-store"})
+    return Response(stored or 'null', media_type='application/json', headers={'Cache-Control': 'no-store'})
 
 
-@router.put("/api/chat/history", status_code=204)
-async def save_history(snapshot: ChatSnapshot, authorization: str | None = Header(default=None)) -> Response:
-    user_id, cache_url = await _user_id(authorization)
-    client = redis.from_url(cache_url, decode_responses=True, socket_timeout=3)
+@router.put('/api/chat/history', status_code=204)
+@serialized
+async def save_history(request: Request, snapshot: ChatSnapshot,
+                       principal: auth.Principal = Depends(auth.require_account)):
+    client = _cache()
     try:
-        await client.set(_key(user_id), snapshot.model_dump_json(), ex=TTL_SECONDS)
+        auth.check_active(request, principal)
+        with request.app.state.lock, request.app.state.conn:
+            conn = request.app.state.conn
+            existing = conn.execute('SELECT 1 FROM chat_conversation WHERE user_id=? AND conversation_id=?', (principal.user_id, snapshot.conversationId)).fetchone()
+            count = conn.execute('SELECT COUNT(*) FROM chat_conversation WHERE user_id=?', (principal.user_id,)).fetchone()[0]
+            if not existing and count >= 20:
+                # Drop metadata whose temporary content has already expired.
+                conn.execute('DELETE FROM chat_conversation WHERE user_id=? AND (recover_until<=? OR updated_at<?)',
+                             (principal.user_id, now().isoformat(), (now()-timedelta(seconds=ACTIVE_TTL_SECONDS)).isoformat()))
+                count = conn.execute('SELECT COUNT(*) FROM chat_conversation WHERE user_id=?', (principal.user_id,)).fetchone()[0]
+                if count >= 20:
+                    raise HTTPException(409, 'Too many active conversations')
+            conn.execute('INSERT OR IGNORE INTO chat_conversation VALUES(?,?,?,?,NULL)',
+                         (principal.user_id, snapshot.conversationId, principal.session_id, now().isoformat()))
+        _touch(request, principal, snapshot.conversationId)
+        await client.set(_key(principal.user_id, snapshot.conversationId), snapshot.model_dump_json(), ex=ACTIVE_TTL_SECONDS)
+        auth.check_active(request, principal)
     except RedisError:
-        raise HTTPException(status_code=503, detail="Chat history is unavailable") from None
+        raise HTTPException(503, 'Conversation storage is unavailable') from None
     finally:
         await client.aclose()
-    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    return Response(status_code=204, headers={'Cache-Control': 'no-store'})
+
+
+@router.post('/api/auth/logout')
+@serialized
+async def logout(request: Request, principal: auth.Principal = Depends(auth.require_account)):
+    auth.check_active(request, principal)
+    current = now()
+    deadline = (current + timedelta(seconds=TTL_SECONDS)).isoformat()
+    with request.app.state.lock, request.app.state.conn:
+        conn = request.app.state.conn
+        conn.execute('INSERT OR IGNORE INTO revoked_auth_session VALUES(?,?,?)',
+                     (principal.session_id, principal.user_id, current.isoformat()))
+        rows = conn.execute('SELECT conversation_id FROM chat_session_usage WHERE user_id=? AND session_id=?',
+                            (principal.user_id, principal.session_id)).fetchall()
+        conn.execute('DELETE FROM chat_session_usage WHERE user_id=? AND session_id=?', (principal.user_id, principal.session_id))
+        expire = []
+        for (conversation,) in rows:
+            active = conn.execute('SELECT 1 FROM chat_session_usage WHERE user_id=? AND conversation_id=?', (principal.user_id, conversation)).fetchone()
+            if not active:
+                conn.execute('UPDATE chat_conversation SET recover_until=? WHERE user_id=? AND conversation_id=?', (deadline, principal.user_id, conversation))
+                expire.append(conversation)
+    confirmed = True
+    if expire:
+        client = None
+        try:
+            client = _cache()
+            for conversation in expire:
+                await client.expire(_key(principal.user_id, conversation), TTL_SECONDS)
+        except (RedisError, HTTPException):
+            # SQLite deadline still prevents recovery after the five-minute window.
+            confirmed = False
+        finally:
+            if client is not None:
+                await client.aclose()
+    return {'signed_out': True, 'cache_grace_seconds': TTL_SECONDS, 'cache_expiry_confirmed': confirmed}

@@ -1,6 +1,7 @@
 import hashlib
 import secrets
 import sqlite3
+import uuid
 from datetime import datetime, timedelta
 
 SESSION_DAYS = 30
@@ -30,6 +31,8 @@ def create_session(conn: sqlite3.Connection, now: datetime, days: int = SESSION_
 def owner_for(conn: sqlite3.Connection, token: str | None, now: datetime) -> str:
     if not token:
         raise AccessDenied("No private session was given")
+    if conn.execute('SELECT 1 FROM account_owner WHERE owner_hash=?', (token_hash(token),)).fetchone():
+        raise AccessDenied('Account ownership is not a browser-session credential')
     row = conn.execute("SELECT expires_at, revoked_at FROM owner_session WHERE token_hash = ?", (token_hash(token),)).fetchone()
     if row is None or row[1] is not None or datetime.fromisoformat(row[0]) <= now:
         raise AccessDenied("This private session is unknown, has ended or was closed")
@@ -48,3 +51,35 @@ def bearer(header: str | None) -> str | None:
     if scheme.casefold() != "bearer":
         return None
     return value.strip() or None
+
+
+def account_owner(conn, user_id, now):
+    """One owner workspace per verified Supabase subject. No browser token issued."""
+    row = conn.execute('SELECT owner_hash, business_id FROM account_owner WHERE user_id = ?', (user_id,)).fetchone()
+    if row:
+        return row[0], row[1]
+    owner = token_hash(secrets.token_urlsafe(32))
+    business = str(uuid.uuid4())
+    with conn:
+        # Legacy FK anchor only; its hash is not an account credential.
+        conn.execute('INSERT OR IGNORE INTO owner_session(token_hash, created_at, expires_at) VALUES(?,?,?)',
+                     (owner, now.isoformat(), '9999-12-31T00:00:00+00:00'))
+        conn.execute('INSERT OR IGNORE INTO account_owner VALUES(?,?,?)', (user_id, owner, business))
+    row = conn.execute('SELECT owner_hash,business_id FROM account_owner WHERE user_id=?', (user_id,)).fetchone()
+    return row[0], row[1]
+
+
+def claim_legacy(conn, user_id, legacy_token, now):
+    """Explicit possession proof; migration and revocation commit together."""
+    legacy = owner_for(conn, legacy_token, now)
+    owner, _ = account_owner(conn, user_id, now)
+    with conn:
+        # Recheck after acquiring the SQLite write transaction, not before it.
+        conn.execute('UPDATE owner_session SET revoked_at=revoked_at WHERE token_hash=?', (legacy,))
+        owner_for(conn, legacy_token, now)
+        rows = conn.execute('SELECT id FROM adoption_plan WHERE owner_hash=?', (legacy,)).fetchall()
+        for (plan_id,) in rows:
+            conn.execute('UPDATE adoption_plan SET owner_hash=?, request_id=? WHERE id=? AND owner_hash=?',
+                         (owner, 'import:' + plan_id, plan_id, legacy))
+        conn.execute('UPDATE owner_session SET revoked_at=? WHERE token_hash=?', (now.isoformat(), legacy))
+    return len(rows)

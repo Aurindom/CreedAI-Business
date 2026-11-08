@@ -117,5 +117,15 @@ def validate_answer(raw: str | dict, package: EvidencePackage, guard: LeakGuard 
         if answer.followup_id:
             lines.append(package.followups[answer.followup_id])
         return safe("\n\n".join(lines), "validated", ids=chosen)
-    except (ValidationError, ValueError, KeyError):
-        return safe(FALLBACK, "fallback", "invalid_grounding")
+    except ValidationError:
+        return safe(FALLBACK, 'fallback', 'invalid_schema')
+    except KeyError:
+        return safe(FALLBACK, 'fallback', 'missing_source')
+    except ValueError as exc:
+        # Fixed codes only: never return exception data or model-authored text.
+        codes = {'wrong_package', 'unsupported_winner', 'duplicate_claim',
+                 'missing_required_context', 'unsupported_claim', 'mismatched_evidence',
+                 'missing_winner_evidence', 'unsupported_followup',
+                 'invalid_json_fence', 'multiple_json_fences'}
+        code = exc.args[0] if exc.args and exc.args[0] in codes else 'invalid_json'
+        return safe(FALLBACK, 'fallback', code)

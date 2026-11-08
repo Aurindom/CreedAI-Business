@@ -1,4 +1,5 @@
 import hmac
+import asyncio
 import os
 import threading
 import uuid
@@ -9,7 +10,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import access, adoption, db, discovery, web
+from . import access, adoption, auth, db, discovery, web
 from .capacity import Capacity
 from .chat import router as chat_router
 from .chat_history import router as chat_history_router
@@ -71,6 +72,7 @@ async def lifespan(app: FastAPI):
         app.state.catalog = db.read_catalog(conn)
         app.state.conn = conn
         app.state.lock = threading.Lock()
+        app.state.history_lock = asyncio.Lock()
         app.state.capacity = Capacity(1)
         app.state.discovery_finder = None
         yield
@@ -82,6 +84,15 @@ app = FastAPI(title="Main Street AI", lifespan=lifespan)
 web.install(app)
 app.include_router(chat_router)
 app.include_router(chat_history_router)
+
+
+@app.middleware('http')
+async def private_responses_are_not_cached(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith(('/api/auth/', '/api/plans', '/api/chat/history')):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Vary'] = 'Authorization'
+    return response
 
 
 def _catalog(request: Request) -> Catalog:
@@ -98,13 +109,10 @@ def _private_enabled() -> None:
         raise HTTPException(status_code=503, detail="Saving private plans is turned off on this server")
 
 
-def _owner(request: Request, authorization: str | None = Header(default=None)) -> str:
+async def _owner(request: Request, principal: auth.Principal = Depends(auth.require_account)) -> str:
     _private_enabled()
     with request.app.state.lock:
-        try:
-            return access.owner_for(request.app.state.conn, access.bearer(authorization), _now())
-        except access.AccessDenied as exc:
-            raise HTTPException(status_code=401, detail=exc.args[0], headers={"WWW-Authenticate": "Bearer"}) from exc
+        return access.account_owner(request.app.state.conn, principal.user_id, _now())[0]
 
 
 @app.get("/api/health")
@@ -201,20 +209,39 @@ def resolve_task_route(request: Request, body: TaskRequest) -> TaskMatch:
     return resolve_task(_catalog(request), body.text)
 
 
-@app.post("/api/sessions", status_code=201)
-def start_session(request: Request) -> OwnerSession:
-    """No account is made. The token is shown once and is the only way back into the plans saved under it."""
-    _private_enabled()
-    with request.app.state.lock:
-        token, expires = access.create_session(request.app.state.conn, _now())
-    return OwnerSession(token=token, expires_at=expires)
+@app.post("/api/sessions", deprecated=True)
+def start_session(request: Request):
+    """Deprecated browser-only session creation; account sign-in now owns plans."""
+    raise HTTPException(410, 'Sign in to save plans. New browser-only private sessions are no longer created.')
 
 
 @app.delete("/api/sessions/current", status_code=204)
-def end_session(request: Request, owner: str = Depends(_owner)) -> Response:
+def end_session(request: Request) -> Response:
+    raise HTTPException(410, 'Use account sign out to close this login session.')
+
+
+@app.get('/api/auth/me')
+def account_details(request: Request, principal: auth.Principal = Depends(auth.optional_account)):
+    if not principal.authenticated:
+        return {'auth_mode': 'guest', 'user_id': None, 'business_id': None}
     with request.app.state.lock:
-        access.revoke(request.app.state.conn, owner, _now())
-    return Response(status_code=204)
+        _, business = access.account_owner(request.app.state.conn, principal.user_id, _now())
+    return {'auth_mode': 'account', 'user_id': principal.user_id, 'business_id': business}
+
+
+class LegacyClaim(BaseModel):
+    legacy_token: str = Field(min_length=20, max_length=200)
+
+
+@app.post('/api/plans/claim-legacy')
+def claim_browser_plans(request: Request, body: LegacyClaim, principal: auth.Principal = Depends(auth.require_account)):
+    _private_enabled()
+    with request.app.state.lock:
+        try:
+            count = access.claim_legacy(request.app.state.conn, principal.user_id, body.legacy_token, _now())
+        except access.AccessDenied:
+            raise HTTPException(401, 'The old private session cannot be claimed') from None
+    return {'imported': count}
 
 
 @app.get("/api/plans")

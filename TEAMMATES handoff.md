@@ -1,5 +1,14 @@
 # TEAMMATES handoff
 
+**Newest checkpoint:** Penny/Supabase source is integrated;697 backend tests,
+23 UI tests/build passed. For current behavior read
+[integration review](docs/AUTH_PENNY_INTEGRATION_REVIEW.md). Production auth work
+is assigned through [production teammate handoff](docs/PRODUCTION_AUTH_TEAMMATE_HANDOFF.md);
+Claude's independent Wxx continuation is [here](docs/CLAUDE_WXX_RESUME.md).
+These override older browser-token ownership, missing-login and early test counts
+below. Second real account still signupHTTP429; public production is not yet
+verified. Start from latest origin/aurin-test and record its SHA.
+
 Written 2026-11-07 for the two teammates joining the build. Everything you need is in this file. You don't need any notes outside this repository.
 
 Hackathon deadline: **Sunday 2026-11-08, 11:59pm** (10-minute video plus a prototype link judges can test).

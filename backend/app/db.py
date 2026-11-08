@@ -27,6 +27,30 @@ CREATE TABLE IF NOT EXISTS owner_session (
     expires_at TEXT NOT NULL,
     revoked_at TEXT
 );
+CREATE TABLE IF NOT EXISTS account_owner (
+    user_id TEXT PRIMARY KEY,
+    owner_hash TEXT NOT NULL UNIQUE REFERENCES owner_session(token_hash),
+    business_id TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS revoked_auth_session (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    revoked_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chat_conversation (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    recover_until TEXT,
+    PRIMARY KEY (user_id, conversation_id)
+);
+CREATE TABLE IF NOT EXISTS chat_session_usage (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    PRIMARY KEY (user_id, conversation_id, session_id)
+);
 CREATE TABLE IF NOT EXISTS adoption_plan (
     id TEXT PRIMARY KEY,
     owner_hash TEXT NOT NULL REFERENCES owner_session(token_hash),

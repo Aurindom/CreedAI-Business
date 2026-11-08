@@ -1,12 +1,13 @@
 param(
     [string]$Python = 'python',
-    [int]$Port = 8000
+    [int]$Port = 8000,
+    [string]$EnvFile = ''
 )
 
 $backendRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $localEnv = Join-Path $backendRoot 'app/.env'
+if ($EnvFile) { $localEnv = (Resolve-Path -LiteralPath $EnvFile).Path }
 $allowed = @{
-    ANTHROPIC_API_KEY = $true
     OPENROUTER_API_KEY = $true
     CHAT_PROVIDER = $true
     CHAT_SPEND_CAP_USD = $true
@@ -27,8 +28,8 @@ if (Test-Path -LiteralPath $localEnv) {
     }
 }
 
-if (-not $env:CHAT_PROVIDER -and $env:ANTHROPIC_API_KEY) { $env:CHAT_PROVIDER = 'anthropic' }
-if (-not $env:CHAT_SPEND_CAP_USD) { $env:CHAT_SPEND_CAP_USD = '2' }
+$env:CHAT_PROVIDER = 'openrouter'
+if (-not $env:CHAT_SPEND_CAP_USD) { $env:CHAT_SPEND_CAP_USD = '0.10' }
 $env:PYTHONDONTWRITEBYTECODE = '1'
 
 Push-Location $backendRoot

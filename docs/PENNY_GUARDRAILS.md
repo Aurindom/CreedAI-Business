@@ -47,20 +47,28 @@ python -m pytest tests/test_owner_phrases.py tests/test_tasks.py tests/test_chat
 Run `npm test` from `frontend` for the owner-facing note, blocked-message history, and validation-outage checks. Then run the complete backend suite and frontend production build. Model calls in backend tests are mocked; prompt text checks do not guarantee the wording of every live-model response. Live answer quality needs a separate reviewed evaluation before claiming measured accuracy.
 
 
-## Live-only Penny and the $2 Claude test
+## Current provider and answer contract
 
-There is no demo chat, `VITE_CHAT_MODE` switch, scripted intake, or browser keyword matcher. Penny checks the backend's availability and uses `/api/chat`; failures stay errors, including partial replies. Missing keys and exhausted budgets do not activate another chatbot. Old v1 browser transcripts are not restored into the live-only v2 chat session.
+Penny uses OpenRouter only, pinned to `anthropic/claude-haiku-4.5`. The retained
+`anthropic_chat.py` adapter is legacy test code and is not selected by public chat.
+The backend token/key remains server-side. `CHAT_SPEND_CAP_USD` defaults to 0.10;
+its persistent reservation ledger is not an account-wide provider hard stop.
+Missing/invalid usage retains the reservation and stops the turn. No paid repair
+loop runs after invalid selection.
 
-For a small direct-Claude test, configure these variables on the backend process, not in frontend code or chat:
+The model selects `claim_ids` and an optional supported `followup_id` through
+`submit_answer`. Request-specific schemas enumerate approved IDs. The backend
+adds required context and winner support, binds the current evidence package and
+citations, then validates and renders the text. Model prose, prices, invented IDs,
+extra policy fields and submissions mixed with actions are rejected. Validation
+logs contain fixed status/reason codes, not raw owner/model content.
 
-```
-CHAT_PROVIDER=anthropic
-ANTHROPIC_MODEL=claude-haiku-5-5
-CHAT_SPEND_CAP_USD=2
-```
+Signed-in requests carry a Supabase token in the HTTP header; the backend derives
+account/session identity. Guests receive no account authority. Identity IDs and
+credentials do not enter the model prompt. Logout is checked before model rounds
+and outgoing frames. The UI aborts requests and resets private context on account
+changes. See ACCOUNT_CHAT_A2UI.md for account/cache/plan behavior.
 
-Set `ANTHROPIC_API_KEY` locally through the server's secret/environment mechanism. Never paste it into Penny, source files, command output, or Git. The app ledger survives restarts; do not reset it to bypass the test budget.
-
-Also use a dedicated Claude Console workspace/key with its monthly spend limit set to $2, and confirm the setting before sending paid test traffic. Workspace limits: https://platform.claude.com/docs/en/manage-claude/workspaces . Model pricing: https://platform.claude.com/docs/en/about-claude/pricing . The app ledger is an estimate using recorded usage and configured rates, and reserves before each call; it is not a guarantee of a cent-exact provider bill or an independent provider-level cap. Existing in-flight calls, retries, usage-report differences, and price/model changes must be considered. Provider billing/limits remain authoritative.
-
-Tests inject model responses or HTTP streams; they do not use the paid API. A live quality evaluation must be run separately after the workspace/key and budget are configured. No API key or workspace spend setting was created by these code changes.
+The check suite uses mocks; real provider evidence is documented separately in
+AUTH_PENNY_INTEGRATION_REVIEW.md. Passing fixtures does not verify fresh vendor
+truth, universal model compliance, deployment capacity or every attack encoding.
