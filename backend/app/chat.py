@@ -41,7 +41,7 @@ MAX_ROUNDS = 3
 MAX_OUTPUT_TOKENS = 800
 MODEL_TIMEOUT_SECONDS = 25
 MAX_TRACKED_CLIENTS = 5000
-NO_ANSWER = "I couldn't finish that one. Try asking in a different way."
+NO_ANSWER = "Penny couldn't complete this reply. Please retry, or browse the tools on this page."
 
 PENNY = """You are Penny, the AI guide for Main Street AI. Help small business owners understand their current software, compare options, and choose a practical next step.
 
@@ -51,6 +51,11 @@ call respond_conversationally alone with a short, natural reply. That tool is fo
 conversation management only: do not name vendors, state product facts, amounts,
 URLs, promises or completed actions. Do not show recommendations just because an
 earlier task exists. Preserve the task and pending question during small talk.
+This tool ends the turn: never say you will fetch, find or show recommendations
+later, or announce a list without actually calling the catalog tools. A greeting
+alone gets a greeting; do not resume an earlier business task unprompted.
+For greetings and thanks, answer the current social message and end. Do not
+introduce an earlier problem or propose working on it unless the owner asks.
 For product facts and recommendations, select actions and approved claim IDs;
 finish by calling submit_answer. The backend writes those factual answers.
 Use ask_owner only for a necessary missing detail about an actual task.
@@ -776,6 +781,12 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             raw = conversational[0]['arguments'] if len(turn['calls']) == 1 else {}
             validated = validate_conversation(raw, original_catalog, guard)
             observe_validation(validated)
+            if validated.reason == 'unfulfilled_action':
+                conversation.add_results([(conversational[0]['id'], json.dumps({
+                    'error': 'This conversational reply promised an action but ends the turn. For small talk, reply naturally without promising later work or resuming an old task. If the latest owner message requests tools, call recommend_tools now and finish with submit_answer.',
+                }))])
+                yield {'type': 'status', 'text': 'Preparing your reply'}
+                continue
             for event in reply_events(validated.text, validated.status):
                 event['response_mode'] = 'conversation'
                 yield event

@@ -24,6 +24,15 @@ _FACTUAL = re.compile(
     re.I,
 )
 
+# Conversation replies end the turn. They cannot promise work that only a
+# catalog action can perform, or announce results that were never produced.
+_UNFULFILLED_ACTION = re.compile(
+    r"\b(?:let me|let['\u2019]s|(?:i|we)(?:['\u2019]ll| will| am going to|'m going to| are going to))\b"
+    r"[^.!?]{0,100}\b(?:get|find|fetch|look|search|check|recommend|compare|show|suggest|provide|pull)\b|"
+    r"\bhere (?:are|is)\b[^.!?]{0,50}\b(?:recommendations?|options?|tools?|results?)\b",
+    re.I,
+)
+
 
 def validate_conversation(raw, catalog, guard):
     wire = json.dumps(raw, default=str)
@@ -35,6 +44,8 @@ def validate_conversation(raw, catalog, guard):
     except ValidationError:
         return ValidatedReply(status='fallback', text=FALLBACK, reason='invalid_conversation_schema')
     text = reply.text.strip()
+    if _UNFULFILLED_ACTION.search(text):
+        return ValidatedReply(status='fallback', text=FALLBACK, reason='unfulfilled_action')
     product_names = [tool.name for tool in catalog.tools] + [tool.id for tool in catalog.tools]
     names_product = any(re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text, re.I)
                         for name in product_names if name)

@@ -90,6 +90,24 @@ test('a real chat event sequence displays cards once and hides repeated evidence
   assert.doesNotMatch(document.querySelector('.msc-log').textContent, /duplicated audit paragraph/)
   assert.match(document.querySelector('.msc-log').textContent, /could not be validated/)
   assert.equal(document.querySelector('.msc-service-link').href, 'https://example.com/')
+  let printCalls = 0
+  window.print = () => {
+    printCalls += 1
+    assert.match(document.querySelector('.msc-print').textContent, /Example service/)
+  }
+  await act(async () => document.querySelector('.msc-print-button').click())
+  assert.equal(printCalls, 1)
+  assert.equal(document.querySelector('.msc-summary-overlay').getAttribute('role'), 'dialog')
+  assert.match(document.querySelector('.msc-summary-controls').textContent, /Print menu/)
+  await act(async () => [...document.querySelectorAll('.msc-summary-controls button')].find(button => button.textContent === 'Close summary').click())
+  assert.equal(document.querySelector('.msc-summary-overlay'), null)
+  assert.equal(document.querySelector('.msc-panel').hidden, false)
+  window.print = () => { throw new Error('Printing blocked by this browser') }
+  await act(async () => document.querySelector('.msc-print-button').click())
+  assert.ok(document.querySelector('.msc-summary-overlay'))
+  await act(async () => document.querySelector('.msc-summary-overlay').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  assert.equal(document.querySelector('.msc-summary-overlay'), null)
+  assert.equal(document.querySelector('.msc-panel').hidden, false)
 })
 
 test('blocked email message stays out of history and is editable', async () => {

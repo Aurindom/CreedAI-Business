@@ -73,3 +73,44 @@ def test_conversation_keeps_secret_leak_guard(client):
     assert guard.tripped
     assert reply.status == 'blocked'
     assert canary not in json.dumps(reply.model_dump())
+
+
+@pytest.mark.parametrize('promise', [
+    'Let me get you some recommendations for handling that.',
+    "I'll find some tools for you.",
+    'I will check the options now.',
+    'Here are the recommendations for your business.',
+    "You mentioned missing calls. Let's find a solution for that.",
+])
+def test_unfulfilled_conversation_promises_are_repaired_without_restarting_old_tasks(client, monkeypatch, promise):
+    seen = script(monkeypatch,
+                  calls(('respond_conversationally', {'intent': 'greeting', 'text': promise})),
+                  calls(('respond_conversationally', {'intent': 'greeting', 'text': "I'm doing well, thanks! How are you?"})))
+    events = send(client, message='hello how are you?', memory={'active_task_ids': ['missed_calls']}, history=[
+        {'role': 'user', 'text': 'I miss calls on jobs'}, {'role': 'assistant', 'text': 'Here are the options.'}])
+    assert len(seen) == 2
+    assert promise not in text(events)
+    assert text(events) == "I'm doing well, thanks! How are you?"
+    assert not any(event.get('surface') == 'recommendation' for event in events)
+
+
+def test_product_request_repair_delivers_actual_cards_in_the_same_turn(client, monkeypatch):
+    seen = script(monkeypatch,
+                  calls(('respond_conversationally', {'intent': 'help', 'text': "I'll find you some tools."})),
+                  calls(('recommend_tools', {'problem_id': 'missed_calls', 'task_text': 'People hang up before we can speak'})),
+                  calls(('submit_answer', {'claim_ids': []})))
+    events = send(client, message='People hang up before we can speak', profile={'trade': 'hvac'})
+    assert len(seen) == 3
+    assert 'find you some tools' not in text(events)
+    assert any(event.get('surface') == 'recommendation' for event in events)
+    assert any(event.get('validation') == 'validated' for event in events)
+
+
+def test_repeated_action_promises_stop_at_the_request_limit(client, monkeypatch):
+    promise = 'Let me find some recommendations.'
+    seen = script(monkeypatch, *[calls(('respond_conversationally', {'intent': 'greeting', 'text': promise})) for _ in range(chat.MAX_ROUNDS)])
+    events = send(client, message='hello')
+    assert len(seen) == chat.MAX_ROUNDS
+    assert promise not in text(events)
+    assert 'Please retry' in text(events)
+    assert events[-1]['type'] == 'done'

@@ -1,6 +1,6 @@
 """Trusted answer packages for Penny; never use owner/history numbers as facts."""
 from .agent.evidence import Claim, Source, _finish, _safe, build_evidence, build_request_evidence
-from .tasks import affirmative_excerpt, resolve_task
+from .tasks import affirmative_excerpt, owner_excerpts, resolve_task
 import re
 
 
@@ -55,7 +55,7 @@ def task_ids(catalog, body):
 
 
 def selected_task_ids(catalog, body, arguments):
-    """Accept semantic catalog intent with owner evidence; never override a clear or ambiguous literal task."""
+    """Bind semantic choices to owner evidence, distinguishing separate needs from ambiguity."""
     selected = str(arguments.get('problem_id', ''))
     catalog.problem(selected)
     if selected in task_ids(catalog, body):
@@ -65,7 +65,12 @@ def selected_task_ids(catalog, body, arguments):
         raise ActionContextError('Task needs an exact owner excerpt')
     current = resolve_task(catalog, body.message)
     choices = [card.id for card in current.choices]
-    if current.status == 'matched' or (current.status == 'ambiguous' and choices != [selected]):
+    excerpt_match = resolve_task(catalog, excerpt)
+    specific_excerpt = excerpt_match.status == 'matched' and excerpt_match.problem_id == selected
+    separate_need = (excerpt_match.status == 'unsupported' and excerpt in owner_excerpts(body.message)
+                     and excerpt.strip() != body.message.strip())
+    if (current.status == 'matched' and not separate_need) or (current.status == 'ambiguous' and choices != [selected]
+                                      and not (selected in choices and specific_excerpt)):
         raise ActionContextError('Do not override the current task or its ambiguity')
     pending = pending_tasks(catalog, body)
     if (current.status == 'unsupported' and pending == [selected]
@@ -82,7 +87,9 @@ def selected_task_ids(catalog, body, arguments):
             continue
         match = resolve_task(catalog, source)
         if (match.status == 'unsupported' or (match.status == 'matched' and match.problem_id == selected)
-                or (match.status == 'ambiguous' and [card.id for card in match.choices] == [selected])):
+                or (source == body.message and separate_need)
+                or (match.status == 'ambiguous' and ([card.id for card in match.choices] == [selected]
+                    or (selected in [card.id for card in match.choices] and specific_excerpt)))):
             return [selected]
     raise ActionContextError('Task excerpt must come from an affirmative owner request')
 

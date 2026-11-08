@@ -41,7 +41,9 @@ def owner_excerpts(text: str) -> list[str]:
     """Offer exact source spans for structured routing, never catalog prose."""
     clauses = [part.strip() for clause in _CLAUSE_BREAK.split(text)
                for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
-    return [part for part in dict.fromkeys([text, *clauses])
+    coordinated = [part.strip() for clause in clauses if affirmative_excerpt(text, clause)
+                   for part in re.split(r'\band\b', clause, flags=re.I)]
+    return [part for part in dict.fromkeys([text, *clauses, *coordinated])
             if 1 <= len(part) <= 500 and affirmative_excerpt(text, part)]
 
 

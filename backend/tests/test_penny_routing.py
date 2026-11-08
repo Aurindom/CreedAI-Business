@@ -220,3 +220,13 @@ def test_routing_excerpts_are_constrained_to_owner_text_and_private_metadata_sta
     result = __import__('json').loads(seen[1][-1]['content'])
     assert 'routing_required' in result
     assert 'evidence_package' not in result
+
+
+def test_two_explicit_needs_are_not_treated_as_an_unresolved_single_choice(client, monkeypatch):
+    script(monkeypatch,
+           calls(('recommend_tools', {'problem_id': 'bookkeeping', 'task_text': 'My books are behind'}),
+                 ('recommend_tools', {'problem_id': 'missed_calls', 'task_text': 'calls go unanswered'})),
+           calls(('submit_answer', {'claim_ids': []})))
+    events = send(client, message='My books are behind and calls go unanswered', profile={'trade': 'hvac'})
+    assert {event['problem_id'] for event in events if event['type'] == 'recommendation'} == {'bookkeeping', 'missed_calls'}
+    assert any(event.get('validation') == 'validated' for event in events)
