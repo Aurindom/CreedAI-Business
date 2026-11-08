@@ -12,7 +12,7 @@
 .msc-identity > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .msc-live { padding: 3px 8px; border-radius: 6px; background: #cfe4f7; color: #12252c; font-size: 12px; font-weight: 700; }
 .msc-header h2 { margin: 0; font-size: 18px; font-weight: 700; color: #fff; }
-.msc-demo { padding: 3px 8px; border-radius: 6px; background: #cfe4ad; color: #12252c; font-size: 12px; font-weight: 700; }
+.msc-unavailable { padding: 3px 8px; border-radius: 6px; background: #cfe4ad; color: #12252c; font-size: 12px; font-weight: 700; }
 .msc-header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .msc-text-button { min-height: 40px; padding: 0 8px; border: 0; background: transparent; color: #dcebe2; font-size: 14px; text-decoration: underline; }
 .msc-close { width: 40px; height: 40px; border: 0; border-radius: 8px; background: #1f3e44; color: #fff; font-size: 24px; line-height: 1; }

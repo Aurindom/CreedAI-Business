@@ -1,4 +1,4 @@
-const KEY = 'main-street-penny-session-v1'
+const KEY = 'main-street-penny-session-v2'
 const MAX_SAVED_MESSAGES = 40
 const MAX_HISTORY = 12
 
@@ -54,21 +54,11 @@ export function clearSession(storage = store()) {
 export function historyFor(messages, { dropLastUser = false } = {}) {
   const items = messages.flatMap((message) => {
     if (message.kind === 'user') return [{ role: 'user', text: message.text }]
-    if (message.kind === 'assistant' || message.kind === 'clarify') return [{ role: 'assistant', text: message.text }]
+    if (message.kind === 'assistant' || message.kind === 'clarify' || message.kind === 'a2ui') return [{ role: 'assistant', text: message.text }]
     if (message.kind === 'result') return [{ role: 'assistant', text: `I showed these results: ${message.recommendation.message}` }]
     return []
   }).map((item) => ({ ...item, text: item.text.slice(0, 2000) }))
     .filter((item) => item.text.trim())
   if (dropLastUser && items[items.length - 1]?.role === 'user') items.pop()
   return items.slice(-MAX_HISTORY)
-}
-
-export function greetingFor(conversationId) {
-  const greetings = [
-    "Hi, I'm Penny. What's eating up your time lately?",
-    "Hi, I'm Penny. What's the most annoying part of your week?",
-    "Hi, I'm Penny. Where does your business keep losing time or money?",
-  ]
-  const total = [...conversationId].reduce((sum, letter) => sum + letter.charCodeAt(0), 0)
-  return greetings[total % greetings.length]
 }

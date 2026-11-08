@@ -7,6 +7,25 @@ _CLAUSE_BREAK = re.compile(r"[.;!?\n]+|,?\s+\b(?:but|however|although|though|whe
 _NEGATION = re.compile(r"\b(?:not|no|never|without|dont|doesnt|didnt|isnt|arent|wont|cant)\b|n['’]t\b", re.IGNORECASE)
 
 
+# Deliberately narrow spelling/slang aliases, not fuzzy matching of arbitrary words.
+# Punctuation and negation remain in place for the existing clause safety rules.
+_OWNER_WORDS = {
+    'bookz': 'books', 'bookkeepin': 'bookkeeping', 'bookeeping': 'bookkeeping',
+    'bookeping': 'bookkeeping', 'reciepts': 'receipts', 'expences': 'expenses',
+    'invoicz': 'invoices', 'inovices': 'invoices', 'invoics': 'invoices',
+    'paymnts': 'payments', 'reivews': 'reviews', 'reviewz': 'reviews',
+    'replyin': 'reply', 'respondin': 'respond', 'ringin': 'rings', 'fone': 'phone',
+    'schedual': 'schedule', 'scedule': 'schedule', 'schedul': 'schedule',
+    'appt': 'appointments', 'appts': 'appointments', 'appointmnts': 'appointments',
+    'custmers': 'customers', 'newsleter': 'newsletter', 'shiffts': 'shifts',
+    'dispatchin': 'dispatch', 'tecs': 'technicians', 'r': 'are', 'aint': 'not',
+}
+
+def _owner_text(text: str) -> str:
+    text = re.sub(r"\bbook\s+keeping\b", 'bookkeeping', text, flags=re.I)
+    return re.sub(r"[a-z]+", lambda match: _OWNER_WORDS.get(match.group().casefold(), match.group()), text, flags=re.I)
+
+
 def _stem(word: str) -> str:
     """Crude on purpose: it only has to make 'booking' meet 'book' and 'replies' meet 'reply'."""
     for suffix, swap in _SUFFIXES:
@@ -52,7 +71,7 @@ def resolve_task(catalog: Catalog, text: str) -> TaskMatch:
     """
     stated: list[ProblemCard] = []
     negated: list[ProblemCard] = []
-    for clause in _CLAUSE_BREAK.split(text):
+    for clause in _CLAUSE_BREAK.split(_owner_text(text)):
         if clause and clause.strip():
             _add(negated if _NEGATION.search(clause) else stated, _clause_hits(catalog, clause))
     choices = stated + [card for card in negated if card not in stated]

@@ -140,7 +140,10 @@ def test_memory_keeps_only_real_ids(client, monkeypatch):
 def test_clarify_ends_the_turn(client, monkeypatch):
     seen = script(monkeypatch, calls(("ask_owner", {"question": "Which one?", "choices": ["Staff", "Jobs"]})))
     events = send(client)
-    assert kinds(events) == ["status", "clarify", "done"]
+    assert kinds(events) == ["status", "a2ui", "clarify", "done"]
+    surface = events[1]["messages"]
+    assert surface[0]["createSurface"]["catalogId"] == "https://mainstreet.ai/catalogs/penny/v1"
+    assert surface[1]["updateComponents"]["components"][0]["choices"] == ["Staff", "Jobs"]
     assert len(seen) == 1
 
 
@@ -151,12 +154,12 @@ def test_round_limit_stops_the_loop(client, monkeypatch):
     assert kinds(events)[-2:] == ["message_delta", "done"]
 
 
-def test_model_failure_asks_for_fallback_without_leaking(client, monkeypatch):
+def test_model_failure_reports_unavailable_without_leaking(client, monkeypatch):
     script(monkeypatch, httpx.ConnectError("test-secret-key"))
     response = client.post("/api/chat", json={"conversation_id": "c", "message": "hi"})
     assert "test-secret-key" not in response.text
     event = next(json.loads(line[6:]) for line in response.text.splitlines() if '"error"' in line)
-    assert event["fallback"] is True and event["code"] == "agent_unavailable"
+    assert "fallback" not in event and event["retryable"] is True and event["code"] == "agent_unavailable"
 
 
 def test_spending_cap_blocks_calls_and_survives_a_new_ledger(client, monkeypatch, tmp_path):

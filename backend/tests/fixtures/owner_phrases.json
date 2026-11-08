@@ -1,0 +1,292 @@
+[
+  {
+    "text": "my bookz r behind",
+    "status": "matched",
+    "problem_id": "bookkeeping",
+    "source": "user-provided example"
+  },
+  {
+    "text": "phone keeps ringin",
+    "status": "matched",
+    "problem_id": "missed_calls",
+    "source": "user-provided example"
+  },
+  {
+    "text": "my books are behind",
+    "status": "matched",
+    "problem_id": "bookkeeping",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "bookkeepin takes forever",
+    "status": "matched",
+    "problem_id": "bookkeeping",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "I lost my reciepts",
+    "status": "matched",
+    "problem_id": "bookkeeping",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "tracking expences is hard",
+    "status": "matched",
+    "problem_id": "bookkeeping",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "need help with book keeping",
+    "status": "matched",
+    "problem_id": "bookkeeping",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "I keep missing calls",
+    "status": "matched",
+    "problem_id": "missed_calls",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "the fone rings all day",
+    "status": "matched",
+    "problem_id": "missed_calls",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "nobody picks up",
+    "status": "matched",
+    "problem_id": "missed_calls",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "answering service for my shop",
+    "status": "matched",
+    "problem_id": "missed_calls",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "voicemail is full",
+    "status": "matched",
+    "problem_id": "missed_calls",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "need more reviewz",
+    "status": "matched",
+    "problem_id": "review_requests",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "how do I ask for reviews",
+    "status": "matched",
+    "problem_id": "review_requests",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "get reviews from customers",
+    "status": "matched",
+    "problem_id": "review_requests",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "replyin to reivews takes hours",
+    "status": "matched",
+    "problem_id": "review_replies",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "respondin to reviews is slow",
+    "status": "matched",
+    "problem_id": "review_replies",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "answer reviews for my shop",
+    "status": "matched",
+    "problem_id": "review_replies",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "send inovices faster",
+    "status": "matched",
+    "problem_id": "invoicing",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "invoicz are piling up",
+    "status": "matched",
+    "problem_id": "invoicing",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "late paymnts every week",
+    "status": "matched",
+    "problem_id": "invoicing",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "need to get paid",
+    "status": "matched",
+    "problem_id": "invoicing",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "schedual jobs for my team",
+    "status": "matched",
+    "problem_id": "job_scheduling",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "dispatchin tecs all day",
+    "status": "matched",
+    "problem_id": "job_scheduling",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "work orders are a mess",
+    "status": "matched",
+    "problem_id": "job_scheduling",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "staff scedule is a mess",
+    "status": "matched",
+    "problem_id": "staff_scheduling",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "shiffts keep changing",
+    "status": "matched",
+    "problem_id": "staff_scheduling",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "need help with rota",
+    "status": "matched",
+    "problem_id": "staff_scheduling",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "book appts online",
+    "status": "matched",
+    "problem_id": "appointment_booking",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "appointmnts take too long",
+    "status": "matched",
+    "problem_id": "appointment_booking",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "need an online booking page",
+    "status": "matched",
+    "problem_id": "appointment_booking",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "website visitors leave without asking",
+    "status": "ambiguous",
+    "problem_id": null,
+    "source": "synthetic representative owner wording",
+    "rationale": "Conservatively confirm the negated outcome rather than treating a keyword as an explicit request."
+  },
+  {
+    "text": "live chat for our website",
+    "status": "matched",
+    "problem_id": "website_chat_leads",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "add a chat widget",
+    "status": "matched",
+    "problem_id": "website_chat_leads",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "quote requests sit unanswered",
+    "status": "matched",
+    "problem_id": "slow_lead_replies",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "follow up leads faster",
+    "status": "matched",
+    "problem_id": "slow_lead_replies",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "respond to inquiries sooner",
+    "status": "matched",
+    "problem_id": "slow_lead_replies",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "send a newsleter",
+    "status": "matched",
+    "problem_id": "email_marketing",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "past custmers never come back",
+    "status": "ambiguous",
+    "problem_id": null,
+    "source": "synthetic representative owner wording",
+    "rationale": "Conservatively confirm the negated outcome rather than treating a keyword as an explicit request."
+  },
+  {
+    "text": "email list for my shop",
+    "status": "matched",
+    "problem_id": "email_marketing",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "our register is old",
+    "status": "matched",
+    "problem_id": "point_of_sale",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "point of sale for a cafe",
+    "status": "matched",
+    "problem_id": "point_of_sale",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "checkout is too slow",
+    "status": "matched",
+    "problem_id": "point_of_sale",
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "schedual",
+    "status": "ambiguous",
+    "problem_id": null,
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "my bookz are not behind",
+    "status": "ambiguous",
+    "problem_id": null,
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "phone keeps ringin but my bookz are behind too",
+    "status": "ambiguous",
+    "problem_id": null,
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "I need a drone that fixes my roof",
+    "status": "unsupported",
+    "problem_id": null,
+    "source": "synthetic representative owner wording"
+  },
+  {
+    "text": "my cooking needs help",
+    "status": "unsupported",
+    "problem_id": null,
+    "source": "synthetic representative owner wording"
+  }
+]

@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
-import ChatResult from './ChatResult'
+import ChatResult, { safeUrl } from './ChatResult'
 import { clearSession, historyFor, loadSession, newConversationId, saveSession } from './chatSession'
+import { queueHistory } from './historyCache'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
 import PennyMemory from './PennyMemory'
@@ -20,19 +21,21 @@ const MAX_LENGTH = 500
 const SLOW_AFTER_MS = 8000
 const SPEAKING_MS = 1400
 const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
+const A2UIQuestion = React.lazy(() => import('./A2UIQuestion'))
 
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
 
-function Panel({ profile, open, onClose, onActivityChange }) {
+function Panel({ profile, auth, open, onClose, onActivityChange }) {
   const adapter = useMemo(() => createChatAdapter(), [])
-  const [restored] = useState(() => loadSession(EMPTY_MEMORY))
+  const [restored] = useState(() => auth?.configured ? null : loadSession(EMPTY_MEMORY))
   const [conversationId, setConversationId] = useState(() => restored?.conversationId || newConversationId())
   const [messages, setMessages] = useState(() => restored?.messages || [])
   const [memory, setMemory] = useState(() => restored?.memory || EMPTY_MEMORY)
   const [resumed, setResumed] = useState(() => Boolean(restored?.messages.length))
+  const [hydratedFor, setHydratedFor] = useState(null)
   const [names, setNames] = useState({ tools: {}, trades: {} })
-  const [live, setLive] = useState(false)
+  const [live, setLive] = useState(null)
   const [speaking, setSpeaking] = useState(false)
   const [input, setInput] = useState('')
   const [inputError, setInputError] = useState('')
@@ -54,6 +57,7 @@ function Panel({ profile, open, onClose, onActivityChange }) {
 
   useEffect(() => {
     adapter.isLive().then(setLive).catch(() => setLive(false))
+    if (auth?.configured) clearSession()
     loadCatalog()
       .then((data) => setNames({
         tools: Object.fromEntries(data.tools.map((tool) => [tool.id, tool.name])),
@@ -63,9 +67,35 @@ function Panel({ profile, open, onClose, onActivityChange }) {
     return () => clearTimeout(speakTimer.current)
   }, [adapter])
 
+  const userId = auth?.user?.id || null
+  const authToken = auth?.session?.access_token || null
+
   useEffect(() => {
-    saveSession({ conversationId, messages, memory })
-  }, [conversationId, messages, memory])
+    if (!auth?.configured || !auth.ready || !userId || !authToken) return undefined
+    let active = true
+    api.loadChatHistory(authToken).then((saved) => {
+      if (!active) return
+      if (saved?.conversationId && Array.isArray(saved.messages)) {
+        setConversationId(saved.conversationId)
+        setMessages(saved.messages)
+        setMemory({ ...EMPTY_MEMORY, ...saved.memory })
+        setResumed(saved.messages.length > 0)
+      }
+      setHydratedFor(userId)
+    }).catch(() => {
+      if (active) setNotice('Could not restore your short chat history. Penny is still available, but this chat is not being saved.')
+    })
+    return () => { active = false }
+  }, [auth?.configured, auth?.ready, userId])
+
+  useEffect(() => {
+    if (!auth?.configured) { saveSession({ conversationId, messages, memory }); return }
+    if (userId && authToken && hydratedFor === userId) {
+      queueHistory(authToken, { conversationId, messages: messages.filter((item) => item.kind !== 'loading').slice(-40), memory }).catch(() => {
+        setNotice('Penny could not save this short chat history. Please try again before signing out.')
+      })
+    }
+  }, [auth?.configured, userId, authToken, hydratedFor, conversationId, messages, memory])
 
   useEffect(() => {
     if (open) inputRef.current?.focus()
@@ -172,12 +202,22 @@ function Panel({ profile, open, onClose, onActivityChange }) {
     if (busyRef.current) return
     const run = begin()
     setInputError('')
+    try {
+      const validation = await api.validateChat({ conversation_id: conversationId, message: text, profile, memory, history: historyFor(messagesRef.current, { dropLastUser: isRetry }) })
+      if (run !== runRef.current) return
+      if (!validation.allowed) { setInputError(validation.message); finish(run); return }
+    } catch {
+      setInputError('We could not check this message safely. Please try again, or use the tool finder.')
+      finish(run)
+      return
+    }
     setNotice('')
-    setMessages((current) => current.map((item) => (item.kind === 'clarify' ? { id: item.id, kind: 'assistant', text: item.text } : item)))
+    setMessages((current) => current.map((item) => (item.kind === 'clarify' || item.kind === 'a2ui' ? { id: item.id, kind: 'assistant', text: item.text } : item)))
     setResumed(false)
 
     const pending = []
     let replyId = null
+    let receivedA2UIQuestion = false
     const history = historyFor(messagesRef.current, { dropLastUser: isRetry })
     if (!isRetry) {
       addMessage({ kind: 'user', text })
@@ -201,7 +241,11 @@ function Panel({ profile, open, onClose, onActivityChange }) {
           setMessages((current) => [...current, { id, kind: 'assistant', text: event.text }])
         }
       }
-      if (event.type === 'clarify') addMessage({ kind: 'clarify', text: event.question, choices: event.choices || [], progress: event.progress || '' })
+      if (event.type === 'a2ui') {
+        receivedA2UIQuestion = true
+        addMessage({ kind: 'a2ui', text: event.question, protocol: event.messages })
+      }
+      if (event.type === 'clarify' && !receivedA2UIQuestion) addMessage({ kind: 'clarify', text: event.question, choices: event.choices || [], progress: event.progress || '' })
       if (event.type === 'recommendation') pending.push(fetchRecommendation(event.problem_id, event.profile, run))
       if (event.type === 'sources') addMessage({ kind: 'sources', items: event.items || [] })
       if (event.type === 'error') {
@@ -237,7 +281,7 @@ function Panel({ profile, open, onClose, onActivityChange }) {
   function startOver() {
     runRef.current += 1
     busyRef.current = false
-    clearSession()
+    if (!auth?.configured) clearSession()
     setConversationId(newConversationId())
     setBusy(false)
     setStatus('')
@@ -274,11 +318,11 @@ function Panel({ profile, open, onClose, onActivityChange }) {
       <section className="msc-panel" id="penny-chat-panel" role="dialog" aria-label="Chat with Penny" hidden={!open}>
         <header className="msc-header">
           <div className="msc-identity">
-            <span className="penny-panel-mark" data-state={avatarState} aria-hidden="true">P<span /></span>
+            <span className="penny-panel-mark" data-state={avatarState} aria-hidden="true"><PennyAvatar size={36} state={avatarState} /><span /></span>
             <div className="penny-panel-heading">
               <span className="penny-panel-eyebrow">MAIN STREET / ASSISTANT</span>
               <h2>Penny</h2>
-              <span className={live ? 'msc-live' : 'msc-demo'}>{live ? 'Live AI' : 'Demo mode'}</span>
+              <span className={live ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : live ? 'Live AI' : 'Unavailable'}</span>
             </div>
           </div>
           <div className="msc-header-actions">
@@ -287,6 +331,8 @@ function Panel({ profile, open, onClose, onActivityChange }) {
           </div>
         </header>
 
+        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence and flags unknowns.</p></details>
+        {live === false && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
 
         <div className="msc-log" ref={logRef} role="log" aria-live="polite" aria-busy={busy}>
@@ -304,13 +350,14 @@ function Panel({ profile, open, onClose, onActivityChange }) {
 
           {messages.map((message) => {
             if (message.kind === 'user') return <div className="msc-row msc-row-user" key={message.id}><p>{message.text}</p></div>
-            if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><span className="penny-message-mark" aria-hidden="true">P</span><p>{message.text}</p></div>
+            if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{message.text}</p></div>
+            if (message.kind === 'a2ui') return <React.Suspense key={message.id} fallback={<div className="msc-loading">Loading choices…</div>}><A2UIQuestion protocol={message.protocol} onSelect={send} busy={busy} /></React.Suspense>
             if (message.kind === 'loading') return <div className="msc-loading" key={message.id}>Checking the catalog...</div>
             if (message.kind === 'clarify') {
               return (
                 <div className="msc-row msc-clarify" key={message.id}>
                   {message.progress && <span className="msc-progress">{message.progress}</span>}
-                  <div className="msc-clarify-question"><span className="penny-message-mark" aria-hidden="true">P</span><p>{message.text}</p></div>
+                  <div className="msc-clarify-question"><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{message.text}</p></div>
                   <div className="msc-choices">
                     {message.choices.map((choice) => <button type="button" key={choice} onClick={() => send(choice)} disabled={busy}>{choice}</button>)}
                   </div>
@@ -320,7 +367,7 @@ function Panel({ profile, open, onClose, onActivityChange }) {
             if (message.kind === 'sources') {
               return (
                 <ul className="msc-sources" key={message.id}>
-                  {message.items.map((item) => <li key={item.url}><a href={item.url} target="_blank" rel="noreferrer noopener">{item.title}</a>{item.checked ? `, checked ${item.checked}` : ''}</li>)}
+                  {message.items.filter((item) => safeUrl(item.url)).map((item) => <li key={item.url}><a href={item.url} target="_blank" rel="noreferrer noopener">{item.title}</a>{item.checked ? `, checked ${item.checked}` : ''}</li>)}
                 </ul>
               )
             }
@@ -338,7 +385,7 @@ function Panel({ profile, open, onClose, onActivityChange }) {
                 recommendation={message.recommendation}
                 statuses={message.statuses}
                 ruledOut={memory.ruled_out}
-                onPrint={() => setPrintData({ ...message, isDemo: !live })}
+                onPrint={() => setPrintData(message)}
               />
             )
           })}
@@ -384,7 +431,7 @@ function Panel({ profile, open, onClose, onActivityChange }) {
   )
 }
 
-function ChatPanelInner({ profile }) {
+function ChatPanelInner({ profile, auth }) {
   const [open, setOpen] = useState(false)
   const [activity, setActivity] = useState('idle')
   const launcher = useRef(null)
@@ -405,15 +452,15 @@ function ChatPanelInner({ profile }) {
           <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Penny <span aria-hidden="true">&#8599;</span></span>
         </button>
       )}
-      <Panel profile={profile} open={open} onClose={close} onActivityChange={setActivity} />
+      <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} />
     </div>
   )
 }
 
-function ChatPanel({ profile = {} }) {
+function ChatPanel({ profile = {}, auth }) {
   return (
     <ChatErrorBoundary>
-      <ChatPanelInner profile={profile} />
+      <ChatPanelInner profile={profile} auth={auth} />
     </ChatErrorBoundary>
   )
 }

@@ -20,13 +20,13 @@ function SummaryOption({ option, status }) {
 
 function ChatSummary({ data }) {
   if (!data) return null
-  const { recommendation, problemTitle, statuses, isDemo } = data
+  const { recommendation, problemTitle, statuses } = data
   const groups = vendorQuestions(recommendation)
 
   return createPortal(
     <section className="msc-print">
       <h1>Main Street AI summary</h1>
-      <p className="msc-print-meta">{problemTitle} · {new Date().toLocaleDateString()}{isDemo ? ' · Demo mode' : ''}</p>
+      <p className="msc-print-meta">{problemTitle} · {new Date().toLocaleDateString()}</p>
       <h2>{HEADLINES[recommendation.outcome] || 'Here is what I found'}</h2>
       <p>{recommendation.message}</p>
       {recommendation.tailoring_note && <p>{recommendation.tailoring_note}</p>}

@@ -6,6 +6,8 @@ import MainStreetBrand from './components/MainStreetBrand'
 import StreetHeaderScene from './components/StreetHeaderScene'
 import ComparisonWorkspace from './components/ComparisonWorkspace'
 import ChatPanel from './chat/ChatPanel'
+import AccountControls from './auth/AccountControls'
+import { useOwnerAuth } from './auth/ownerAuth'
 
 const stages = [
   { number: '01', title: 'Your business', detail: 'Give us a little context', anchor: 'business' },
@@ -170,6 +172,7 @@ function plural(count, word) {
 }
 
 function App() {
+  const auth = useOwnerAuth()
   const [trades, setTrades] = useState([])
   const [categories, setCategories] = useState([])
   const [allTools, setAllTools] = useState([])
@@ -359,6 +362,7 @@ function App() {
           </nav>
         </div>
         <button className="nav-quick-compare" type="button" onClick={openQuickCompare}>Compare tools <ArrowIcon size={15} /></button>
+        <AccountControls auth={auth} />
         <div className="sidebar-bottom">
           <div className="sidebar-tip-icon">✳</div>
           <strong>A calmer way to choose AI.</strong>
@@ -498,7 +502,7 @@ function App() {
           <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>
         </div>
       </main>
-      <ChatPanel profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
+      <ChatPanel auth={auth} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
     </div>
   )
 }
