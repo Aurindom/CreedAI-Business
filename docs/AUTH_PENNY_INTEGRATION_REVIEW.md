@@ -1,4 +1,4 @@
-# Supabase ownership, logout recovery and grounded Penny — 2026-11-07
+# Supabase ownership, logout recovery and grounded Penny: 2026-11-07
 
 ## Outcome
 

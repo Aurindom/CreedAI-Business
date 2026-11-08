@@ -1,4 +1,4 @@
-# Aurin integration into Giri — 2026-11-08
+# Aurin integration into Giri: 2026-11-08
 
 Merged `origin/aurin-test` at `1e77d78` into `giri-test`, starting from `93373a9`. This adds the incoming Hermes routing, model gateway, public operations, discovery and automatic evidence verification work while retaining account favourites, 30-day chat retention, history deletion and the updated Mailjet handoff. The source `aurin-test` branch was not modified.
 
