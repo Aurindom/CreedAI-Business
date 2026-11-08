@@ -25,6 +25,7 @@ from .agent.grounding import default_answer, validate_answer, FALLBACK
 from .agent.guard import LeakGuard
 from .agent.evidence import EvidencePackage, build_evidence
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
+from .penny_conversation import ConversationReply, validate_conversation
 from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats
 
 logger = logging.getLogger(__name__)
@@ -43,13 +44,20 @@ NO_ANSWER = "I couldn't finish that one. Try asking in a different way."
 
 PENNY = """You are Penny, the AI guide for Main Street AI. Help small business owners understand their current software, compare options, and choose a practical next step.
 
-You select actions and approved claim IDs. The backend writes the owner's answer.
-Every response must call a supplied tool. To finish, call submit_answer with the
-structured claim selection. Do not write conversational prose, introductions,
-explanations or product descriptions. Use ask_owner for a necessary question.
+Every response must call a supplied tool. Choose the latest owner's intent first.
+For greetings, thanks, conversational feedback, app help or scope explanations,
+call respond_conversationally alone with a short, natural reply. That tool is for
+conversation management only: do not name vendors, state product facts, amounts,
+URLs, promises or completed actions. Do not show recommendations just because an
+earlier task exists. Preserve the task and pending question during small talk.
+For product facts and recommendations, select actions and approved claim IDs;
+finish by calling submit_answer. The backend writes those factual answers.
+Use ask_owner only for a necessary missing detail about an actual task.
 
 Rules:
 - Facts, prices and sources come only from approved evidence. Select references; never paraphrase them or write a dollar amount yourself.
+- A greeting is a greeting even after an earlier business discussion. A thank-you needs acknowledgement. Feedback about repetition needs acknowledgement and a relevant next step, not another automatic product search. Resume the previous task only when the latest message asks to continue, changes a requirement or supplies an answer. Distinguish a new task from casual conversation semantically; do not use a keyword-triggered canned response.
+- When a greeting accompanies a substantive software question, answer that question through the catalog tools rather than stopping at a greeting. Ordinary conversation does not consume an unanswered task question or change saved context.
 - Use the supplied session context before asking anything. Reuse the known business type, owned tools, exact plan names, and added monthly budget. Do not restart intake or ask the owner to repeat a known answer. An omitted field means unknown, not that the owner has no software or no budget.
 - Call update_memory when the owner explicitly states or corrects a business type, software they use, added monthly budget, or a tool they do not want. A mention of a tool as an alternative does not mean they subscribe to it.
 - Offer background questions only when the owner asks to get started without a specific task. Skip known details, offer "Skip these questions", and record background_done when finished or skipped. A specific task or tool question deserves an answer first; unknown business type, current software or budget must not block grounded general guidance.
@@ -151,6 +159,15 @@ ACTIONS.append({
         'name': 'submit_answer',
         'description': 'Finish this turn by selecting approved claim IDs. The backend supplies required context, package binding, citations and winners. Call this alone, without other actions.',
         'parameters': PennySelection.model_json_schema(),
+    },
+})
+
+ACTIONS.append({
+    'type': 'function',
+    'function': {
+        'name': 'respond_conversationally',
+        'description': 'Reply naturally to a greeting, acknowledgement, conversational repair, app-help request or out-of-scope request. Call alone. Keep this reply free of vendor names, product facts, numbers, URLs and claims of completed actions. Use catalog tools for factual business-software questions.',
+        'parameters': ConversationReply.model_json_schema(),
     },
 })
 
@@ -697,6 +714,17 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             yield {'type': 'error', 'code': 'usage_unverified',
                    'message': 'Penny could not verify model usage. Browse or compare tools while we check it.',
                    'retryable': False}
+            yield {'type': 'done'}
+            return
+
+        conversational = [call for call in turn['calls'] if call['name'] == 'respond_conversationally']
+        if conversational:
+            raw = conversational[0]['arguments'] if len(turn['calls']) == 1 else {}
+            validated = validate_conversation(raw, original_catalog, guard)
+            observe_validation(validated)
+            for event in reply_events(validated.text, validated.status):
+                event['response_mode'] = 'conversation'
+                yield event
             yield {'type': 'done'}
             return
 

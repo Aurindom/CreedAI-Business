@@ -34,9 +34,13 @@ def filtered_context(catalog, profile, memory):
 
 
 def task_ids(catalog, body):
-    # Current words win; only revisit user turns for a short contextual follow-up.
+    # History supplies a pending answer's context, never an arbitrary short turn.
     texts = [body.message]
-    if len(body.message.split()) <= 6:
+    previous = next((item.text for item in reversed(body.history) if item.role == 'assistant'), '')
+    answering = body.memory.pending_question in ('business', 'software', 'budget', 'plan')
+    answering = answering or any(question(catalog, key)['question'].casefold() in previous.casefold()
+                                 for key in ('business', 'software', 'budget', 'plan'))
+    if answering or plan_already_unknown(body):
         texts += [item.text for item in reversed(body.history) if item.role == 'user']
     for text in texts:
         match = resolve_task(catalog, text)
