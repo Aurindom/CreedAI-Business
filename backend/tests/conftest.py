@@ -70,3 +70,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "test.db"))
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def isolate_chat_burst_limits(monkeypatch):
+    from app import chat, chat_guard
+    monkeypatch.setattr(chat, "burst_limiter", chat_guard.BurstLimiter())

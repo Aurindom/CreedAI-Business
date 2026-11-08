@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from . import access, adoption, db, discovery, web
 from .capacity import Capacity
+from .chat import router as chat_router
+from .chat_history import router as chat_history_router
 from .comparison import AssignmentError, compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
@@ -78,6 +80,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Main Street AI", lifespan=lifespan)
 web.install(app)
+app.include_router(chat_router)
+app.include_router(chat_history_router)
 
 
 def _catalog(request: Request) -> Catalog:

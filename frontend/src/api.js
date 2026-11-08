@@ -92,6 +92,9 @@ export function newRequestId() {
 }
 
 export const api = {
+  loadChatHistory: (token) => request('/api/chat/history', { headers: owner(token), cache: 'no-store' }),
+  saveChatHistory: (token, snapshot) => request('/api/chat/history', { method: 'PUT', headers: owner(token), cache: 'no-store', body: JSON.stringify(snapshot) }),
+  validateChat: (payload) => request('/api/chat/validate', { method: 'POST', body: JSON.stringify(payload) }),
   trades: (signal) => request('/api/trades', { signal }),
   categories: (signal) => request('/api/categories', { signal }),
   problems: (trade, category, signal) => request(`/api/problems${query({ trade, category })}`, { signal }),
