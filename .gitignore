@@ -19,3 +19,8 @@ venv/
 
 deploy/settings.env
 deploy/secrets/
+
+# Internal team notes and local build/validation records stay on this machine.
+/docs/
+/TEAM_HANDOFF.md
+/TEAMMATES handoff.md
