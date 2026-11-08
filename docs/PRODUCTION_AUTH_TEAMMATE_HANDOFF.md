@@ -6,6 +6,12 @@ or unmodified 443f338 snapshot. Create your own branch, e.g. `auth-production`.
 
 ## Assignment and current state
 
+2026-11-08 update on `giri-test`: account-owned favourites and a 30-day chat
+retention policy now supersede the original short cache policy. See
+`FAVOURITES_AND_RETENTION.md`. The new two-account browser journey uses a
+synthetic identity-provider seam with real API/SQLite/Redis, so it does not
+resolve the live second-account Supabase check below.
+
 Own production authentication/signup/cache/plan-access hardening and its release
 evidence. Claude continues agent/discovery work under CLAUDE_WXX_RESUME.md. This is
 a tested integration baseline, not a claim that public production is ready.
@@ -18,9 +24,12 @@ Implemented here:
   Supabase subject. Browser-only session creation is deprecated. Old plans need
   explicit valid-token proof to import; account anchors cannot be used as tokens.
 - Immediate persisted app-session revocation on logout. Last active session's
-  logout gives its conversation a 300-second recovery window. A new login to the
+  logout gives its conversation a 30-day recovery window. A new login to the
   same account can recover inside that window; other active sessions remain
-  usable. Active conversation inactivity TTL is 24 hours, not durable storage.
+  usable. Active conversation inactivity TTL is 30 days, not durable storage.
+- Account-owned favourites persist in the app database until removed. They do
+  not depend on Redis or chat retention. Owners can delete cached chat history
+  independently, with queued writes serialized before deletion.
 - Account changes clear/remount workspace/chat/plans and cancel old requests.
   Private responses are no-store. Rapid history updates are coalesced.
 - Grounded OpenRouter-only Penny: model selects allowed claim IDs; backend owns

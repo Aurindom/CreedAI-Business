@@ -5,7 +5,7 @@ import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult, { safeUrl } from './ChatResult'
 import { clearSession, historyFor, loadSession, newConversationId, saveSession, visibleMessages } from './chatSession'
-import { queueHistory } from './historyCache'
+import { queueHistory, deleteSavedHistory } from './historyCache'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
 import PennyMemory from './PennyMemory'
@@ -36,6 +36,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   const [resumed, setResumed] = useState(() => Boolean(restored?.messages.length))
   const [hydratedFor, setHydratedFor] = useState(null)
   const [historyReady, setHistoryReady] = useState(false)
+  const [deletingHistory, setDeletingHistory] = useState(false)
   const [names, setNames] = useState({ tools: {}, trades: {}, urls: {} })
   const [live, setLive] = useState(null)
   const [speaking, setSpeaking] = useState(false)
@@ -98,12 +99,12 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
 
   useEffect(() => {
     if (!auth?.configured) { saveSession({ conversationId, messages, memory }); return }
-    if (userId && authToken && hydratedFor === userId && historyReady) {
+    if (userId && authToken && hydratedFor === userId && historyReady && !deletingHistory) {
       queueHistory(authToken, { conversationId, messages: messages.filter((item) => item.kind !== 'loading').slice(-40), memory }).catch(() => {
         setNotice('Penny could not save this short chat history. Please try again before signing out.')
       })
     }
-  }, [auth?.configured, userId, authToken, hydratedFor, historyReady, conversationId, messages, memory])
+  }, [auth?.configured, userId, authToken, hydratedFor, historyReady, deletingHistory, conversationId, messages, memory])
 
   useEffect(() => {
     if (open) inputRef.current?.focus()
@@ -315,6 +316,23 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
     inputRef.current?.focus()
   }
 
+  async function deleteHistory() {
+    if (!authToken || !historyReady || busyRef.current || deletingHistory) return
+    const run = begin()
+    setDeletingHistory(true)
+    try {
+      await deleteSavedHistory(authToken)
+      if (run !== runRef.current) return
+      startOver()
+      setNotice('Your saved chat history was deleted. Your favourite tools are unchanged.')
+    } catch {
+      if (run === runRef.current) setNotice('Could not delete your chat history. Please retry.')
+    } finally {
+      if (run === runRef.current) finish(run)
+      setDeletingHistory(false)
+    }
+  }
+
   function forget({ field, id }) {
     setMemory((current) => {
       if (id) return { ...current, [field]: current[field].filter((item) => item !== id) }
@@ -347,7 +365,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
             </div>
           </div>
           <div className="msc-header-actions">
-            <button type="button" className="msc-text-button" onClick={startOver}>New chat</button>
+            <button type="button" className="msc-text-button" onClick={startOver} disabled={deletingHistory}>New chat</button>
             <button type="button" className="msc-close" onClick={onClose} aria-label="Close chat">×</button>
           </div>
         </header>
@@ -355,6 +373,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
         <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence and flags unknowns.</p></details>
         {live === false && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
+        {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
 
         <div className="msc-log" ref={logRef} role="log" aria-live="polite" aria-busy={busy}>
           {messages.length === 0 && (

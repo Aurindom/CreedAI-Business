@@ -9,7 +9,7 @@ const compiled = new Module(path.join(__dirname, '../history-cache-test.cjs'), m
 compiled.filename = path.join(__dirname, '../history-cache-test.cjs')
 compiled.paths = Module._nodeModulePaths(path.join(__dirname, '..'))
 compiled._compile(code, compiled.filename)
-const { queueHistory, flushHistory, forgetQueuedHistory } = compiled.exports
+const { queueHistory, flushHistory, forgetQueuedHistory, deleteSavedHistory } = compiled.exports
 
 test('chat saves serialize and sign-out refreshes the latest snapshot', async () => {
   const calls = []
@@ -38,4 +38,24 @@ test('rapid updates to the same conversation save only the latest snapshot', asy
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0].messages, [1, 2, 3])
   forgetQueuedHistory()
+})
+
+test('deleting history discards pending saves and waits for in-flight writes before DELETE', async () => {
+  const calls = []
+  let finishSave
+  globalThis.fetch = async (url, options) => {
+    calls.push(options.method)
+    if (options.method === 'PUT') await new Promise(resolve => { finishSave = resolve })
+    return new Response(null, { status: 204 })
+  }
+  const save = queueHistory('fixture', { conversationId: 'old', messages: [] })
+  const flush = flushHistory()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const discarded = queueHistory('fixture', { conversationId: 'pending', messages: [] })
+  const deletion = deleteSavedHistory('fixture')
+  assert.deepEqual(calls, ['PUT'])
+  finishSave()
+  await Promise.all([save, flush, discarded, deletion])
+  await flushHistory(true)
+  assert.deepEqual(calls, ['PUT', 'DELETE'])
 })

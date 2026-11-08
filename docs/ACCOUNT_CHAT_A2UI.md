@@ -41,10 +41,13 @@ that session cannot access plans/history/Penny even before JWT expiry. A fresh
 login has a new session and the same account ID.
 
 History is scoped to account AND conversation. Active history has a bounded
-24-hour inactivity TTL, not durable storage. The last active session's logout
-starts a 300-second recovery window; another active session is not expired.
+30-day inactivity TTL, not durable storage. The last active session's logout
+starts a 30-day recovery window; another active session is not expired.
 Same-account login within that window can restore/reactivate the conversation.
 After expiry the account/plans persist, but the temporary history is unavailable.
+Account favourites live in SQLite until removed and do not expire with chats.
+The owner can delete saved history without deleting favourites. See
+`FAVOURITES_AND_RETENTION.md` for the current endpoints, UI and browser test.
 
 SQLite metadata enforces the recovery deadline even if Redis expiry cannot be
 confirmed; logout reports that condition. Cache failures never disable identity,

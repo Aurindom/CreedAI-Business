@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { vendorQuestions, vendorQuestionsText } from './vendorQuestions'
+import { FavouriteButton } from '../favourites/Favourites'
 
 export const HEADLINES = {
   no_new_tool: 'You may not need a new tool',
@@ -59,6 +60,7 @@ function OptionCard({ option, status, ruledOut, taskPurpose, fallbackUrl }) {
       <div className="msc-option-top">
         <h4>{option.tool_name}</h4>
         <span className={`msc-badge${status === 'verified' ? '' : ' msc-badge-check'}`}>{statusLabel(status)}</span>
+        <FavouriteButton toolId={option.tool_id} name={option.tool_name} />
       </div>
       <p className="msc-route">{ROUTE_LABELS[option.route] || 'An option to consider'}</p>
       {ruledOut && <p className="msc-ruled-out">You told Penny you don't want this one</p>}

@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS revoked_auth_session (
     user_id TEXT NOT NULL,
     revoked_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS favourite_tool (
+    user_id TEXT NOT NULL,
+    tool_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, tool_id)
+);
 CREATE TABLE IF NOT EXISTS chat_conversation (
     user_id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,

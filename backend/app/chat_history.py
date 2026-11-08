@@ -1,4 +1,4 @@
-"""Short-lived, account-scoped Penny history. No credentials or chat text are logged."""
+"""Account-scoped Penny history retained for 30 days. No credentials or chat text are logged."""
 
 import hashlib
 import os
@@ -19,8 +19,8 @@ from .schemas import Recommendation
 from . import auth
 
 router = APIRouter()
-TTL_SECONDS = 300
-ACTIVE_TTL_SECONDS = 86400
+TTL_SECONDS = 30 * 24 * 60 * 60
+ACTIVE_TTL_SECONDS = TTL_SECONDS
 MAX_SNAPSHOT_BYTES = 128_000
 ALLOWED_KINDS = {"user", "assistant", "clarify", "a2ui", "result", "sources", "error"}
 PENNY_CATALOG = "https://mainstreet.ai/catalogs/penny/v1"
@@ -200,9 +200,10 @@ def _key(user_id, conversation_id):
 
 def _touch(request, principal, conversation_id):
     auth.check_active(request, principal)
+    current = now()
     with request.app.state.lock, request.app.state.conn:
-        changed = request.app.state.conn.execute('UPDATE chat_conversation SET session_id=?,updated_at=?,recover_until=NULL WHERE user_id=? AND conversation_id=? AND (recover_until IS NULL OR recover_until>?)',
-                                      (principal.session_id, now().isoformat(), principal.user_id, conversation_id, now().isoformat()))
+        changed = request.app.state.conn.execute('UPDATE chat_conversation SET session_id=?,updated_at=?,recover_until=NULL WHERE user_id=? AND conversation_id=? AND (recover_until IS NULL OR recover_until>?) AND (recover_until IS NOT NULL OR updated_at>?)',
+                                      (principal.session_id, current.isoformat(), principal.user_id, conversation_id, current.isoformat(), (current-timedelta(seconds=ACTIVE_TTL_SECONDS)).isoformat()))
         if changed.rowcount != 1:
             raise HTTPException(409, 'This conversation expired. Start a new conversation.')
         request.app.state.conn.execute('INSERT OR IGNORE INTO chat_session_usage VALUES(?,?,?)',
@@ -223,8 +224,9 @@ def serialized(function):
 async def load_history(request: Request, conversation_id: str | None = Query(default=None, max_length=100),
                        principal: auth.Principal = Depends(auth.require_account)):
     with request.app.state.lock:
-        sql = 'SELECT conversation_id FROM chat_conversation WHERE user_id=? AND (recover_until IS NULL OR recover_until>?)'
-        args = [principal.user_id, now().isoformat()]
+        current = now()
+        sql = 'SELECT conversation_id FROM chat_conversation WHERE user_id=? AND (recover_until IS NULL OR recover_until>?) AND (recover_until IS NOT NULL OR updated_at>?)'
+        args = [principal.user_id, current.isoformat(), (current-timedelta(seconds=ACTIVE_TTL_SECONDS)).isoformat()]
         if conversation_id is not None:
             sql += ' AND conversation_id=?'
             args.append(conversation_id)
@@ -261,7 +263,7 @@ async def save_history(request: Request, snapshot: ChatSnapshot,
             count = conn.execute('SELECT COUNT(*) FROM chat_conversation WHERE user_id=?', (principal.user_id,)).fetchone()[0]
             if not existing and count >= 20:
                 # Drop metadata whose temporary content has already expired.
-                conn.execute('DELETE FROM chat_conversation WHERE user_id=? AND (recover_until<=? OR updated_at<?)',
+                conn.execute('DELETE FROM chat_conversation WHERE user_id=? AND (recover_until<=? OR (recover_until IS NULL AND updated_at<=?))',
                              (principal.user_id, now().isoformat(), (now()-timedelta(seconds=ACTIVE_TTL_SECONDS)).isoformat()))
                 count = conn.execute('SELECT COUNT(*) FROM chat_conversation WHERE user_id=?', (principal.user_id,)).fetchone()[0]
                 if count >= 20:
@@ -305,9 +307,31 @@ async def logout(request: Request, principal: auth.Principal = Depends(auth.requ
             for conversation in expire:
                 await client.expire(_key(principal.user_id, conversation), TTL_SECONDS)
         except (RedisError, HTTPException):
-            # SQLite deadline still prevents recovery after the five-minute window.
+            # SQLite still enforces retention if Redis expiry cannot be updated.
             confirmed = False
         finally:
             if client is not None:
                 await client.aclose()
     return {'signed_out': True, 'cache_grace_seconds': TTL_SECONDS, 'cache_expiry_confirmed': confirmed}
+
+
+@router.delete('/api/chat/history', status_code=204)
+@serialized
+async def delete_history(request: Request, principal: auth.Principal = Depends(auth.require_account)):
+    auth.check_active(request, principal)
+    with request.app.state.lock:
+        rows = request.app.state.conn.execute('SELECT conversation_id FROM chat_conversation WHERE user_id=?',
+                                              (principal.user_id,)).fetchall()
+    if rows:
+        client = _cache()
+        try:
+            await client.delete(*[_key(principal.user_id, row[0]) for row in rows])
+            auth.check_active(request, principal)
+        except RedisError:
+            raise HTTPException(503, 'Could not delete conversation history. Please retry.') from None
+        finally:
+            await client.aclose()
+    with request.app.state.lock, request.app.state.conn:
+        request.app.state.conn.execute('DELETE FROM chat_session_usage WHERE user_id=?', (principal.user_id,))
+        request.app.state.conn.execute('DELETE FROM chat_conversation WHERE user_id=?', (principal.user_id,))
+    return Response(status_code=204, headers={'Cache-Control': 'no-store'})

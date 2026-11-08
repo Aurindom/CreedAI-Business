@@ -8,6 +8,7 @@ import ComparisonWorkspace from './components/ComparisonWorkspace'
 import ChatPanel from './chat/ChatPanel'
 import AccountControls from './auth/AccountControls'
 import { useOwnerAuth } from './auth/ownerAuth'
+import { FavouritesProvider, FavouriteButton, FavouriteTools, useFavourites } from './favourites/Favourites'
 
 const stages = [
   { number: '01', title: 'Your business', detail: 'Give us a little context', anchor: 'business' },
@@ -111,6 +112,7 @@ function OptionCard({ option, tool, selected, full, onCompare, uncertain, budget
       <div className="tool-card-head">
         <span className="tool-avatar">{option.tool_name.slice(0, 1)}</span>
         <span className={`tool-status ${option.status !== 'verified' || uncertain || option.route === 'check_plan' || option.route === 'plan_upgrade' ? 'pending' : 'verified'}`}>{option.status === 'verified' ? 'Source checked' : 'Pending review'}</span>
+        <FavouriteButton toolId={option.tool_id} name={option.tool_name} />
       </div>
       <p className="route-label">{routeLabels[option.route]}</p>
       <h3>{option.tool_name}</h3>
@@ -145,7 +147,7 @@ function DirectoryCard({ tool, trades, tradeId, selected, full, onCompare }) {
   const price = priceOf(tool)
   return (
     <article className="tool-card">
-      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span></div>
+      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span><FavouriteButton toolId={tool.id} name={tool.name} /></div>
       <h3>{tool.name}</h3><p className="tool-summary">{tool.summary}</p>
       <div className={`fit-line fit-${audience.tone}`}>{audience.text}</div>
       <div className="tool-divider" />
@@ -173,10 +175,11 @@ function plural(count, word) {
 
 function App() {
   const auth = useOwnerAuth()
-  return <Marketplace key={auth.user?.id || 'guest'} auth={auth} />
+  return <FavouritesProvider key={auth.user?.id || 'guest'} auth={auth}><Marketplace key={auth.user?.id || 'guest'} auth={auth} /></FavouritesProvider>
 }
 
 function Marketplace({ auth }) {
+  const favourites = useFavourites()
   const [trades, setTrades] = useState([])
   const [categories, setCategories] = useState([])
   const [allTools, setAllTools] = useState([])
@@ -366,6 +369,7 @@ function Marketplace({ auth }) {
           </nav>
         </div>
         <button className="nav-quick-compare" type="button" onClick={openQuickCompare}>Compare tools <ArrowIcon size={15} /></button>
+        <button className="nav-quick-compare favourites-nav" type="button" onClick={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('favourites')) }}>Favourite tools{favourites.items.length ? ` (${favourites.items.length})` : ''} <ArrowIcon size={15} /></button>
         <AccountControls auth={auth} />
         <div className="sidebar-bottom">
           <div className="sidebar-tip-icon">✳</div>
@@ -401,6 +405,11 @@ function Marketplace({ auth }) {
             <div><strong>{categories.length}</strong><span>categories of everyday work</span></div>
             <div><strong>{trades.length}</strong><span>business types in the catalog</span></div>
           </div>
+
+          <section className="section-block" id="favourites" hidden={quickCompare}>
+            <div className="section-heading"><div><div className="section-kicker">SAVED FOR YOU</div><h2>Your favourite tools</h2><p>Your shortlist, ready whenever you return.</p></div></div>
+            <FavouriteTools toolsById={toolsById} renderTool={tool => <DirectoryCard key={tool.id} tool={tool} trades={trades} tradeId={tradeId} {...compareProps(tool.id)} />} />
+          </section>
 
           <section className="section-block" id="business" hidden={quickCompare}>
             <div className="section-heading"><div><div className="section-kicker">STEP 01 <span /> GET ORIENTED</div><h2>Tell us about your business</h2><p>A little context helps us find relevant options. Every field is optional.</p></div><div className="section-counter">01 / 04</div></div>
