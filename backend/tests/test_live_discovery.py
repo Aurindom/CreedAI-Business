@@ -40,6 +40,27 @@ def test_public_research_limits_survive_multiple_calls_and_unknown_task_never_se
     assert client.get('/api/tools').status_code == 200
 
 
+@pytest.mark.parametrize('trusted', [True, False])
+def test_research_limit_respects_only_forwarding_from_the_trusted_proxy(client, monkeypatch, trusted):
+    monkeypatch.setenv('DISCOVERY_PUBLIC_ENABLED', 'true')
+    monkeypatch.setenv('CHAT_TRUST_PROXY', '1')
+    monkeypatch.setenv('CHAT_TRUSTED_PROXY_CIDRS', '172.30.10.10/32')
+    client._transport.client = ('172.30.10.10' if trusted else '198.51.100.30', 1234)
+    def finder(request, cancel):
+        return {'contract_version': '1.1.0', 'run_id': 'bounded', 'status': 'completed',
+                'provenance': 'live', 'candidates': [], 'limits': {'pages_fetched': 1, 'elapsed_s': .01}}
+    client.app.state.discovery_finder = finder
+    for _ in range(4):
+        assert client.post('/api/research', headers={'X-Forwarded-For': '198.51.100.10'},
+                           json={'capability': 'phone_answering'}).status_code == 200
+    assert client.post('/api/research', headers={'X-Forwarded-For': '198.51.100.10'},
+                       json={'capability': 'phone_answering'}).status_code == 429
+    # A real second client gets its own quota. A forged header on a direct
+    # untrusted connection cannot evade the exhausted quota.
+    assert client.post('/api/research', headers={'X-Forwarded-For': '198.51.100.20'},
+                       json={'capability': 'phone_answering'}).status_code == (200 if trusted else 429)
+
+
 @pytest.mark.parametrize('excerpt,kept', [
     ('Answer calls from your laptop without picking up your phone.', False),
     ('Our AI receptionist answers calls automatically for small businesses.', True),

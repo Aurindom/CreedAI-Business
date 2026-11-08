@@ -5,6 +5,7 @@ import os
 import re
 import json
 import threading
+import logging
 from pathlib import Path
 from urllib.parse import quote_plus
 from xml.etree import ElementTree
@@ -15,10 +16,12 @@ from .discovery_worker.sources import Budget, Hit, HttpxTransport, SafeFetcher, 
 from .discovery_worker.store import Store
 from .schemas import Catalog
 
+logger = logging.getLogger(__name__)
+
 
 class OpenRouterSearch:
     """Search leads are untrusted; only independently fetched vendor evidence is stored."""
-    source_id = 'openrouter-exa-live'
+    source_id = 'openrouter-live'
     kind = 'live'
 
     def __init__(self, state: Path, names: list[str]):
@@ -26,6 +29,10 @@ class OpenRouterSearch:
         self.ledger = Ledger(state)
         self.ledger.recover()
         self.names = names
+        self.engine = os.environ.get('DISCOVERY_WEB_ENGINE', 'native').strip().lower()
+        if self.engine not in ('exa', 'native'):
+            raise ValueError('invalid_discovery_web_engine')
+        self.source_id = 'openrouter-' + self.engine + '-live'
         self.max_requests = min(24, max(1, int(os.environ.get('DISCOVERY_MAX_REQUESTS', '4'))))
         self.cap_usd = min(2.0, max(0.0, float(os.environ.get('DISCOVERY_SPEND_CAP_USD', '1'))))
 
@@ -39,11 +46,11 @@ class OpenRouterSearch:
         number, reason = self.ledger.admit(0.25, self.max_requests, self.cap_usd)
         if number is None:
             raise RuntimeError('discovery_search_budget_unavailable')
-        body = {'model': 'anthropic/claude-haiku-4.5', 'max_tokens': 800, 'temperature': 0,
+        body = {'model': 'anthropic/claude-haiku-4.5', 'max_tokens': 1200, 'temperature': 0,
                 'provider': {'allow_fallbacks': False, 'max_price': {'prompt': 1, 'completion': 5}},
                 'usage': {'include': True},
-                'plugins': [{'id': 'web', 'engine': 'exa', 'mode': 'fast', 'max_results': 5}],
-                'messages': [{'role': 'system', 'content': 'Search the live web. Return ONLY a JSON array of up to five '
+                'plugins': [{'id': 'web', 'engine': self.engine, 'mode': 'fast', 'max_results': 3}],
+                'messages': [{'role': 'system', 'content': 'Search the live web. Return ONLY a JSON array of up to three '
                               'objects with url and title, naming official product pages for business software or AI '
                               'services that perform the task. Prefer clear plan inclusion and transparent monthly or free pricing. '
                               'No reviews, hardware, directories, rankings or prose. '
@@ -61,18 +68,42 @@ class OpenRouterSearch:
                 self.ledger.hold(number, 'search_usage_unverified', cost)
                 raise RuntimeError('search_usage_unverified')
             self.ledger.settle(number, cost)
-            output = json.loads(extract_json(data['choices'][0]['message']['content']))
+            message = data['choices'][0]['message']
+            try:
+                output = json.loads(extract_json(message.get('content') or ''))
+            except ValueError:
+                output = None
             if not isinstance(output, list):
-                raise ValueError('invalid_search_results')
+                # Discovery accepts one structured lead block inside search
+                # commentary. This parser is intentionally separate from the
+                # strict Penny factual-answer parser: only URLs/titles survive.
+                blocks = re.findall(r'```(?:json)?\s*\n(.*?)\n```', message.get('content') or '', re.S)
+                if len(blocks) == 1:
+                    try:
+                        output = json.loads(blocks[0])
+                    except ValueError:
+                        pass
+            if not isinstance(output, list):
+                # Native search can attach citations while returning prose or
+                # truncated JSON. Citation URLs are search LEADS only: the
+                # guarded fetcher and verifier must still prove every fact.
+                output = [entry['url_citation'] for entry in message.get('annotations', [])
+                          if isinstance(entry, dict) and isinstance(entry.get('url_citation'), dict)]
+                if not output:
+                    raise ValueError('invalid_search_results')
             return [Hit(row['url'], str(row.get('title', ''))[:160]) for row in output[:5]
                     if isinstance(row, dict) and isinstance(row.get('url'), str)
                     and row['url'].startswith('https://')]
-        except Exception:
+        except Exception as exc:
+            # Never log provider bodies, headers, prompts or exception strings.
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            logger.warning('discovery_search_failed', extra={'search_engine': self.engine,
+                'provider_status': status, 'failure_type': type(exc).__name__})
             # Already-settled usage is retained; an ambiguous in-flight charge stays reserved.
             with self.ledger._tx() as conn:
                 state = conn.execute('SELECT state FROM attempt WHERE n=?', (number,)).fetchone()[0]
             if state == 'reserved':
-                self.ledger.hold(number, 'search_failed')
+                self.ledger.hold(number, 'search_http_' + str(status) if status else 'search_failed')
             raise RuntimeError('live_search_failed') from None
 
     def available(self):

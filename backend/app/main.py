@@ -13,7 +13,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
 
-from . import access, adoption, auth, db, discovery, web, schemas
+from . import access, adoption, auth, chat_guard, db, discovery, web, schemas
 from .agent import bindings
 from .capacity import Capacity
 from .chat import ChatMemory, ChatRequest, router as chat_router
@@ -402,7 +402,7 @@ def public_research(request: Request, body: discovery.DiscoveryRequest):
         raise HTTPException(422, exc.message) from exc
     import hashlib
     import time
-    client = hashlib.sha256((request.client.host if request.client else 'unknown').encode()).hexdigest()
+    client = hashlib.sha256(chat_guard.client_id(request).encode()).hexdigest()
     hour = int(time.time() // 3600)
     with request.app.state.lock, request.app.state.conn:
         conn = request.app.state.conn
