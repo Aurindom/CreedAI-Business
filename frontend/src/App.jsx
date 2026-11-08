@@ -444,7 +444,7 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block" id="business" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 01 <span /> GET ORIENTED</div><h2>Tell us about your business</h2><p>A little context helps us find relevant options. Every field is optional.</p></div><div className="section-counter">01 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 01: GET ORIENTED</div><h2>Tell us about your business</h2><p>A little context helps us find relevant options. Every field is optional.</p></div><div className="section-counter">01 / 04</div></div>
             <div className="form-card">
               <label className="field"><span>Business name <small>optional</small></span><input type="text" value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="e.g. Northside Coffee" maxLength={80} /></label>
               <label className="field">
@@ -474,7 +474,7 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block" id="challenge" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 02 <span /> NAME THE PROBLEM</div><h2>What would you like help with?</h2><p>Browse by category, then pick a task.</p></div><div className="section-counter">02 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 02: NAME THE PROBLEM</div><h2>What would you like help with?</h2><p>Browse by category, then pick a task.</p></div><div className="section-counter">02 / 04</div></div>
             <div className="category-tabs" role="tablist" aria-label="Categories">
               <button type="button" role="tab" aria-selected={category === ''} className={`tab ${category === '' ? 'tab-on' : ''}`} onClick={() => chooseCategory('')}>All</button>
               {categories.map((c) => (
@@ -499,7 +499,7 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block" id="explore" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 03 <span /> YOUR OPTIONS</div><h2>{exploreHeading}</h2><p>{exploreLead}</p></div><div className="section-counter">03 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 03: YOUR OPTIONS</div><h2>{exploreHeading}</h2><p>{exploreLead}</p></div><div className="section-counter">03 / 04</div></div>
             <div className="explore-toolbar">
               <div><strong>{exploreCount}</strong><span>{tradeLabel ? ` · ${tradeLabel}` : ' · Any business'}</span></div>
               <button type="button" onClick={() => setShowDirectory((value) => !value)}>{showDirectory ? 'Back to my options' : 'Browse directory'} <ArrowIcon size={15} /></button>
@@ -543,7 +543,7 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block compare-section" id="compare">
-            <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We flag the details that need confirmation.'}</p></div><div className="section-counter">04 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 04: DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We flag the details that need confirmation.'}</p></div><div className="section-counter">04 / 04</div></div>
             <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
           </section>
 

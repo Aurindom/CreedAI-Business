@@ -32,7 +32,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .section-block { margin-top: 90px; padding-top: 40px; border-top: 1px solid var(--line); scroll-margin-top: 24px; }
 .section-heading { margin-bottom: 28px; }
 .section-kicker { color: var(--accent); font-size: 10px; letter-spacing: .18em; font-weight: 600; }
-.section-kicker span { background: #7f6b98; }
 .section-heading h2 { color: var(--text); font-size: clamp(28px, 3.3vw, 44px); font-weight: 560; letter-spacing: -.05em; margin: 16px 0 12px; }
 .section-heading p { color: var(--muted); line-height: 1.65; }
 .section-counter { color: var(--subtle); padding-top: 3px; letter-spacing: .12em; font-weight: 500; }

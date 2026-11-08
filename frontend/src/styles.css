@@ -90,7 +90,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .section-block { margin-top: 54px; scroll-margin-top: 26px; }
 .section-heading { display: flex; justify-content: space-between; gap: 15px; align-items: flex-start; margin-bottom: 22px; }
 .section-kicker { display: flex; gap: 8px; align-items: center; font-size: 10px; color: #6c997f; letter-spacing: .13em; font-weight: 800; }
-.section-kicker span { width: 17px; height: 1px; background: #9fbaa6; }
 .section-heading h2 { margin: 10px 0 6px; color: #1c343b; font-size: clamp(23px, 2.2vw, 31px); line-height: 1.2; font-weight: 710; letter-spacing: -.05em; }
 .section-heading p { margin: 0; color: #566577; font-size: 14px; line-height: 1.5; }
 .section-counter { color: #9ca9a4; font-size: 11px; font-weight: 750; padding-top: 7px; white-space: nowrap; }
@@ -295,7 +294,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; color: #a5b1a
 .graphic-orbit { border-color: #c38f6b; }
 .graphic-center { box-shadow: 0 18px 35px #67452b26; }
 .eyebrow, .section-kicker { color: #995036; }
-.eyebrow-line, .section-kicker span { background: #c7704d; }
+.eyebrow-line { background: #c7704d; }
 .primary-button { min-height: 48px; font-size: 14px; box-shadow: 4px 4px 0 #ca9e7a; }
 .problem-card { border-color: #d9dfe7; border-radius: 16px; }
 .problem-card.selected { background: #fff1e5; border-color: #b95731; box-shadow: 0 0 0 1px #b95731 inset; }
