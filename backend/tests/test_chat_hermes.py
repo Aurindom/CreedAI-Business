@@ -341,6 +341,23 @@ def test_not_ready_means_no_reservation_and_no_hermes_call(client, hermes, monke
     assert chat.ledger().total() == pytest.approx(before) and rows() == []
 
 
+def test_full_inflight_cap_refuses_before_any_reservation_and_frees_its_slot(client, hermes, monkeypatch):
+    fake = hermes(FakeHermes(answer))
+    monkeypatch.setenv('CHAT_MAX_INFLIGHT', '1')
+    monkeypatch.setattr(chat, '_inflight', 1)
+    before = chat.ledger().total()
+    events = frames(client.post('/api/chat', json=BODY))
+    assert error_code(events) == 'agent_unavailable' and events[-1] == {'type': 'done'}
+    assert not fake.requests and fake.checks == []
+    assert chat.ledger().total() == pytest.approx(before) and rows() == []
+    monkeypatch.setattr(chat, '_inflight', 0)
+    assert texts(frames(client.post('/api/chat', json=BODY)))
+    assert chat._inflight == 0
+    hermes(FakeHermes(answer, start_status=502))
+    assert error_code(frames(client.post('/api/chat', json=BODY))) == 'agent_unavailable'
+    assert chat._inflight == 0
+
+
 def test_prior_turns_and_constraints_reach_hermes_as_data(client, hermes):
     fake = hermes(FakeHermes(answer))
     body = dict(BODY, history=[

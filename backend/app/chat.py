@@ -48,6 +48,7 @@ DEFAULT_CAP_USD = 0.10
 DEFAULT_RESERVE_USD = 0.01
 DEFAULT_HERMES_RESERVE_USD = 0.02
 DEFAULT_DAILY_MESSAGES = 60
+DEFAULT_MAX_INFLIGHT = 3
 MAX_ROUNDS = 3
 MAX_OUTPUT_TOKENS = 800
 MODEL_TIMEOUT_SECONDS = 25
@@ -756,8 +757,15 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     while history and history[0]["role"] != "user":
         history.pop(0)
     if runtime() == "hermes":
-        async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory):
-            yield event
+        if not _claim_inflight():
+            for event in _bail():
+                yield event
+            return
+        try:
+            async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory):
+                yield event
+        finally:
+            _release_inflight()
         return
     # A lexical no-match is a routing hint, not the owner's requested answer.
     # Showing the canned clarification here biases semantic routing toward asking
@@ -1079,6 +1087,26 @@ def _ms(start: float | None, end: float | None) -> int | None:
 
 def _bail() -> list[dict[str, Any]]:
     return [_unavailable(), {"type": "done"}]
+
+
+_inflight = 0
+
+
+def max_inflight() -> int:
+    return max(1, int(os.environ.get("CHAT_MAX_INFLIGHT", DEFAULT_MAX_INFLIGHT)))
+
+
+def _claim_inflight() -> bool:
+    global _inflight
+    if _inflight >= max_inflight():
+        return False
+    _inflight += 1
+    return True
+
+
+def _release_inflight() -> None:
+    global _inflight
+    _inflight = max(0, _inflight - 1)
 
 
 async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest, guard: LeakGuard,
