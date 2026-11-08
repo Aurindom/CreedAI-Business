@@ -16,6 +16,7 @@ $allowed = @{
     REDIS_URL = $true
     APP_DB_PATH = $true
     CHAT_RUNTIME = $true
+    CHAT_MAX_INFLIGHT = $true
     HERMES_API_URL = $true
     HERMES_API_KEY = $true
     HERMES_TIMEOUT_SECONDS = $true

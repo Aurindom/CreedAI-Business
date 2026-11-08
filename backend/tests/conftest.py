@@ -93,3 +93,5 @@ def account_header(user=1, session=1):
 def isolate_chat_burst_limits(monkeypatch):
     from app import chat, chat_guard
     monkeypatch.setattr(chat, "burst_limiter", chat_guard.BurstLimiter())
+    monkeypatch.setattr(chat, "limiter", chat.DailyLimiter())
+    monkeypatch.setattr(chat, "_inflight", 0)

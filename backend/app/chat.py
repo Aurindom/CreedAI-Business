@@ -10,6 +10,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from contextlib import aclosing
 from datetime import date
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
@@ -49,6 +50,8 @@ DEFAULT_CAP_USD = 0.10
 DEFAULT_RESERVE_USD = 0.01
 DEFAULT_HERMES_RESERVE_USD = 0.02
 DEFAULT_DAILY_MESSAGES = 60
+DEFAULT_MAX_INFLIGHT = 3
+MAX_INFLIGHT_LIMIT = 50
 MAX_ROUNDS = 3
 MAX_OUTPUT_TOKENS = 800
 MODEL_TIMEOUT_SECONDS = 25
@@ -640,6 +643,10 @@ def _closed(code: str) -> dict[str, Any]:
     return {"type": "error", "code": "session_expired", "message": "Your session ended. Sign in again or start a new guest conversation.", "retryable": False}
 
 
+def _busy() -> dict[str, Any]:
+    return {"type": "error", "code": "agent_busy", "message": "Penny is helping other people right now. Try again in a few seconds.", "retryable": True}
+
+
 def _unavailable() -> dict[str, Any]:
     return {"type": "error", "code": "agent_unavailable", "message": "Penny's AI is unavailable right now. Browsing still works. Try again in a minute.", "retryable": True}
 
@@ -750,6 +757,20 @@ def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, fo
 
 
 async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[str, Any]]:
+    """One in-flight slot per chat turn, for every runtime, taken before any readiness check or spend reservation."""
+    if not _claim_inflight():
+        yield _busy()
+        yield {"type": "done"}
+        return
+    try:
+        async with aclosing(_run_turn(catalog, body)) as events:
+            async for event in events:
+                yield event
+    finally:
+        _release_inflight()
+
+
+async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     blocked = chat_guard.check_request(body)
     if blocked:
         yield {"type": "error", "code": "guard_blocked", "message": blocked, "retryable": False}
@@ -1124,6 +1145,31 @@ def _ms(start: float | None, end: float | None) -> int | None:
 
 def _bail() -> list[dict[str, Any]]:
     return [_unavailable(), {"type": "done"}]
+
+
+_inflight = 0
+
+
+def max_inflight() -> int:
+    """Per process. A malformed or out-of-range value falls back to the default instead of failing a request."""
+    try:
+        value = int(os.environ.get("CHAT_MAX_INFLIGHT", "").strip() or DEFAULT_MAX_INFLIGHT)
+    except ValueError:
+        return DEFAULT_MAX_INFLIGHT
+    return value if 1 <= value <= MAX_INFLIGHT_LIMIT else DEFAULT_MAX_INFLIGHT
+
+
+def _claim_inflight() -> bool:
+    global _inflight
+    if _inflight >= max_inflight():
+        return False
+    _inflight += 1
+    return True
+
+
+def _release_inflight() -> None:
+    global _inflight
+    _inflight = max(0, _inflight - 1)
 
 
 async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest, guard: LeakGuard,

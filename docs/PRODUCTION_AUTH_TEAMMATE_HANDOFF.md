@@ -1,10 +1,10 @@
 # Teammate handoff: Supabase and Penny production hardening
 
-2026-11-07. Start from the pushed **aurin-test** commit containing this document.
-Record `git rev-parse HEAD` in your report; do not start from the older giri-test
-or unmodified 443f338 snapshot. Create your own branch, e.g. `auth-production`.
+Updated 2026-11-08. Start from the latest **aurin-test** commit, which contains
+this document and `backend/scripts/check_two_accounts.py`. Put `git rev-parse HEAD`
+in anything you report back. Make your own branch for changes, e.g. `auth-production`.
 
-## Assignment and current state
+## Live two-account release evidence
 
 2026-11-08 update on `giri-test`: account-owned favourites and a 30-day chat
 retention policy now supersede the original short cache policy. See
@@ -24,7 +24,13 @@ Own production authentication/signup/cache/plan-access hardening and its release
 evidence. Claude continues agent/discovery work under CLAUDE_WXX_RESUME.md. This is
 a tested integration baseline, not a claim that public production is ready.
 
-Implemented here:
+Aurin's incoming handoff reports that isolation checks with **two real Supabase accounts** were still outstanding. Account A
+is real and has passed everything. Account B has only ever been a mock, because the
+second test user was never created (sign-in returns `invalid_credentials`; an
+earlier signup attempt hit HTTP 429). You own the Supabase project, so you can
+close this with one zero-cost run. Steps are in "Run the two-account check" below.
+
+## Historical baseline at 1d249b9
 
 - Supabase email/password identity verified server-side; supplied invalid tokens
   never become guests. Identity verification is independent of Redis.
@@ -44,121 +50,219 @@ Implemented here:
   package binding, mandatory uncertainty, references/winners and rendering.
   Signed-in/guest identity is checked server-side; tokens/IDs are not model input.
 
-Read ACCOUNT_CHAT_A2UI.md, AUTH_PENNY_INTEGRATION_REVIEW.md and PENNY_GUARDRAILS.md.
-No private parent-folder memory or sandbox artifact is needed to understand this
-assignment. Those artifacts were deliberately excluded from Git.
+- 997 backend tests, 33 frontend tests, `npm run build` clean.
+- This commit adds the checker and 7 offline tests for its refusal rules.
 
-## Proven baseline and remaining live gap
+| What | Evidence | Real or mocked |
+|---|---|---|
+| A signs in, is a verified account, guest sees nothing private | sandbox run, 21 of 21 | real Supabase A, real Redis |
+| Forged token, tampered `sub`, flipped signature rejected | same run | real Supabase |
+| Expired token rejected | same run, app clock moved 2 h | real token, simulated clock |
+| Expiry after a real wait (305.8 s) | earlier auth stage | real A |
+| Logout revokes at once, revoked token gets 401 on plans, history, chat | same run | real A |
+| Logout during a chat run stops Hermes, user sees `session_expired`, no text delivered | same run | real A, fake Hermes |
+| Re-login restored own conversation under the former 5-minute policy, plans persist | same run | real A |
+| B cannot list, read or refresh A's plans, or restore A's conversation | same run | **mocked B** |
+| B writing the same conversation ID leaves A's copy alone | same run | **mocked B** |
+| The new checker's whole matrix runs end to end | dry run, 26 of 26 | real A, **B faked at sign-in** |
+| Account switch clears old chat and plans in the UI | `frontend/tests/account-history.test.cjs`, `account-plans.test.cjs` | **mocked jsdom** |
+| No account IDs, tokens or emails reach the model payload | sandbox run | real A, fake Hermes |
 
-Final source: **697 backend tests, 23 frontend tests and production build passed**.
-Real first-account Supabase/Redis/API checks:19 passed, including a real305.8s
-expiry wait. Chrome:8 login/plan/reload/logout checks before integration and8
-after. Real integrated account+guest Penny cases both passed (3 model requests,
-USD0.011321). Those model tests used real application APIs; Chrome auth tests did
-not make paid model requests. These are bounded samples, not general guarantees.
+Do not report two-account isolation as passed until the checker below finishes
+with `"complete": true` against two real users.
 
-The corrected second account is still not available. A new user-requested check
-again returned signup HTTP429. There is no live two-account isolation pass yet.
-Do not repeatedly retry signup or disable confirmation to label the test green.
-No test emails/passwords, JWTs, project keys or private runtime files are in Git;
-get authorized project access and disposable test accounts privately from Aurindom.
+## Run the two-account check (USD 0, no model key)
 
-## Steps, reasons and acceptance
+What it does: signs in two existing users with the publishable key, runs the real
+FastAPI routes with a real Redis and a throwaway local app database, and replaces
+Hermes with the test-suite fake. It never signs anyone up, refuses a secret or
+service-role key, refuses the same email twice, refuses an env file git would
+track, and drops any OpenRouter, Anthropic or gateway key from its environment.
+It writes only check names, booleans and status codes.
+
+What it checks, both directions (A against B and B against A): distinct verified
+subjects; guest sees nothing; forged, expired and revoked tokens fail; each can't
+list, read or refresh the other's plans or restore the other's conversation; a
+write with the same conversation ID stays owner-scoped; logout mid-run blocks
+delivery; re-login recovery is owner-scoped; B is unaffected by A's logout.
+
+### 1. Create account B (Supabase dashboard, once)
+
+Authentication, Users, Add user, Create new user. Use a disposable QA email and a
+fresh password, and tick **Auto Confirm User**. It is an ordinary user: no admin
+role, no service-role key anywhere. Account A is the existing QA user; ask
+Aurindom privately for it, or make a second disposable user for A the same way.
+
+### 2. Get the code
+
+PowerShell:
+```powershell
+git clone https://github.com/sherlocked-8601/hackathon-app.git penny-auth-qa
+cd penny-auth-qa
+git fetch origin aurin-test
+git checkout -B auth-qa origin/aurin-test
+git rev-parse HEAD
+```
+POSIX:
+```sh
+git clone https://github.com/sherlocked-8601/hackathon-app.git penny-auth-qa
+cd penny-auth-qa
+git fetch origin aurin-test
+git checkout -B auth-qa origin/aurin-test
+git rev-parse HEAD
+```
+Already have a clone: skip `git clone`, run the rest inside it.
+
+### 3. Private env file (never committed, `sandbox/` is git-ignored)
+
+Open it in an editor so passwords stay out of shell history.
+
+PowerShell:
+```powershell
+New-Item -ItemType Directory -Force sandbox/two-account | Out-Null
+notepad sandbox/two-account/.env
+```
+POSIX:
+```sh
+mkdir -p sandbox/two-account && touch sandbox/two-account/.env && chmod 600 sandbox/two-account/.env
+${EDITOR:-nano} sandbox/two-account/.env
+```
+Contents:
+```
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=<publishable or anon key, never the secret key>
+SUPABASE_TEST_EMAIL=<account A email>
+SUPABASE_TEST_PASSWORD=<account A password>
+SUPABASE_TEST_EMAIL_2=<account B email>
+SUPABASE_TEST_PASSWORD_2=<account B password>
+REDIS_URL=redis://127.0.0.1:16390/0
+```
+
+### 4. Isolated Redis and Python (3.14, same as the production image)
+
+PowerShell:
+```powershell
+docker run --rm -d --name penny-2acct-redis -p 127.0.0.1:16390:6379 redis:7.4.12-alpine
+python -m venv sandbox/two-account/venv
+sandbox/two-account/venv/Scripts/python -m pip install -r backend/requirements-dev.txt
+```
+POSIX:
+```sh
+docker run --rm -d --name penny-2acct-redis -p 127.0.0.1:16390:6379 redis:7.4.12-alpine
+python3 -m venv sandbox/two-account/venv
+sandbox/two-account/venv/bin/python -m pip install -r backend/requirements-dev.txt
+```
+
+### 5. Run it from the repository root
+
+PowerShell:
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'
+sandbox/two-account/venv/Scripts/python backend/scripts/check_two_accounts.py
+```
+POSIX:
+```sh
+PYTHONDONTWRITEBYTECODE=1 sandbox/two-account/venv/bin/python backend/scripts/check_two_accounts.py
+```
+Exit 0 means every check passed. Exit 1 means it stopped; the last line says
+where, e.g. `account B sign-in failed: 400 invalid_credentials` (wrong password or
+user not confirmed) or `failed: <check name>`. Exit 2 means a setup problem.
+Options: `--env-file <path>` and `--out <path>`, both must stay git-ignored.
+
+### 6. Send back only this
+
+- The contents of `sandbox/two-account/result.json`. Read it first: it holds the
+  commit, check names, booleans and status codes, nothing else.
+- The output of `git rev-parse HEAD`.
+
+Never send the env file, passwords, tokens, screenshots of the dashboard with
+keys, or a log you haven't read.
+
+### 7. Clean up
+
+PowerShell:
+```powershell
+docker stop penny-2acct-redis
+Remove-Item -Recurse -Force sandbox/two-account/state-*
+Remove-Item sandbox/two-account/.env
+```
+POSIX:
+```sh
+docker stop penny-2acct-redis
+rm -rf sandbox/two-account/state-*
+rm sandbox/two-account/.env
+```
+Plans and history from the run live only in the local state folder, not in
+Supabase. Every session the checker opens is logged out, even when it stops early.
+Keep or delete user B in the dashboard as you like.
+
+## Remaining production steps
 
 | Order | Work | Why | Acceptance evidence |
-| --- | --- | --- | --- |
-| 1 | Complete the second confirmed account and live isolation matrix | Mocked isolation is insufficient for real project configuration | A cannot list/read/refresh B's plans or restore B's conversation; switching accounts clears prior UI state; forged/expired/revoked credentials fail; guest sees no private data |
-| 2 | Configure production SMTP, sender/domain and exact Site URL/allowed redirects with the project owner | Public signup/reset emails and confirmation returns must work at the actual deployed address | Fresh signup -> delivered confirmation -> correct app -> login; password recovery -> correct app; record expected rate-limit behavior without flooding |
-| 3 | Review auth verification request volume and choose verified JWT/JWKS caching where supported | Current /user verification for every protected call can become a rate/latency bottleneck behind one server IP | Verify signing-key type; test signature/issuer/audience/expiry/subject/session, key rotation/unknown kid, outage behavior and app revocation; measure requests/latency at declared concurrency |
-| 4 | Define supported worker count and storage/restart behavior | Process-local cache serialization/rate limits are not multi-worker guarantees | One-worker deployment explicitly enforced until coordinated lifecycle/limits are implemented; plan/revocation DB survives restart; no resurrection of revoked sessions or expired history |
-| 5 | Prepare staging/deployment runbook for Aurindom's selected host | Local correctness does not establish HTTPS, persistence or proxy behavior | Same-origin UI/API, HTTPS, secrets injected safely, persistent DB, private Redis, trusted proxy settings, backup/restore and rollback rehearsal on staging |
-| 6 | Run the real deployed two-account + guest journeys and failure cases | Release needs user-visible evidence on the actual deployment | Both account journeys and guest browse/chat; logout/cache grace, saved-plan persistence, controlled provider/Redis failures; exact commit/config/date/results and unresolved gaps |
+|---|---|---|---|
+| 1 | Two-account check above | Mocked B proves the code path, not the real project config | `result.json` with `"complete": true` from two real users |
+| 2 | Production SMTP, sender domain, exact Site URL and redirect URLs | The built-in sender is rate limited, confirmations must return to the real address | Fresh signup, delivered mail, back to the app, login; password reset back to the app; note the rate-limit behavior without flooding |
+| 3 | Review per-request `/auth/v1/user` verification load, consider verified JWT/JWKS caching | Every protected call hits Supabase from one server IP | Signing-key type checked; signature, issuer, audience, expiry, subject, session, unknown kid and outage behavior tested; latency at the declared concurrency |
+| 4 | Real deployed journeys | Local passes don't prove HTTPS, proxy or persistence | Two accounts plus guest on the deployed URL; logout recovery, saved plans, controlled Redis or provider failure; commit, config, date, results, open gaps |
 
-Steps1/2 can be prepared alongside code review for3/4. Deployment happens after
-the relevant source/configuration checks pass. Do not wait for Azure to write
-tests/runbooks, but do not change live hosting without its separate direction.
+Already done since the last version of this doc: one Uvicorn worker is pinned in
+`deploy/compose.prod.yml`, and the VM runbook is `docs/PRODUCTION_DEPLOY.md`
+(tested offline only, not on a real VM or domain).
 
-## Code ownership and contract coordination
+## Code ownership
 
-Primary files: `backend/app/auth.py`, `access.py`, `chat_history.py`, corresponding
-tests; `frontend/src/auth/*`, account-plan/history state and their tests. Preserve
-Penny's grounding/selection and existing matching/comparison/adoption contracts.
+Yours: `backend/app/auth.py`, `access.py`, `chat_history.py` and their tests;
+`frontend/src/auth/*`, account plan and history state and their tests.
 
-`main.py`, `db.py`, `schemas.py`, `chat.py` and API/event contracts are shared with
-Claude's W10 integration. Announce any required shared-file/schema change before
-editing; one integrator resolves it. Do not have both workers independently
-rewrite login, private ownership, discovery or the chat loop. Return a small
-branch/PR with migration reasoning, tests and measured results for review.
+Shared, announce before editing: `main.py`, `db.py`, `schemas.py`, `chat.py` and
+the API and event contracts. Keep Penny's grounding and selection and the matching,
+comparison and adoption contracts as they are.
 
-Maintain server-side authorization: browser/model user IDs and cached assistant
-messages are not credentials. Preserve the public guest route without granting
-account data. Treat the existing legacy-import exclusion regression as a release
-requirement. Preserve saved plans and require explicit possession proof for any
-further migration; do not reset production databases to make tests pass.
+Keep authorization server-side: user IDs from the browser or model and cached
+assistant messages are never credentials. The guest route stays public with no
+account data. Old browser plans still need explicit token proof to import. Never
+reset a production database to make a test pass.
 
-## Environment and verification
+## Environment
 
-Use your own isolated environment and private test settings. Backend variables:
-`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `REDIS_URL`, persistent `APP_DB_PATH`.
-Frontend build variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
-They must identify the same project. Never put service-role/model keys or test
-passwords in the frontend. Runtime secret injection does not retroactively change
-Vite build variables. The local launcher accepts an explicit `-EnvFile` allowlist.
+Backend: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `REDIS_URL`, `APP_DB_PATH`.
+Frontend build: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, same project.
+No service-role key, model key or test password ever goes in the frontend. Vite
+variables are baked in at build time; changing runtime secrets doesn't change them.
+`backend/scripts/run-local.ps1 -EnvFile <path>` starts the app with an allowlist.
 
-Create a fresh virtual environment and install `backend/requirements-dev.txt`.
-Global Python packages previously had inconsistent source despite version labels.
-Use a Node version compatible with the lockfile/dev-dependency engines (jsdom
-declares `^22.22.2 || ^24.15.0 || >=26.0.0`). Earlier Node24.12 tests passed with
-engine warnings; that is not proof that every version in the broad app engine
-range is supported. Keep all temp/cache/build/test output under ignored sandbox.
-
-Example backend checks from the repository root in PowerShell:
-
+Full checks, from the repository root:
 ```powershell
 New-Item -ItemType Directory -Path sandbox/auth-qa/tmp -Force | Out-Null
 $env:PYTHONDONTWRITEBYTECODE='1'
-$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
 $env:TEMP=(Resolve-Path sandbox/auth-qa/tmp).Path
 $env:TMP=$env:TEMP
+Remove-Item Env:OPENROUTER_API_KEY, Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
 python -m pytest backend/tests -q -p no:cacheprovider --basetemp=sandbox/auth-qa/run
+cd frontend; npm ci; npm test; npm run build
 ```
+Node must satisfy the lockfile engines (jsdom wants `^22.22.2 || ^24.15.0 || >=26.0.0`).
 
-Use `npm ci`, `npm test`, `npm run build` in `frontend` with cache/output under
-sandbox; inspect warnings rather than concealing them. Offline tests must unset
-real provider keys. For live tests record sanitized case-level evidence, not
-credentials or raw token-bearing requests. Do not claim a mock proves Supabase,
-SMTP, browser or hosted behavior.
+## Spend and gates
 
-## Configuration decisions and gates
+Auth isolation and load tests need no model spend: use the fake model. Any paid
+model test needs a stated open question and an explicit call and cost bound agreed
+with Aurindom first. Budget policy is `docs/PRODUCTION_BUDGET.md`; historical
+release-testing spend is USD 0.637538 and this checker adds nothing.
 
-Aurindom supplies the production URL, project/hosting access, SMTP provider and
-sender/domain/budget, expected demo load, and selected Azure account/VM size.
-Prepare code and a concrete plan without those, then request only the missing
-decision/access. Routine reversible source work on your branch need not wait for
-individual approvals. No project-wide confirmation disable, signing-key rotation,
-new paid provider, cloud provisioning or production deployment is implied here.
-
-No model spending is needed for auth isolation or most load tests: inject the
-model and use synthetic requests. Paid model tests require a stated unresolved
-question and explicit per-batch call/cost bounds. Known local sample spend is
-USD0.075996 of the USD1.50 allowance, not the team-wide USD25 key balance. Do not
-repeat the completed model samples just for reassurance. Test accounts are not
-production defaults; don't ship credentials or depend on Aurindom's local files.
-
-Before production rollout, agree the tested commit, backup/rollback action,
-capacity limit, secrets/configuration and smoke-test results with Aurindom. Keep
-Hermes/MCP services private and Langfuse deferred per the current work order.
+Aurindom supplies the production URL, hosting access, SMTP provider and sender,
+expected load and VM size. Nothing here authorizes disabling email confirmation
+project-wide, rotating signing keys, a new paid provider, cloud provisioning or a
+production deploy. Hermes and MCP stay private. Langfuse stays deferred.
 
 ## Official references
 
-- Email and endpoint quotas: https://supabase.com/docs/guides/auth/rate-limits
-- SMTP/recipient restrictions: https://supabase.com/docs/guides/auth/auth-smtp
-- Redirect configuration: https://supabase.com/docs/guides/auth/redirect-urls
-- Verified/cached claims and asymmetric-key dependency:
-  https://supabase.com/docs/reference/javascript/auth-getclaims
-- Sessions/logout behavior: https://supabase.com/docs/guides/auth/sessions
+- Rate limits: https://supabase.com/docs/guides/auth/rate-limits
+- SMTP: https://supabase.com/docs/guides/auth/auth-smtp
+- Redirect URLs: https://supabase.com/docs/guides/auth/redirect-urls
+- Verified claims and asymmetric keys: https://supabase.com/docs/reference/javascript/auth-getclaims
+- Sessions and logout: https://supabase.com/docs/guides/auth/sessions
 
-The current Python backend verifies remotely before decoding claims. Do not
-remove that step unless a proper signature-verification path replaces it. The
-getClaims reference describes Supabase's approach; do not paste browser SDK code
-into FastAPI or assume a legacy symmetric project supports public JWKS checks.
+The backend verifies each token remotely before reading its claims. Don't remove
+that step unless a real signature check replaces it, and don't assume a legacy
+symmetric-key project supports public JWKS.
