@@ -92,9 +92,12 @@ export function newRequestId() {
 }
 
 export const api = {
+  account: (token) => request('/api/auth/me', { headers: owner(token), cache: 'no-store' }),
+  logoutAccount: (token) => request('/api/auth/logout', { method: 'POST', headers: owner(token) }),
+  claimLegacyPlans: (token, legacyToken) => request('/api/plans/claim-legacy', { method: 'POST', headers: owner(token), body: JSON.stringify({ legacy_token: legacyToken }) }),
   loadChatHistory: (token) => request('/api/chat/history', { headers: owner(token), cache: 'no-store' }),
   saveChatHistory: (token, snapshot) => request('/api/chat/history', { method: 'PUT', headers: owner(token), cache: 'no-store', body: JSON.stringify(snapshot) }),
-  validateChat: (payload) => request('/api/chat/validate', { method: 'POST', body: JSON.stringify(payload) }),
+  validateChat: (payload, token) => request('/api/chat/validate', { method: 'POST', headers: token ? owner(token) : {}, body: JSON.stringify(payload) }),
   trades: (signal) => request('/api/trades', { signal }),
   categories: (signal) => request('/api/categories', { signal }),
   problems: (trade, category, signal) => request(`/api/problems${query({ trade, category })}`, { signal }),

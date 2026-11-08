@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { flushHistory, forgetQueuedHistory } from '../chat/historyCache'
 import './account.css'
+import { api } from '../api'
 
 export default function AccountControls({ auth }) {
   const [open, setOpen] = useState(false)
@@ -16,7 +17,7 @@ export default function AccountControls({ auth }) {
     setBusy(true); setMessage('')
     try {
       const result = create
-        ? await auth.client.auth.signUp({ email: email.trim(), password })
+        ? await auth.client.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: window.location.origin } })
         : await auth.client.auth.signInWithPassword({ email: email.trim(), password })
       setPassword('')
       if (result.error) setMessage(result.error.message)
@@ -30,20 +31,27 @@ export default function AccountControls({ auth }) {
     if (!auth.client || busy) return
     setBusy(true); setMessage('')
     let saved = true
-    try { await flushHistory(true) } catch { saved = false }
+    try { await flushHistory() } catch { saved = false }
+    let serverClosed = true
+    try {
+      const result = await api.logoutAccount(auth.session?.access_token)
+      if (!result.cache_expiry_confirmed) saved = false
+    } catch { serverClosed = false }
     try {
       const { error } = await auth.client.auth.signOut({ scope: 'local' })
+      forgetQueuedHistory()
       if (error) setMessage(error.message)
       else {
-        forgetQueuedHistory()
         setOpen(false); setEmail(''); setPassword('')
-        if (!saved) setMessage('Signed out. This chat may not be available when you return.')
+        if (!serverClosed) setMessage('Signed out on this browser. Server sign-out could not be confirmed.')
+        else if (!saved) setMessage('Signed out. Conversation recovery or cache cleanup could not be confirmed.')
       }
     } catch { setMessage('Could not sign out. Please try again.') }
     finally { setBusy(false) }
   }
 
   return <div className="owner-account">
+    {auth.error && <p role="status">{auth.error}</p>}
     <button type="button" className="owner-account-trigger" onClick={() => setOpen((current) => !current)} disabled={!auth.client || !auth.ready} aria-expanded={open} aria-label={auth.user ? 'Your account' : auth.configured ? 'Sign in to save Penny chat' : 'Account setup pending'} title={!auth.configured ? 'Account setup pending' : undefined}>{auth.user ? 'Account' : auth.configured && (!auth.ready || auth.client) ? 'Sign in' : 'Account'}</button>
     {open && <div className="owner-account-popover">
       {auth.user ? <>

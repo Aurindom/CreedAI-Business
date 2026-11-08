@@ -27,3 +27,15 @@ test('chat saves serialize and sign-out refreshes the latest snapshot', async ()
   await flushHistory(true)
   assert.equal(calls.length, 3)
 })
+
+test('rapid updates to the same conversation save only the latest snapshot', async () => {
+  const calls = []
+  globalThis.fetch = async (url, options) => { calls.push(JSON.parse(options.body)); return new Response(null, { status: 204 }) }
+  await Promise.all([queueHistory('fixture', { conversationId: 'same', messages: [1] }),
+    queueHistory('fixture', { conversationId: 'same', messages: [1, 2] }),
+    queueHistory('fixture', { conversationId: 'same', messages: [1, 2, 3] })])
+  await flushHistory()
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].messages, [1, 2, 3])
+  forgetQueuedHistory()
+})

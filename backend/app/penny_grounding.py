@@ -1,0 +1,145 @@
+"""Trusted answer packages for Penny; never use owner/history numbers as facts."""
+from .agent.evidence import Claim, Source, _finish, _safe, build_evidence, build_request_evidence
+from .tasks import resolve_task
+import re
+
+
+class ActionContextError(ValueError):
+    pass
+
+
+def plan_already_unknown(body):
+    """Recognize explicit uncertainty; an omitted profile field alone is insufficient."""
+    text = body.message.casefold().replace('’', "'")
+    if re.search(r"\b(?:do not know|don't know|dont know|not sure|unsure)\b[^.!?]{0,60}\bplan\b", text):
+        return True
+    if text.strip(' .!?') in {'i do not know', "i don't know", 'i dont know', 'not sure', 'i am not sure'}:
+        previous = next((item.text.casefold() for item in reversed(body.history) if item.role == 'assistant'), '')
+        return 'plan' in previous
+    return False
+
+
+def filtered_context(catalog, profile, memory):
+    excluded = set(memory.ruled_out)
+    clean_catalog = catalog.model_copy(update={
+        'tools': [tool for tool in catalog.tools if tool.id not in excluded]
+    })
+    clean_profile = profile.model_copy(update={
+        'owned': [entry for entry in profile.owned if entry.tool_id not in excluded]
+    })
+    return clean_catalog, clean_profile
+
+
+def task_ids(catalog, body):
+    # Current words win; only revisit user turns for a short contextual follow-up.
+    texts = [body.message]
+    if len(body.message.split()) <= 6:
+        texts += [item.text for item in reversed(body.history) if item.role == 'user']
+    for text in texts:
+        match = resolve_task(catalog, text)
+        if match.status == 'matched':
+            return [match.problem_id]
+        if match.status == 'ambiguous':
+            return []
+    return []
+
+
+def request_package(catalog, profile, body):
+    tasks = task_ids(catalog, body)
+    return (build_evidence(catalog, profile, tasks) if tasks
+            else build_request_evidence(catalog, profile, body.message))
+
+
+def qualify_package(catalog, package, body=None):
+    """Do not present zero entry price as unlimited use; do not invent quotas."""
+    from . import chat_guard
+    if chat_guard.reason(package.model_dump(mode='json'), include_personal=False):
+        return build_evidence(catalog, None, [], available=False)
+    claims = list(package.claims)
+    required = list(package.required_claim_ids)
+    defaults = list(package.default_claim_ids)
+    tool_ids = {claim.tool_id for claim in claims if claim.tool_id}
+    for tool_id in sorted(tool_ids):
+        tool = catalog.tool(tool_id)
+        fact = tool.entry_monthly_usd
+        if fact.known and float(fact.value) == 0:
+            cid = f'{tool_id}:free_limits'
+            claims.append(Claim(id=cid, tool_id=tool_id,
+                                text=f'{tool.name}: free-plan usage limits, paid upgrades and task-specific availability still need checking.',
+                                evidence_ids=['policy'], state='unconfirmed'))
+            required.append(cid)
+            defaults.append(cid)
+    followups = dict(package.followups)
+    if body is not None and plan_already_unknown(body):
+        followups.pop('plan', None)
+    return _finish(package.status, claims, list(package.sources), required,
+                   list(package.winner_tool_ids), followups, defaults)
+
+
+def details_package(tools):
+    claims = []
+    sources = [Source(id='policy', kind='backend_policy')]
+    for tool in tools:
+        cid = f'{tool.id}:details'
+        text = f'{tool.name}: '
+        refs = ['policy']
+        fact = tool.entry_monthly_usd
+        if fact.known and fact.checked and _safe(fact.source_url):
+            sid = f'{tool.id}:entry'
+            sources.append(Source(id=sid, kind=fact.source_type or 'third_party',
+                                  url=_safe(fact.source_url), checked=str(fact.checked),
+                                  inferred=fact.inferred))
+            refs.append(sid)
+            label = 'Estimated published entry price' if fact.inferred else 'Published entry price'
+            text += f'{label}: USD {float(fact.value):g}/month. '
+            if float(fact.value) == 0:
+                text += 'Free-plan usage limits and paid upgrades need checking. '
+        else:
+            text += 'Published entry price is not confirmed. '
+        if tool.entry_billing.known and tool.entry_billing.value == 'annual':
+            text += 'The listed monthly equivalent requires annual billing. '
+        text += ('This is an entry price, not a task-specific quote or a combined purchase total. '
+                 'Required tiers, usage charges and suitability need checking. ')
+        if tool.status != 'verified':
+            text += 'This catalog entry is pending review. '
+        claims.append(Claim(id=cid, tool_id=tool.id, text=text, evidence_ids=refs,
+                            state='unconfirmed'))
+    ids = [claim.id for claim in claims]
+    return _finish('ok', claims, sources, ids, [], {}, ids)
+
+
+def action_package(catalog, profile, body, name, arguments):
+    if name == 'recommend_tools':
+        if str(arguments.get('problem_id')) not in task_ids(catalog, body):
+            raise ActionContextError('Task choice needs clarification')
+        return build_evidence(catalog, profile, [str(arguments['problem_id'])])
+    if name == 'get_tool_details':
+        return details_package([catalog.tool(str(arguments['tool_id']))])
+    if name == 'compare_tools':
+        ids = arguments.get('tool_ids', [])
+        if not isinstance(ids, list) or not 2 <= len(ids) <= 3 or len(set(ids)) != len(ids):
+            raise ValueError('Choose two or three distinct tools')
+        tasks = task_ids(catalog, body)
+        if tasks:
+            return build_evidence(catalog, profile, tasks, ids)
+        return details_package([catalog.tool(tool_id) for tool_id in ids])
+    return request_package(catalog, profile, body)
+
+
+def question(catalog, key):
+    if key == 'business':
+        return {'question': 'What kind of business do you run?',
+                'choices': [trade.name for trade in catalog.trades[:3]] + ['Skip these questions']}
+    if key == 'software':
+        return {'question': 'Which software do you already use?',
+                'choices': ['I will type the names', 'No software yet', 'Skip these questions']}
+    if key == 'budget':
+        return {'question': 'What can you add to your monthly software bill?',
+                'choices': ['$0 added', 'I will type my budget', 'Skip these questions']}
+    if key == 'plan':
+        return {'question': 'Which subscription plan do you currently have?',
+                'choices': ['I will use the plan picker', 'I do not know']}
+    if key == 'task':
+        return {'question': 'What would you like help with?',
+                'choices': [card.title for card in catalog.problem_cards[:3]] + ['Browse other tasks']}
+    raise ValueError('Choose a supported question')

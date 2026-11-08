@@ -14,10 +14,11 @@ export async function loadCatalog() {
 }
 
 export function createHttpAdapter({ fetcher = (...args) => fetch(...args) } = {}) {
-  async function sendMessage({ conversationId, message, profile, memory, history }, onEvent) {
+  async function sendMessage({ conversationId, message, profile, memory, history, accessToken, signal }, onEvent) {
     const response = await fetcher('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+      signal,
       body: JSON.stringify({ conversation_id: conversationId, message, profile, memory, history }),
     })
     if (!response.ok || !response.body) throw new Error(`Chat request failed with ${response.status}`)

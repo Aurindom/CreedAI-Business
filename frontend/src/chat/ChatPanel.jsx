@@ -34,6 +34,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   const [memory, setMemory] = useState(() => restored?.memory || EMPTY_MEMORY)
   const [resumed, setResumed] = useState(() => Boolean(restored?.messages.length))
   const [hydratedFor, setHydratedFor] = useState(null)
+  const [historyReady, setHistoryReady] = useState(false)
   const [names, setNames] = useState({ tools: {}, trades: {} })
   const [live, setLive] = useState(null)
   const [speaking, setSpeaking] = useState(false)
@@ -51,6 +52,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   const messagesRef = useRef(messages)
   const memoryRef = useRef(memory)
   const speakTimer = useRef(null)
+  const abortRef = useRef(null)
 
   messagesRef.current = messages
   memoryRef.current = memory
@@ -64,7 +66,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
         trades: Object.fromEntries(data.trades.map((trade) => [trade.id, trade.name])),
       }))
       .catch(() => {})
-    return () => clearTimeout(speakTimer.current)
+    return () => { clearTimeout(speakTimer.current); abortRef.current?.abort(); runRef.current += 1 }
   }, [adapter])
 
   const userId = auth?.user?.id || null
@@ -82,20 +84,24 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
         setResumed(saved.messages.length > 0)
       }
       setHydratedFor(userId)
+      setHistoryReady(true)
     }).catch(() => {
-      if (active) setNotice('Could not restore your short chat history. Penny is still available, but this chat is not being saved.')
+      if (active) {
+        setHydratedFor(userId)
+        setNotice('Could not restore your short chat history. Penny is still available, but this chat is not being saved.')
+      }
     })
     return () => { active = false }
   }, [auth?.configured, auth?.ready, userId])
 
   useEffect(() => {
     if (!auth?.configured) { saveSession({ conversationId, messages, memory }); return }
-    if (userId && authToken && hydratedFor === userId) {
+    if (userId && authToken && hydratedFor === userId && historyReady) {
       queueHistory(authToken, { conversationId, messages: messages.filter((item) => item.kind !== 'loading').slice(-40), memory }).catch(() => {
         setNotice('Penny could not save this short chat history. Please try again before signing out.')
       })
     }
-  }, [auth?.configured, userId, authToken, hydratedFor, conversationId, messages, memory])
+  }, [auth?.configured, userId, authToken, hydratedFor, historyReady, conversationId, messages, memory])
 
   useEffect(() => {
     if (open) inputRef.current?.focus()
@@ -194,6 +200,10 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   }
 
   async function send(rawText, { isRetry = false } = {}) {
+    if (auth?.configured && (!auth.ready || (userId && hydratedFor !== userId))) {
+      setInputError('Restoring your account conversation. Please wait a moment.')
+      return
+    }
     const text = rawText.trim()
     if (!text) {
       setInputError("Tell me what's going on first.")
@@ -203,7 +213,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
     const run = begin()
     setInputError('')
     try {
-      const validation = await api.validateChat({ conversation_id: conversationId, message: text, profile, memory, history: historyFor(messagesRef.current, { dropLastUser: isRetry }) })
+      const validation = await api.validateChat({ conversation_id: conversationId, message: text, profile, memory, history: historyFor(messagesRef.current, { dropLastUser: isRetry }) }, authToken)
       if (run !== runRef.current) return
       if (!validation.allowed) { setInputError(validation.message); finish(run); return }
     } catch {
@@ -270,7 +280,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
     }
 
     try {
-      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryRef.current, history, isRetry }, onEvent)
+      abortRef.current = new AbortController()
+      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryRef.current, history, isRetry, accessToken: authToken, signal: abortRef.current.signal }, onEvent)
     } catch {
       if (run === runRef.current) addMessage({ kind: 'error', text: UNAVAILABLE, retry: { type: 'send', text } })
     }
@@ -291,6 +302,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   }
 
   function startOver() {
+    abortRef.current?.abort()
     runRef.current += 1
     busyRef.current = false
     if (!auth?.configured) clearSession()

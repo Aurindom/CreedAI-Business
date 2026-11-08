@@ -30,6 +30,19 @@ function assertUnavailable(events) {
   assert.equal(events.some(event => event.type === 'recommendation'), false)
 }
 
+test('verified-account credential is sent in the header, never the model request body', async () => {
+  let captured
+  const adapter = compiled.exports.createHttpAdapter({ fetcher: async (url, options) => { captured = options; return stream([]) } })
+  const controller = new AbortController()
+  await adapter.sendMessage({ ...request, accessToken: 'fixture-account-token', signal: controller.signal }, () => {})
+  assert.equal(captured.headers.Authorization, 'Bearer fixture-account-token')
+  assert.equal(captured.signal, controller.signal)
+  assert.ok(!captured.body.includes('fixture-account-token'))
+  assert.ok(!('accessToken' in JSON.parse(captured.body)))
+  await adapter.sendMessage(request, () => {})
+  assert.ok(!('Authorization' in captured.headers))
+})
+
 test('no key or budget means unavailable, with no generated fallback reply', async () => {
   const urls = []
   const events = await run(async url => { urls.push(url); return Response.json({ available: false }) })
