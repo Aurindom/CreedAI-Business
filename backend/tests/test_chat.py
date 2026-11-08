@@ -141,14 +141,14 @@ def test_bad_action_arguments_do_not_crash(client, monkeypatch):
 def test_memory_keeps_only_real_ids(client, monkeypatch):
     script(monkeypatch, calls(("update_memory", {"trade": "coffee_shop", "owned_tool_ids": ["jobber", "fake"], "ruled_out_tool_ids": ["toast"], "budget_monthly_usd": 50})), reply("Got it."))
     memory = next(e for e in send(client) if e["type"] == "memory")["memory"]
-    assert memory == {"trade": "coffee_shop", "owned": ["jobber"], "ruled_out": ["toast"], "budget_monthly_usd": 50.0, "background_done": False}
+    assert memory == {"trade": "coffee_shop", "owned": ["jobber"], "ruled_out": ["toast"], "budget_monthly_usd": 50.0, "background_done": False, "active_task_ids": [], "pending_question": None}
 
 
 def test_clarify_ends_the_turn(client, monkeypatch):
     seen = script(monkeypatch, calls(("ask_owner", {"question_id": "budget"})))
-    events = send(client)
-    assert kinds(events) == ["status", "a2ui", "clarify", "done"]
-    surface = events[1]["messages"]
+    events = send(client, message='Help me get started')
+    assert kinds(events) == ["status", "memory", "a2ui", "clarify", "done"]
+    surface = events[2]["messages"]
     assert surface[0]["createSurface"]["catalogId"] == "https://mainstreet.ai/catalogs/penny/v1"
     assert surface[1]["updateComponents"]["components"][0]["choices"] == ['$0 added', 'I will type my budget', 'Skip these questions']
     assert len(seen) == 1
@@ -248,16 +248,16 @@ def test_real_model_call_sends_key_only_in_header(monkeypatch):
     assert "abc" not in json.dumps(captured["body"])
 
 
-def test_background_comes_before_recommendations(client, monkeypatch):
+def test_specific_task_is_answered_before_optional_background(client, monkeypatch):
     seen = script(
         monkeypatch,
         calls(("recommend_tools", {"problem_id": "bookkeeping"})),
         calls(("ask_owner", {"question_id": "business"})),
     )
     events = send(client)
-    assert "background first" in seen[1][-1]["content"].lower()
-    assert not any(e["type"] == "recommendation" for e in events)
-    assert next(e for e in events if e["type"] == "clarify")["question"] == 'What kind of business do you run?'
+    assert any(e["type"] == "recommendation" for e in events)
+    assert not any(e["type"] == "clarify" for e in events)
+    assert any(e.get('validation') == 'validated' for e in events)
 
 
 def test_background_is_not_forced_twice_in_one_turn(client, monkeypatch):

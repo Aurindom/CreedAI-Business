@@ -26,6 +26,15 @@ def _owner_text(text: str) -> str:
     return re.sub(r"[a-z]+", lambda match: _OWNER_WORDS.get(match.group().casefold(), match.group()), text, flags=re.I)
 
 
+def affirmative_excerpt(text: str, excerpt: str) -> bool:
+    """Require an exact owner excerpt inside an affirmative clause, not a quote with negation removed."""
+    normalize = lambda value: ' '.join(value.casefold().replace('\u2019', "'").split())
+    wanted = normalize(excerpt)
+    return len(wanted) >= 3 and any(
+        wanted in normalize(clause) and not _NEGATION.search(clause)
+        for clause in _CLAUSE_BREAK.split(text.replace('\u2019', "'")))
+
+
 def _stem(word: str) -> str:
     """Crude on purpose: it only has to make 'booking' meet 'book' and 'replies' meet 'reply'."""
     for suffix, swap in _SUFFIXES:

@@ -23,9 +23,9 @@ from .matching import recommend
 from .schemas import BusinessProfile, Catalog, Fact, OwnedSoftware, Tool
 from .agent.grounding import default_answer, validate_answer, FALLBACK
 from .agent.guard import LeakGuard
-from .agent.evidence import EvidencePackage
+from .agent.evidence import EvidencePackage, build_evidence
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
-from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown
+from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -52,10 +52,12 @@ Rules:
 - Facts, prices and sources come only from approved evidence. Select references; never paraphrase them or write a dollar amount yourself.
 - Use the supplied session context before asking anything. Reuse the known business type, owned tools, exact plan names, and added monthly budget. Do not restart intake or ask the owner to repeat a known answer. An omitted field means unknown, not that the owner has no software or no budget.
 - Call update_memory when the owner explicitly states or corrects a business type, software they use, added monthly budget, or a tool they do not want. A mention of a tool as an alternative does not mean they subscribe to it.
-- Background first: while background_done is false and the business type is unknown, ask one missing detail at a time with ask_owner: business type, current software, then budget. Skip details already present in the page profile or memory. Offer "Skip these questions". When finished or skipped, record background_done true. Do not turn a specific tool question or comparison into a sales intake; get_tool_details and compare_tools can answer those directly.
+- Offer background questions only when the owner asks to get started without a specific task. Skip known details, offer "Skip these questions", and record background_done when finished or skipped. A specific task or tool question deserves an answer first; unknown business type, current software or budget must not block grounded general guidance.
 - Ask about budget as what the owner can ADD to the monthly bill, not their existing subscription total. Zero is a valid preference. Never reinterpret a current bill as a budget. A lower published entry price does not establish savings or the cost of the required plan.
 - If the task is unclear, ask one specific question with 2-4 relevant choices using ask_owner. Preserve negation: an owner saying a task is fine is not asking for help with it. If they ask to compare tools but have not named them, ask which tools; if the task matters, ask what job they need done. Never assume the first named tool is the one they own.
 - For a known task call recommend_tools, then submit_answer selecting relevant claim_ids from the returned evidence_package. Use claim_ids=[] for the backend default. The backend includes required context, uncertainty and winner evidence; you never supply those policy fields. Do not repeat full cards or introduce another tool call merely to restate evidence.
+- Catalog phrase matching is only an initial hint, not a limit on understanding the owner's wording. Map an affirmative request semantically to a supported catalog problem_id; include task_text copied exactly from the owner's request when using recommend_tools. Use the recent owner turns to understand short answers and complaints about repetition. Never override an explicit different task, a negation, or an unresolved choice between multiple tasks.
+- Answer the stated task before collecting optional background. Never repeat a question already answered or asked in this conversation. If clarification is genuinely necessary, ask once and supply two or three relevant problem_ids for a task question, rather than unrelated default choices. If no supported task fits, submit the honest no-match evidence instead of restarting intake.
 - Ownership alone never proves entitlement. Select the supplied no_new_tool/check-plan claims exactly as the backend returned them.
 - For an unknown plan choose its supplied plan followup or ask_owner(question_id=plan). Do not pretend update_memory saves plan names. Never invent setup steps, integrations or results.
 - If the owner explicitly says they do not know their plan, do not ask for it again. Submit the supplied check-plan evidence without a plan followup.
@@ -71,10 +73,13 @@ ACTIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "recommend_tools",
-            "description": "Get checked recommendations for one problem, using the owner's remembered details. Shows cards to the owner.",
+            "description": "Map the owner's request to a supported catalog task and get checked recommendations. Include an exact affirmative owner excerpt in task_text for semantic matches. Shows cards to the owner.",
             "parameters": {
                 "type": "object",
-                "properties": {"problem_id": {"type": "string"}},
+                "properties": {
+                    "problem_id": {"type": "string"},
+                    "task_text": {"type": "string", "minLength": 3, "maxLength": 500, "description": "Exact excerpt from the current or recent owner request that identifies this task; never invent or remove negation."},
+                },
                 "required": ["problem_id"],
             },
         },
@@ -129,6 +134,8 @@ ACTIONS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "question_id": {"type": "string", "enum": ["business", "software", "budget", "task", "plan"]},
+                    "problem_ids": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 3,
+                                    "description": "For a task question, the two or three relevant catalog tasks to offer."},
                 },
                 "required": ["question_id"],
                 "additionalProperties": False,
@@ -159,6 +166,8 @@ class ChatMemory(BaseModel):
     ruled_out: list[str] = Field(default_factory=list, max_length=20)
     budget_monthly_usd: float | None = Field(default=None, ge=0)
     background_done: bool = False
+    active_task_ids: list[str] = Field(default_factory=list, max_length=5)
+    pending_question: Literal['business', 'software', 'budget', 'task', 'plan'] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -375,12 +384,15 @@ def _visible_tool(catalog: Catalog, tool_id: str) -> Tool:
 
 def _clean_memory(catalog: Catalog, memory: ChatMemory) -> ChatMemory:
     known = {tool.id for tool in catalog.tools if tool.status != "rejected"}
+    tasks = {card.id for card in catalog.problem_cards}
     return ChatMemory(
         trade=catalog.resolve_trade(memory.trade) if memory.trade else None,
         owned=[tool_id for tool_id in dict.fromkeys(memory.owned) if tool_id in known],
         ruled_out=[tool_id for tool_id in dict.fromkeys(memory.ruled_out) if tool_id in known],
         budget_monthly_usd=memory.budget_monthly_usd,
         background_done=memory.background_done,
+        active_task_ids=[pid for pid in dict.fromkeys(memory.active_task_ids) if pid in tasks],
+        pending_question=memory.pending_question,
     )
 
 
@@ -414,6 +426,8 @@ def _prompt(catalog: Catalog, profile: BusinessProfile, memory: ChatMemory) -> s
         "ruled_out_tool_ids": memory.ruled_out,
         "budget_monthly_usd": profile.budget_monthly_usd,
         "background_done": memory.background_done,
+        "active_task_ids": memory.active_task_ids,
+        "pending_question": memory.pending_question,
     }
     return f"{PENNY}\n\n{_catalog_brief(catalog)}\n\nSelection rules for submit_answer arguments:\n{SELECTION_PROMPT}\nAsk questions ONLY using ask_owner(question_id); the server supplies wording and choices.\n\nWhat you remember in this session: {json.dumps(known)}"
 
@@ -445,9 +459,6 @@ class ActionResult(BaseModel):
     stop: bool = False
 
 
-BACKGROUND_FIRST = "Ask for background first with ask_owner: business type, software they pay for, then monthly budget. If the owner skips, call update_memory with background_done true."
-
-
 def _a2ui_event(surface: str, component: str, properties: dict[str, Any], message: str) -> dict[str, Any]:
     surface_id = f"penny-{surface}-{secrets.token_urlsafe(8)}"
     return {
@@ -465,14 +476,11 @@ def _run_action(
     arguments: dict[str, Any],
     profile: BusinessProfile,
     memory: ChatMemory,
-    require_background: bool = False,
 ) -> ActionResult:
     """Everything the model may do. Unknown names and bad ids return an error for it to recover from."""
     try:
         if name == "recommend_tools":
             current = _effective_profile(catalog, profile, memory)
-            if require_background and not memory.background_done and not current.trade:
-                return ActionResult(data={"error": BACKGROUND_FIRST})
             found = recommend(catalog, current, catalog.problem(str(arguments.get("problem_id"))))
             result = found.model_dump(mode="json")
             result["ruled_out_by_owner"] = memory.ruled_out
@@ -529,9 +537,9 @@ def _run_action(
             return ActionResult(data={"saved": cleaned.model_dump()}, events=[_memory_event(cleaned)])
         if name == "ask_owner":
             try:
-                arguments = question(catalog, arguments.get('question_id'))
+                arguments = question(catalog, arguments.get('question_id'), arguments.get('problem_ids'))
             except ValueError:
-                return ActionResult(data={'error': 'Choose a supported question_id.'})
+                return ActionResult(data={'error': 'Choose a supported question_id. For task clarification, supply two or three relevant, distinct catalog problem_ids.'})
             question_text = str(arguments.get("question", ""))[:200]
             choices = [choice[:80] for choice in _string_list(arguments.get("choices"))[:4]]
             if not question_text or len(choices) < 2:
@@ -559,11 +567,11 @@ def _run_action(
     return ActionResult(data={"error": "That action isn't available."})
 
 
-def run_action(catalog, name, arguments, profile, memory, require_background=False):
+def run_action(catalog, name, arguments, profile, memory):
     if chat_guard.reason(arguments):
         chat_guard.audit("tool_injection", "tool")
         return ActionResult(data={"error": "These action arguments cannot be used safely."})
-    result = _run_action(catalog, name, arguments, profile, memory, require_background)
+    result = _run_action(catalog, name, arguments, profile, memory)
     if chat_guard.reason(result.model_dump(mode="json"), include_personal=False):
         chat_guard.audit("tool_injection", "tool")
         return ActionResult(data={"error": "This tool text contains instructions and was withheld. Use a different catalog entry."})
@@ -632,6 +640,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         yield {"type": "done"}
         return
     memory = _clean_memory(catalog, body.memory)
+    body.memory = memory
     original_catalog = catalog
     catalog, current = filtered_context(catalog, _effective_profile(catalog, body.profile, memory), memory)
     package = qualify_package(catalog, request_package(catalog, current, body), body)
@@ -644,7 +653,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
               + package.model_dump_json())
     conversation = _conversation(system, history, body.message)
     errors = _provider_errors()
-    asked_background = False
+    resolved_tasks: list[str] = []
     yield {"type": "status", "text": "Penny is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
@@ -698,6 +707,8 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             observe_validation(validated)
             if chat_guard.reason(validated.text):
                 validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
+            memory.pending_question = None
+            yield _memory_event(memory)
             for event in reply_events(validated.text, validated.status):
                 yield event
             yield {'type': 'done'}
@@ -731,20 +742,48 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                     yield event
                 yield {'type': 'done'}
                 return
-            result = run_action(catalog, call["name"], call["arguments"], body.profile, memory, require_background=not asked_background)
-            if call["name"] == "recommend_tools":
-                asked_background = True
+            if (call['name'] == 'ask_owner'
+                    and question_repeats(catalog, current, body, call['arguments'].get('question_id'))):
+                if any(claim.id.endswith(':decision') for claim in package.claims):
+                    validated = validate_answer(default_answer(package), package, guard)
+                    observe_validation(validated)
+                    memory.pending_question = None
+                    yield _memory_event(memory)
+                    for event in reply_events(validated.text, validated.status):
+                        event['selection_origin'] = 'backend_known_context'
+                        yield event
+                    yield {'type': 'done'}
+                    return
+                results.append((call['id'], json.dumps({
+                    'error': 'This question has already been asked or answered. Do not repeat it. Use the owner request and recent user turns: choose a supported catalog task with recommend_tools and an exact affirmative task_text excerpt. If none fits, submit the available no-match evidence.',
+                    'evidence_package': package.model_dump(mode='json'),
+                })))
+                continue
+            result = run_action(catalog, call["name"], call["arguments"], body.profile, memory)
             catalog, current = filtered_context(original_catalog, _effective_profile(original_catalog, body.profile, memory), memory)
             try:
                 if result.data.get('error'):
                     raise ValueError('action failed')
-                package = qualify_package(catalog, action_package(catalog, current, body, call['name'], call['arguments']), body)
+                next_package = (build_evidence(catalog, current, resolved_tasks)
+                                if call['name'] == 'update_memory' and resolved_tasks
+                                else action_package(catalog, current, body, call['name'], call['arguments']))
+                if call['name'] == 'recommend_tools':
+                    next_tasks = list(dict.fromkeys([*resolved_tasks, str(call['arguments']['problem_id'])]))
+                    next_package = build_evidence(catalog, current, next_tasks)
+                package = qualify_package(catalog, next_package, body)
+                if call['name'] == 'recommend_tools':
+                    resolved_tasks = next_tasks
+                    memory.active_task_ids = resolved_tasks
+                    memory.pending_question = None
+                    yield _memory_event(memory)
+                elif call['name'] == 'ask_owner':
+                    memory.pending_question = call['arguments']['question_id']
+                    yield _memory_event(memory)
             except ActionContextError:
                 package = qualify_package(catalog, request_package(catalog, current, body), body)
-                result.data = {'error': 'Task choice needs clarification; use the supplied request evidence.'}
+                result.data = {'error': 'Task choice conflicts with the owner request or lacks an exact affirmative task_text excerpt. Preserve explicit tasks, ambiguity and negation. For a semantic catalog match, include task_text copied from the current or recent owner request.'}
                 result.events = []
             except (KeyError, ValueError, TypeError):
-                from .agent.evidence import build_evidence
                 package = build_evidence(catalog, current, [], available=False)
                 # Invalid context/IDs must not leave a stale result on screen.
                 result.events = []

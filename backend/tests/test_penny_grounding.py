@@ -136,7 +136,7 @@ def test_injected_protected_value_is_blocked_not_just_refused(client, monkeypatc
 
 def test_questions_are_server_authored(client, monkeypatch):
     script(monkeypatch, calls(('ask_owner', {'question_id': 'budget'})))
-    events = send(client)
+    events = send(client, message='Help me get started')
     event = next(event for event in events if event['type'] == 'clarify')
     assert event['question'] == 'What can you add to your monthly software bill?'
     assert '$0 added' in event['choices']
