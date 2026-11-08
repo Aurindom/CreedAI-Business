@@ -4,13 +4,9 @@ Updated 2026-11-08. Start from the latest **aurin-test** commit, which contains
 this document and `backend/scripts/check_two_accounts.py`. Put `git rev-parse HEAD`
 in anything you report back. Make your own branch for changes, e.g. `auth-production`.
 
-## The one thing blocking release evidence
+## Live two-account release evidence
 
-Nobody has run the isolation checks with **two real Supabase accounts**. Account A
-is real and has passed everything. Account B has only ever been a mock, because the
-second test user was never created (sign-in returns `invalid_credentials`; an
-earlier signup attempt hit HTTP 429). You own the Supabase project, so you can
-close this with one zero-cost run. Steps are in "Run the two-account check" below.
+**2026-11-08 giri-test update:** The owner supplied two existing QA accounts through ignored local configuration and replaced the initially unconfirmed second account. The real two-account checker completed against integrated application commit `6c3ff31`, with `complete: true` and **26/26 checks passed**. Real Supabase and Redis were used; Hermes/model calls were faked, with zero paid model spend. See `AURIN_SUPABASE_INTEGRATION.md` for scope and limits. This supersedes the historical missing-account blocker below. The subsequent email sign-in test was accepted by Supabase and the owner confirmed receipt and successful local sign-in. Production redirects and staging deployment still require separate evidence; the fallback Site URL remains localhost:3000. A subsequent fresh signup through the real app UI was confirmed by email and independently verified server-side with successful password login and app account identity. See the integration report for the exact scope. Only the production HTTPS redirect and deployment remain outstanding in this auth check set.
 
 2026-11-08 update on `giri-test`: account-owned favourites and a 30-day chat
 retention policy now supersede the original short cache policy. See
@@ -30,10 +26,14 @@ Own production authentication/signup/cache/plan-access hardening and its release
 evidence. Claude continues agent/discovery work under CLAUDE_WXX_RESUME.md. This is
 a tested integration baseline, not a claim that public production is ready.
 
-## Baseline at 1d249b9
+Aurin's incoming handoff reports that isolation checks with **two real Supabase accounts** were still outstanding. Account A
+is real and has passed everything. Account B has only ever been a mock, because the
+second test user was never created (sign-in returns `invalid_credentials`; an
+earlier signup attempt hit HTTP 429). You own the Supabase project, so you can
+close this with one zero-cost run. Steps are in "Run the two-account check" below.
 
-- 997 backend tests, 33 frontend tests, `npm run build` clean.
-- This commit adds the checker and 7 offline tests for its refusal rules.
+## Historical baseline at 1d249b9
+
 - Supabase email/password identity verified server-side; supplied invalid tokens
   never become guests. Identity verification is independent of Redis.
 - Account-owned persistent plans and one initial owner workspace per verified
@@ -52,6 +52,9 @@ a tested integration baseline, not a claim that public production is ready.
   package binding, mandatory uncertainty, references/winners and rendering.
   Signed-in/guest identity is checked server-side; tokens/IDs are not model input.
 
+- 997 backend tests, 33 frontend tests, `npm run build` clean.
+- This commit adds the checker and 7 offline tests for its refusal rules.
+
 | What | Evidence | Real or mocked |
 |---|---|---|
 | A signs in, is a verified account, guest sees nothing private | sandbox run, 21 of 21 | real Supabase A, real Redis |
@@ -60,7 +63,7 @@ a tested integration baseline, not a claim that public production is ready.
 | Expiry after a real wait (305.8 s) | earlier auth stage | real A |
 | Logout revokes at once, revoked token gets 401 on plans, history, chat | same run | real A |
 | Logout during a chat run stops Hermes, user sees `session_expired`, no text delivered | same run | real A, fake Hermes |
-| Re-login restores own conversation inside 5 min, plans persist | same run | real A |
+| Re-login restored own conversation under the former 5-minute policy, plans persist | same run | real A |
 | B cannot list, read or refresh A's plans, or restore A's conversation | same run | **mocked B** |
 | B writing the same conversation ID leaves A's copy alone | same run | **mocked B** |
 | The new checker's whole matrix runs end to end | dry run, 26 of 26 | real A, **B faked at sign-in** |

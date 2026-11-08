@@ -14,6 +14,31 @@ tripped on the failed upstream call. That trip holds until reconciled by hand (s
 Not tested: a real VM, a real domain with TLS, real Supabase production settings,
 a paid model call through this compose file.
 
+## 2026-11-08 container verification
+
+The image build now requires public Supabase configuration explicitly. Previously,
+`.dockerignore` excluded the local Vite environment and the Docker build supplied
+no replacement, leaving the hosted UI without configured sign-in.
+
+Verified locally with `penny-app:public-ready`:
+- Docker image build with the public project URL and publishable key passed.
+- The same build without those public values was refused.
+- Compose configuration resolved all six services with only public configuration
+  passed into frontend build arguments. The syntax check used isolated fixture
+  env files, without starting the production services.
+- The image served the built UI and `/api/health` on one origin. Unknown API paths
+  stayed JSON 404s; guest `/api/plans` returned 401 with `Cache-Control: no-store`.
+- A browser signed in through the built UI against real Supabase, the container
+  API verified account identity, and sign-out completed without page errors.
+- The app ran as uid 10001. The smoke container used temporary app state and a
+  zero-dollar model cap, with no model key and zero paid model calls. It was stopped
+  after the checks; the normal local app was not replaced.
+
+No cloud deployment, DNS change or Supabase redirect-setting change was made.
+The owner reports existing hosting with issues; its provider, public URL and error
+are still needed to diagnose that host. The site's public availability and final
+HTTPS email redirect are not certified by these local container checks.
+
 ## Shape
 
 | Service | Image | Networks | Public |
@@ -98,13 +123,20 @@ fill its two secrets. Copy `deploy/settings.env.example` to `deploy/settings.env
 and set the budget numbers (see `docs/PRODUCTION_BUDGET.md`). Both filled files
 are ignored by git.
 
+The frontend requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in
+`deploy/settings.env`. These are public project values and must match the backend
+project in `app.env`. Compose passes them as build arguments; the Docker build
+refuses missing values. Changing these values requires rebuilding the app image.
+Only publishable configuration belongs in Vite variables. Service-role, SMTP,
+Redis and model credentials must never be supplied as frontend build arguments.
+
 ## Start, check, stop
 ```
 cd deploy
 export PENNY_DOMAIN=penny.example.com
-docker compose -f compose.prod.yml build app
-docker compose -f compose.prod.yml up -d
-docker compose -f compose.prod.yml ps
+docker compose --env-file settings.env -f compose.prod.yml build app
+docker compose --env-file settings.env -f compose.prod.yml up -d
+docker compose --env-file settings.env -f compose.prod.yml ps
 curl -fsS https://$PENNY_DOMAIN/api/health
 curl -s https://$PENNY_DOMAIN/api/chat/ready
 ```
@@ -117,7 +149,7 @@ curl -s https://$PENNY_DOMAIN/api/chat/ready
 - Other services have TCP health checks. Hermes starts last, after the gateway and
   MCP are healthy.
 
-Stop with `docker compose -f compose.prod.yml down`. Never add `-v`, and never
+Stop with `docker compose --env-file settings.env -f compose.prod.yml down`. Never add `-v`, and never
 delete the `/srv/penny` folders: they hold the ledgers.
 
 ## Backup
@@ -128,14 +160,14 @@ mkdir -p /srv/penny/backups/$TS
 for f in state/app.db state/chat_spend.db gateway/gateway.db; do
   sqlite3 /srv/penny/$f ".backup /srv/penny/backups/$TS/$(basename $f)"
 done
-docker compose -f compose.prod.yml exec redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli BGSAVE'
+docker compose --env-file settings.env -f compose.prod.yml exec redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli BGSAVE'
 tar -C /srv/penny -czf /srv/penny/backups/$TS/files.tgz redis hermes secrets
 ```
 Copy the backup off the VM. It contains secrets, so store it like one.
 
 ## Rollback
 Tag every build: `PENNY_IMAGE=penny-app:<git-sha>`. To roll back, set
-`PENNY_IMAGE` to the previous tag and `docker compose -f compose.prod.yml up -d`.
+`PENNY_IMAGE` to the previous tag and `docker compose --env-file settings.env -f compose.prod.yml up -d`.
 The ledgers and app.db stay in place. If a release changed the database, restore
 the matching backup with the stack stopped. Never roll back a ledger file to make
 budget reappear: see `docs/PRODUCTION_BUDGET.md`.
