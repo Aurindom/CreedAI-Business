@@ -22,4 +22,10 @@ The checker used real Supabase and Redis, an isolated app database, and a fake H
 
 The ignored redacted report is `sandbox/two-account/result.json`. Account passwords, provider tokens and local configuration remain outside Git and chat.
 
-SMTP delivery, confirmation links, production redirects, and a deployed staging host remain separate checks. This merge does not push or deploy changes.
+## SMTP and redirect follow-up
+
+On 2026-11-08, one email sign-in link was requested for existing QA account B, with `create_user: false` and `redirect_to=http://127.0.0.1:5173`. Supabase accepted the request with HTTP 200. The owner then confirmed that the email arrived and its link opened the website and signed them in. Delivery and the successful local callback are owner-observed evidence; Mailjet's dashboard was signed out, so no provider delivery event was independently inspected. No user was created and no password was changed.
+
+Separate live negative-link probes used a deliberately invalid token, never a real confirmation token. Both `http://127.0.0.1:5173` and `http://localhost:5173` were retained as redirect destinations with an `otp_expired` error. An untrusted `https://example.invalid/qa-redirect` destination was rejected and replaced by `http://localhost:3000`. This exposes the project's current fallback Site URL. These probes establish redirect policy, not successful authentication.
+
+**Production remains pending:** no deployed production/staging URL has been supplied, and the fallback Site URL must be set to the intended deployment before release. A fresh signup's confirmation template and final production HTTPS callback were not tested by the existing-account email sign-in flow. Redacted results are in ignored `sandbox/two-account/email-flow-result.json` and `redirect-policy-result.json`. No paid model calls were made. This work does not push or deploy changes.
