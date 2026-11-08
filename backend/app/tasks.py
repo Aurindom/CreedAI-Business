@@ -7,6 +7,46 @@ _CLAUSE_BREAK = re.compile(r"[.;!?\n]+|,?\s+\b(?:but|however|although|though|whe
 _NEGATION = re.compile(r"\b(?:not|no|never|without|dont|doesnt|didnt|isnt|arent|wont|cant)\b|n['’]t\b", re.IGNORECASE)
 
 
+# Deliberately narrow spelling/slang aliases, not fuzzy matching of arbitrary words.
+# Punctuation and negation remain in place for the existing clause safety rules.
+_OWNER_WORDS = {
+    'bookz': 'books', 'bookkeepin': 'bookkeeping', 'bookeeping': 'bookkeeping',
+    'bookeping': 'bookkeeping', 'reciepts': 'receipts', 'expences': 'expenses',
+    'invoicz': 'invoices', 'inovices': 'invoices', 'invoics': 'invoices',
+    'paymnts': 'payments', 'reivews': 'reviews', 'reviewz': 'reviews',
+    'replyin': 'reply', 'respondin': 'respond', 'ringin': 'rings', 'fone': 'phone',
+    'schedual': 'schedule', 'scedule': 'schedule', 'schedul': 'schedule',
+    'appt': 'appointments', 'appts': 'appointments', 'appointmnts': 'appointments',
+    'custmers': 'customers', 'newsleter': 'newsletter', 'shiffts': 'shifts',
+    'dispatchin': 'dispatch', 'tecs': 'technicians', 'r': 'are', 'aint': 'not',
+}
+
+def _owner_text(text: str) -> str:
+    text = re.sub(r"\bbook\s+keeping\b", 'bookkeeping', text, flags=re.I)
+    return re.sub(r"[a-z]+", lambda match: _OWNER_WORDS.get(match.group().casefold(), match.group()), text, flags=re.I)
+
+
+def affirmative_excerpt(text: str, excerpt: str) -> bool:
+    """Require an exact owner excerpt inside an affirmative clause, not a quote with negation removed."""
+    normalize = lambda value: ' '.join(value.casefold().replace('\u2019', "'").split())
+    wanted = normalize(excerpt)
+    clauses = [part for clause in _CLAUSE_BREAK.split(text.replace('\u2019', "'"))
+               for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
+    return len(wanted) >= 1 and any(
+        wanted in normalize(clause) and not _NEGATION.search(clause)
+        for clause in clauses)
+
+
+def owner_excerpts(text: str) -> list[str]:
+    """Offer exact source spans for structured routing, never catalog prose."""
+    clauses = [part.strip() for clause in _CLAUSE_BREAK.split(text)
+               for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
+    coordinated = [part.strip() for clause in clauses if affirmative_excerpt(text, clause)
+                   for part in re.split(r'\band\b', clause, flags=re.I)]
+    return [part for part in dict.fromkeys([text, *clauses, *coordinated])
+            if 1 <= len(part) <= 500 and affirmative_excerpt(text, part)]
+
+
 def _stem(word: str) -> str:
     """Crude on purpose: it only has to make 'booking' meet 'book' and 'replies' meet 'reply'."""
     for suffix, swap in _SUFFIXES:
@@ -52,7 +92,7 @@ def resolve_task(catalog: Catalog, text: str) -> TaskMatch:
     """
     stated: list[ProblemCard] = []
     negated: list[ProblemCard] = []
-    for clause in _CLAUSE_BREAK.split(text):
+    for clause in _CLAUSE_BREAK.split(_owner_text(text)):
         if clause and clause.strip():
             _add(negated if _NEGATION.search(clause) else stated, _clause_hits(catalog, clause))
     choices = stated + [card for card in negated if card not in stated]

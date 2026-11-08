@@ -22,11 +22,11 @@ export const ROUTE_LABELS = {
 export function statusLabel(status) {
   if (status === 'verified') return 'Source checked'
   if (status === 'pending_review') return 'Pending review'
-  return 'Review status unknown'
+  return 'Check service details'
 }
 
 export function costText(option) {
-  if (option.added_monthly_usd === null || option.added_monthly_usd === undefined) return 'Cost unknown'
+  if (option.added_monthly_usd == null) return 'Check current pricing'
   const amount = `$${Number(option.added_monthly_usd).toLocaleString()} more each month`
   return option.price_estimated ? `About ${amount} (estimate)` : amount
 }
@@ -35,21 +35,27 @@ export function safeUrl(url) {
   return /^https?:\/\//i.test(url || '') ? url : null
 }
 
-function FactRow({ fact }) {
-  const url = safeUrl(fact.source_url)
+export function serviceUrl(option, fallback) {
+  return safeUrl(option.service_url) || safeUrl(fallback) || option.facts.map((fact) => safeUrl(fact.source_url)).find(Boolean) || null
+}
+
+function FactRow({ fact, serviceLink }) {
+  const url = safeUrl(fact.source_url) || (!fact.known ? serviceLink : null)
   return (
     <li>
       <span className="msc-fact-label">{fact.label}</span>
       <span>
-        {fact.known ? fact.value : 'Unknown'}
+        {fact.known ? fact.value : 'Confirm with the service'}
         {fact.inferred && <span className="msc-estimate"> (estimate)</span>}
-        {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
+        {fact.note && <span className="msc-fact-note">{fact.note}</span>}
+        {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">{fact.known ? 'Source' : 'View service details'}{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
       </span>
     </li>
   )
 }
 
-function OptionCard({ option, status, ruledOut, open = false }) {
+function OptionCard({ option, status, ruledOut, taskPurpose, fallbackUrl }) {
+  const url = serviceUrl(option, fallbackUrl)
   return (
     <article className="msc-option">
       <div className="msc-option-top">
@@ -61,9 +67,10 @@ function OptionCard({ option, status, ruledOut, open = false }) {
       <p className="msc-cost">{costText(option)}</p>
       <p className="msc-note">{option.cost_note}</p>
       <p className="msc-note">{option.fit_note}</p>
-      <details className="msc-more" open={open}>
-        <summary>Price, setup and sources</summary>
-        <ul className="msc-facts">{option.facts.map((fact) => <FactRow fact={fact} key={fact.label} />)}</ul>
+      {taskPurpose && <p className="msc-note"><strong>For this need:</strong> {taskPurpose}</p>}
+      {url && <a className="msc-service-link" href={url} target="_blank" rel="noreferrer noopener">Visit {option.tool_name} <span aria-hidden="true">↗</span></a>}
+      <details className="msc-details"><summary>Details and sources</summary>
+        <ul className="msc-facts">{option.facts.map((fact) => <FactRow fact={fact} serviceLink={url} key={fact.label} />)}</ul>
       </details>
     </article>
   )
@@ -89,30 +96,37 @@ function CopyQuestions({ groups }) {
   )
 }
 
-function ChatResult({ recommendation, statuses, ruledOut = [], onPrint }) {
+function ChatResult({ recommendation, statuses, ruledOut = [], onPrint, problemTitle, taskPurpose, serviceUrls = {} }) {
   const groups = vendorQuestions(recommendation)
   const noNewTool = recommendation.outcome === 'no_new_tool'
+  const main = recommendation.options.slice(0, 3)
+  const possible = main.length ? [] : recommendation.check_first.slice(0, 3)
+  const more = [...recommendation.options.slice(main.length), ...recommendation.check_first.slice(possible.length)]
+  const renderOption = (option) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} taskPurpose={taskPurpose} fallbackUrl={serviceUrls[option.tool_id]} key={option.tool_id} />
 
   return (
     <div className="msc-result">
       <div className={`msc-answer${noNewTool ? ' msc-answer-win' : ''}`}>
-        <h3>{HEADLINES[recommendation.outcome] || 'Here is what I found'}</h3>
+        <h3>{!noNewTool && problemTitle && (main.length || possible.length) ? `Tools for: ${problemTitle}` : HEADLINES[recommendation.outcome] || 'Here is what I found'}</h3>
+        {(main.length + possible.length > 1) && <p className="msc-note">These are alternatives. Start with one that covers your need.</p>}
         <p>{recommendation.message}</p>
         {recommendation.tailoring_note && <p className="msc-note">{recommendation.tailoring_note}</p>}
       </div>
 
-      {recommendation.options.map((option, index) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} open={index === 0} key={option.tool_id} />)}
+      {main.map(renderOption)}
 
-      {recommendation.check_first.length > 0 && (
+      {possible.length > 0 && (
         <section>
           <h4 className="msc-section">Check these first</h4>
           <p className="msc-note">We can't confirm these fit yet.</p>
-          {recommendation.check_first.map((option) => <OptionCard option={option} status={statuses[option.tool_id]} ruledOut={ruledOut.includes(option.tool_id)} key={option.tool_id} />)}
+          {possible.map(renderOption)}
         </section>
       )}
 
+      {more.length > 0 && <details className="msc-details"><summary>More alternatives ({more.length})</summary>{more.map(renderOption)}</details>}
+
       {recommendation.set_aside.length > 0 && (
-        <details className="msc-details" open>
+        <details className="msc-details">
           <summary>Why not the others?</summary>
           <ul>{recommendation.set_aside.map((item) => <li key={item.tool_id}><strong>{item.tool_name}:</strong> {item.reason}</li>)}</ul>
         </details>

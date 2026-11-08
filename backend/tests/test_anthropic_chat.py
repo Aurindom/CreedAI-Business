@@ -95,26 +95,35 @@ def events_of(response):
     return [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
 
 
-def test_end_to_end_with_claude_provider(claude_app, monkeypatch):
+def test_direct_claude_provider_is_disabled_without_spend(claude_app, monkeypatch):
     client = fake_client(
         message([block("tool_use", id="tu_1", name="recommend_tools", input={"problem_id": "bookkeeping"})], stop="tool_use"),
         message([block("text", text="You're covered.")]),
     )
     use_fake(monkeypatch, client)
-    assert claude_app.get("/api/chat/status").json() == {"available": True}
+    assert claude_app.get("/api/chat/status").json() == {"available": False}
     response = claude_app.post("/api/chat", json={"conversation_id": "c", "message": "books", "memory": {"background_done": True, "owned": ["quickbooks_online"]}})
-    events = events_of(response)
-    assert any(e["type"] == "recommendation" for e in events)
-    assert next(e for e in events if e["type"] == "message_delta")["text"] == "You're covered."
-    second = client.messages.requests[1]["messages"][-1]["content"][0]
-    assert second["type"] == "tool_result" and second["tool_use_id"] == "tu_1"
-    assert chat.ledger().total() == pytest.approx(2 * (1000 * 0.10 + 200 * 0.50) / 1_000_000)
+    assert response.status_code == 503
+    assert client.messages.requests == []
+    assert chat.ledger().total() == 0
 
 
-def test_claude_api_error_falls_back(claude_app, monkeypatch):
+def test_direct_claude_route_is_refused_before_provider_errors(claude_app, monkeypatch):
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     error = anthropic.APIConnectionError(request=request)
     use_fake(monkeypatch, fake_client(error))
     response = claude_app.post("/api/chat", json={"conversation_id": "c", "message": "hi"})
     assert "claude-test-key" not in response.text
-    assert next(e for e in events_of(response) if e["type"] == "error")["fallback"] is True
+    assert response.status_code == 503
+    assert response.json() == {'detail': 'chat unavailable'}
+
+
+def test_two_dollar_test_budget_blocks_new_claude_calls(claude_app, monkeypatch):
+    monkeypatch.setenv("CHAT_PROVIDER", "anthropic")
+    monkeypatch.setenv("CHAT_SPEND_CAP_USD", "2")
+    book = chat.ledger()
+    assert book.reserve(1.995)
+    assert claude_app.get("/api/chat/status").json() == {"available": False}
+    response = claude_app.post("/api/chat", json={"conversation_id": "budget", "message": "Help with invoices"})
+    assert response.status_code == 503
+    assert book.total() == pytest.approx(1.995)

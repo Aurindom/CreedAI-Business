@@ -1,0 +1,12 @@
+# Local development cache only. Production uses REDIS_URL from hosting secrets.
+services:
+  penny-cache:
+    image: redis:7.4.12-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10

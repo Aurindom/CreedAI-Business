@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -66,7 +67,29 @@ def client(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from app.main import app
+    from app import auth
+
+    async def verified_fixture(token):
+        try:
+            prefix, user, session = token.split(':')
+            if prefix != 'fixture-account':
+                raise ValueError()
+            return auth.Principal(str(UUID(user)), str(UUID(session)))
+        except (ValueError, TypeError):
+            raise auth.denied()
+
+    monkeypatch.setattr(auth, 'remote_principal', verified_fixture)
 
     monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "test.db"))
     with TestClient(app) as test_client:
         yield test_client
+
+
+def account_header(user=1, session=1):
+    return {'Authorization': f'Bearer fixture-account:{UUID(int=user)}:{UUID(int=session)}'}
+
+
+@pytest.fixture(autouse=True)
+def isolate_chat_burst_limits(monkeypatch):
+    from app import chat, chat_guard
+    monkeypatch.setattr(chat, "burst_limiter", chat_guard.BurstLimiter())

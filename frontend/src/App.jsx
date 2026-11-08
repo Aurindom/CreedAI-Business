@@ -6,6 +6,8 @@ import QuickCompare from './components/QuickCompare'
 import MainStreetBrand from './components/MainStreetBrand'
 import StreetHeaderScene from './components/StreetHeaderScene'
 import ComparisonWorkspace from './components/ComparisonWorkspace'
+import AccountControls from './auth/AccountControls'
+import { useOwnerAuth } from './auth/ownerAuth'
 
 const stages = [
   { number: '01', title: 'Your business', detail: 'Give us a little context', anchor: 'business' },
@@ -170,6 +172,11 @@ function plural(count, word) {
 }
 
 function App() {
+  const auth = useOwnerAuth()
+  return <Marketplace key={auth.user?.id || 'guest'} auth={auth} />
+}
+
+function Marketplace({ auth }) {
   const [trades, setTrades] = useState([])
   const [categories, setCategories] = useState([])
   const [allTools, setAllTools] = useState([])
@@ -359,6 +366,7 @@ function App() {
           </nav>
         </div>
         <button className="nav-quick-compare" type="button" onClick={openQuickCompare}>Compare tools <ArrowIcon size={15} /></button>
+        <AccountControls auth={auth} />
         <div className="sidebar-bottom">
           <div className="sidebar-tip-icon">✳</div>
           <strong>A calmer way to choose AI.</strong>
@@ -491,14 +499,14 @@ function App() {
 
           <section className="section-block compare-section" id="compare">
             <div className="section-heading"><div><div className="section-kicker">STEP 04 <span /> DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We leave unknown facts visible.'}</p></div><div className="section-counter">04 / 04</div></div>
-            <ComparisonWorkspace tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
+            <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
           </section>
 
           <section className="next-panel" hidden={quickCompare}><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Confirm task assignments and save a private adoption plan for your next steps.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>
           <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>
         </div>
       </main>
-      <ChatPanel profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
+      <ChatPanel auth={auth} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} />
     </div>
   )
 }

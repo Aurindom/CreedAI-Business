@@ -1,32 +1,6 @@
 import React from 'react'
 import { costText, safeUrl, statusLabel } from './ChatResult'
 
-export function PlanQuestion({ toolName, choices, onPick, disabled }) {
-  return (
-    <div className="msc-extra">
-      <p className="msc-extra-title">Which {toolName} plan are you on?</p>
-      <p className="msc-note">Your plan decides whether this is already included. Plan names come from {toolName}'s pricing page.</p>
-      <div className="msc-chips">
-        {choices.map((plan) => <button type="button" key={plan} onClick={() => onPick(plan)} disabled={disabled}>{plan}</button>)}
-        <button type="button" onClick={() => onPick(null)} disabled={disabled}>I don't know</button>
-      </div>
-    </div>
-  )
-}
-
-export function NextSteps({ canSave, canCompare, onSave, onCompare, onDraft, disabled }) {
-  return (
-    <div className="msc-extra">
-      <p className="msc-extra-title">What next?</p>
-      <div className="msc-chips">
-        {canSave && <button type="button" onClick={onSave} disabled={disabled}>Save this plan and setup steps</button>}
-        {canCompare && <button type="button" onClick={onCompare} disabled={disabled}>Compare alternatives</button>}
-        <button type="button" onClick={onDraft} disabled={disabled}>Build a custom assistant</button>
-      </div>
-    </div>
-  )
-}
-
 function Fact({ fact }) {
   const url = safeUrl(fact.source_url)
   return (

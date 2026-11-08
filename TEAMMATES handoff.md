@@ -1,5 +1,14 @@
 # TEAMMATES handoff
 
+**Newest checkpoint:** Penny/Supabase source is integrated;697 backend tests,
+23 UI tests/build passed. For current behavior read
+[integration review](docs/AUTH_PENNY_INTEGRATION_REVIEW.md). Production auth work
+is assigned through [production teammate handoff](docs/PRODUCTION_AUTH_TEAMMATE_HANDOFF.md);
+Claude's independent Wxx continuation is [here](docs/CLAUDE_WXX_RESUME.md).
+These override older browser-token ownership, missing-login and early test counts
+below. Second real account still signupHTTP429; public production is not yet
+verified. Start from latest origin/aurin-test and record its SHA.
+
 Written 2026-11-07 for the two teammates joining the build. Everything you need is in this file. You don't need any notes outside this repository.
 
 Hackathon deadline: **Sunday 2026-11-08, 11:59pm** (10-minute video plus a prototype link judges can test).
@@ -491,3 +500,40 @@ Some vendor pricing pages don't say plainly which number is the monthly price, s
 ### 11.2 What the UI should do
 - Show an estimated price with a small "estimate" label and a link to the fact's `source_url`, never as a confirmed price or within budget.
 - Never call a stack "ready" or a plan "checked" while `stack.estimated` has anything in it. The backend already enforces this.
+
+## 12. Tool discovery, W08 (added 2026-11-07)
+
+The backend can now add tools it finds on vendor sites. Nothing searches the web yet. The real search is the separate discovery worker, and its first scan waits on Aurindom's OK.
+
+### 12.1 New field on every tool
+- `origin`: `"catalog"` for the reviewed list we ship, `"discovered"` for tools found by discovery. Old rows mean `"catalog"`.
+- A discovered tool is always `status: "pending_review"`, so it never wins a recommendation. Its summary is always "Found by discovery on DATE. Not reviewed yet." Its plan access is unknown, and its price is only filled when the vendor's own page lists a flat US dollar monthly plan. Per-user, per-location, yearly or usage prices stay unknown, with a note and the pricing link, and never count toward the budget.
+- It shows up in `/api/tools`, `/api/tools/{id}`, recommend and compare straight away, with no restart, and it stays after a restart.
+
+### 12.2 What the UI should do
+- Show a small "Found by discovery, not reviewed" badge when `origin` is `"discovered"`, next to the existing pending badge.
+- Don't add a discovery button for owners. The endpoint below is for the operator only.
+
+### 12.3 Endpoint (operator only)
+`POST /api/discover` with `Authorization: Bearer <DISCOVERY_TOKEN>` and a body like `{"capability": "phone_answering", "trade": "hvac", "facets": {}, "max_results": 5, "max_pages": 6, "time_budget_s": 15}`.
+- 503 when `DISCOVERY_TOKEN` isn't set or no finder is connected. That is the state on every server today.
+- 401 for a missing or wrong token, 422 for an unknown task or filter or a cap over the limit (10 results, 16 pages, 30 seconds), 429 while another run is going or a timed-out run is still stopping.
+- 200 returns `{run_id, status, added[], updated[], duplicates[], excluded[], error, notice}`. A failed run (over time, over budget, broken result) saves nothing. A run over its time limit fails with error code `"stopping"`, and the next run can start once it has actually stopped.
+- If a later catalog change makes a discovered tool invalid, or a reviewed tool now covers the same product, it leaves the list on the next start. It is kept aside for the operator, not deleted. Nothing changes in the UI for this.
+
+## 13. Agent chat contract, W09 (added 2026-11-07)
+
+Mock-tested only. There is no live agent route yet, that waits for the Hermes go-ahead (W10). But this is the shape the chat UI will get, so you can build against it now.
+
+The chat stream is server-sent events. Each `data:` line is one JSON frame with a `type`:
+
+- `text`: `{"type":"text","text":"..."}`. Append it to the reply bubble. Text arrives a few characters late on purpose (a safety check holds the last 7 back).
+- `action`: `{"type":"action","seq":1,"action":"search_catalog","label":"Searching the catalog","status":"started","message":"Working on it."}`. Same `seq` comes again with `succeeded`, `failed` or `unconfirmed`. Show `label` and `message`, replace the row by `seq`. `action` is null for a step the assistant is not allowed to do.
+- `notice`: `{"type":"notice","code":"busy","message":"...","fallback":"browse"}`. Codes: busy, unavailable, timeout, interrupted, blocked, run_failed, run_cancelled. Show the message as is.
+- `done`: always the last frame, exactly once. `{"type":"done","turn":"completed","succeeded":1,"failed":0,"unconfirmed":0,"fallback":null}`.
+
+Rules for the UI:
+- A finished turn does not mean the action worked. `turn: "completed"` with `failed: 1` means the reply finished but the step failed. Show it as failed.
+- `unconfirmed` means we do not know. Don't show a green tick.
+- When `fallback` is `"browse"`, put the owner back on browse and compare (search box, tool cards). Never leave a spinner running.
+- `busy` means too many people at once. It is not an error on their side.

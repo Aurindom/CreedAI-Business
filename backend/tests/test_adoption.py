@@ -128,9 +128,9 @@ BODY = {"profile": {"trade": "hvac"}, "problem_ids": ["missed_calls"], "tool_ids
 
 
 def start(client):
-    response = client.post("/api/sessions")
-    assert response.status_code == 201
-    return {"Authorization": f"Bearer {response.json()['token']}"}
+    from conftest import account_header
+    from uuid import uuid4
+    return account_header(uuid4().int, uuid4().int)
 
 
 def test_private_routes_need_a_live_session(client):
@@ -158,7 +158,7 @@ def test_owner_b_cannot_reach_owner_a_by_changing_the_id(client):
 
 def test_a_closed_session_stops_working(client):
     auth = start(client)
-    assert client.delete("/api/sessions/current", headers=auth).status_code == 204
+    assert client.post('/api/auth/logout', headers=auth).status_code == 200
     assert client.get("/api/plans", headers=auth).status_code == 401
 
 
@@ -173,8 +173,8 @@ def test_saved_plans_survive_a_restart(client):
 
 def test_private_writes_can_be_turned_off(client, monkeypatch):
     monkeypatch.setenv("PRIVATE_PLANS", "off")
-    assert client.post("/api/sessions").status_code == 503
-    assert client.post("/api/plans", json=BODY, headers={"Authorization": "Bearer x"}).status_code == 503
+    assert client.post("/api/sessions").status_code == 410
+    assert client.post("/api/plans", json=BODY, headers=start(client)).status_code == 503
 
 
 @pytest.mark.parametrize("change, status", [

@@ -4,7 +4,7 @@ import PrivatePlans from './PrivatePlans'
 
 const money = (value) => value === null ? 'Unknown' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
 
-export default function ComparisonWorkspace({ tools, problems, profile, activeProblemId, baseline, onRemove, renderFact }) {
+export default function ComparisonWorkspace({ tools, problems, profile, activeProblemId, baseline, onRemove, renderFact, auth }) {
   const [taskIds, setTaskIds] = useState(activeProblemId ? [activeProblemId] : [])
   const [assignments, setAssignments] = useState({})
   const [result, setResult] = useState(null)
@@ -54,6 +54,6 @@ export default function ComparisonWorkspace({ tools, problems, profile, activePr
       {result.connections.length > 0 && <details className="set-aside"><summary>Connections to verify</summary>{result.connections.map((connection, index) => <div key={index}><p><strong>{connection.state === 'listed' ? 'Vendor-listed connection' : 'Connection unverified'}</strong> - {connection.note}</p>{connection.sources.map((url) => <a className="evidence-link" key={url} href={url} target="_blank" rel="noopener noreferrer">Vendor source</a>)}</div>)}</details>}
       {taskIds.length > 1 && <details className="set-aside"><summary>Tools listing all chosen tasks</summary><p>{result.all_in_one_note}</p>{result.all_in_one.map((tool) => <p key={tool.tool_id}><strong>{tool.tool_name}</strong> - {tool.coverage === 'confirmed' ? 'Confirmed task coverage' : 'Needs checking'} - {money(tool.monthly_usd)}{tool.monthly_usd !== null ? ' / mo' : ''}. {tool.note}</p>)}</details>}
     </>}
-    <PrivatePlans selection={selection} canSave={Boolean(result?.stack) && resultKey === selectionKey && !loading && !error} />
+    <PrivatePlans auth={auth} selection={selection} canSave={Boolean(result?.stack) && resultKey === selectionKey && !loading && !error} />
   </div>
 }

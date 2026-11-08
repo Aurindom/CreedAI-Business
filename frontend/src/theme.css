@@ -239,7 +239,7 @@ footer { color: var(--subtle); border-top: 1px solid var(--line); margin-top: 50
 .msc-panel { background: #0e0e15; border-color: var(--line); box-shadow: -15px 0 50px #0006; }
 .msc-header { background: #21192e; border-bottom: 1px solid #41314f; }
 .msc-header h2 { font-weight: 550; }
-.msc-demo { background: #3b2e1e; color: #f0d09d; }.msc-live { background: #19352b; color: #bae6cd; }
+.msc-unavailable { background: #3b2e1e; color: #f0d09d; }.msc-live { background: #19352b; color: #bae6cd; }
 .msc-close { background: #372844; color: var(--text); }.msc-text-button { color: var(--accent); }
 .msc-welcome h3, .msc-option h4, .msc-section, .msc-details summary, .msc-answer h3 { color: var(--text); font-weight: 550; }
 .msc-welcome p, .msc-resume, .msc-route, .msc-note, .msc-fact-label, .msc-loading { color: var(--muted); }
@@ -350,7 +350,7 @@ footer { padding-bottom: 100px; }
 .msc-identity > .penny-panel-heading { display: grid; grid-template-columns: auto auto; align-items: center; justify-content: start; gap: 5px 9px; }
 .penny-panel-eyebrow { grid-column: 1 / -1; color: #9c91ab; font-size: 8px; letter-spacing: .14em; }
 .msc-header h2 { font-size: 20px; letter-spacing: -.04em; font-weight: 550; }
-.msc-demo, .msc-live { border: 1px solid #4c4258; background: #241d2e; color: #c7b7da; font-size: 9px; font-weight: 500; padding: 3px 6px; border-radius: 5px; }
+.msc-unavailable, .msc-live { border: 1px solid #4c4258; background: #241d2e; color: #c7b7da; font-size: 9px; font-weight: 500; padding: 3px 6px; border-radius: 5px; }
 .msc-live { color: #b8dfc8; border-color: #355044; background: #19271f; }
 .msc-text-button { color: #b4a7c5; font-size: 11px; text-decoration: none; min-height: 36px; padding: 0 6px; }
 .msc-text-button:hover { color: #fff; }
@@ -528,6 +528,11 @@ footer { padding-bottom: 100px; }
 .street-header { backdrop-filter: none; background: linear-gradient(180deg, #111019, #151419); }
 .product-composition { contain: layout style; will-change: auto; }
 .showcase-scene { will-change: opacity; }
+@media (max-width: 360px) {
+ .street-header { padding-left: 8px; padding-right: 8px; gap: 4px; }
+ .mainstreet-cart-logo { width: 120px; }
+ .street-header .nav-quick-compare { padding: 8px 6px; font-size: 9px; gap: 3px; }
+}
 @media (prefers-reduced-motion: reduce) { .showcase-scene { will-change: auto; } }
 
 /* Task-aware comparisons and owner-confirmed private plans. */
@@ -546,3 +551,15 @@ footer { padding-bottom: 100px; }
 .saved-plan-list { display: flex; flex-direction: column; gap: 8px; margin-top: 15px; }.saved-plan-list button { display: flex; justify-content: space-between; gap: 20px; text-align: left; color: var(--text); border: 1px solid #4f3d60; background: #21172c; padding: 14px; border-radius: 10px; font-size: 12px; }.saved-plan-list button span { color: var(--accent); }
 .saved-plan-view { border-top: 1px solid var(--line); margin-top: 25px; padding-top: 25px; }.saved-plan-view p { font-size: 12px; line-height: 1.8; color: var(--muted); }.saved-plan-heading { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; margin-bottom: 12px; }.saved-plan-heading h3 { margin: 0; }.saved-plan-view h4 { color: var(--text); font-size: 13px; font-weight: 550; }
 @media (max-width: 700px) { .comparison-task-picker, .comparison-assignments, .stack-summary, .private-plans { padding: 20px; }.task-assignment { grid-template-columns: 1fr; gap: 8px; }.private-plans-header { flex-direction: column; align-items: stretch; }.stack-total { flex-direction: column; gap: 10px; } }
+
+/* Penny's face replaces the chat monogram without changing its compact layout. */
+.penny-panel-mark { padding: 2px; }
+.penny-panel-mark .msc-avatar { display: block; }
+.penny-message-mark { background: transparent; border: 0; overflow: hidden; border-radius: 50%; }
+.penny-message-mark .msc-avatar { width: 24px; height: 24px; }
+
+.penny-boundaries { padding: 9px 20px; border-bottom: 1px solid #302737; background: #121017; color: var(--muted); font-size: 10px; }
+.penny-boundaries summary { cursor: pointer; min-height: 24px; display: list-item; align-content: center; }
+.penny-boundaries p { font-size: 11px; line-height: 1.7; }
+
+.penny-unavailable-note { color: #c7b8d4; background: #211a29; border-bottom: 1px solid #45344f; margin: 0; padding: 11px 20px; font-size: 11px; line-height: 1.7; }
