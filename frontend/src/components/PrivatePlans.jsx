@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, newRequestId } from '../api'
+import { navigate, signInHref } from '../auth/route'
 
 const SESSION_KEY = 'mainstreet-private-plans-v1'
 function restoreSession() { try { const session = JSON.parse(window.localStorage.getItem(SESSION_KEY) || 'null'); return session?.token && Date.parse(session.expires_at) > Date.now() ? session : null } catch { return null } }
 const money = (value) => value === null ? 'Check vendor pricing' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
 
 export default function PrivatePlans({ selection, canSave, auth }) {
-  if (!auth?.user || !auth?.session?.access_token) return <section className="private-plans"><h3>Your adoption plans</h3><p>Sign in to save plans to your account. Browsing and comparison are available as a guest.</p></section>
+  if (!auth?.user || !auth?.session?.access_token) return <section className="private-plans"><h3>Your adoption plans</h3><p><a href={signInHref('/#compare')} onClick={(event) => { event.preventDefault(); navigate(signInHref('/#compare')) }}>Sign in</a> to save plans to your account. Browsing and comparison are available as a guest.</p></section>
   return <AccountPlans key={auth.user.id} selection={selection} canSave={canSave} auth={auth} />
 }
 

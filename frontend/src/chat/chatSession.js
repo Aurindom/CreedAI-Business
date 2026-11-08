@@ -1,6 +1,19 @@
 const KEY = 'main-street-penny-session-v2'
 const MAX_SAVED_MESSAGES = 40
 const MAX_HISTORY = 12
+// The backend's ChatMemory limits. Memory goes back with every message, so a list over its
+// limit would get every message rejected; trimming here also heals a chat that is already stuck.
+const MEMORY_LIMITS = { owned: 20, ruled_out: 20, active_task_ids: 5, pending_task_ids: 3 }
+const MAX_PLANS = 20
+
+export function memoryForRequest(memory = {}) {
+  const trimmed = { ...memory }
+  for (const [name, limit] of Object.entries(MEMORY_LIMITS)) {
+    if (Array.isArray(trimmed[name])) trimmed[name] = trimmed[name].slice(0, limit)
+  }
+  if (trimmed.plans && typeof trimmed.plans === 'object') trimmed.plans = Object.fromEntries(Object.entries(trimmed.plans).slice(0, MAX_PLANS))
+  return trimmed
+}
 
 function store() {
   try {

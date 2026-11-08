@@ -4,6 +4,9 @@ const path = require('node:path')
 const Module = require('node:module')
 const { buildSync } = require('esbuild')
 const { JSDOM } = require('jsdom')
+// react-dom checks for a browser when it loads; without one it never listens for typed input.
+const bootDom = new JSDOM('')
+Object.assign(globalThis, { window: bootDom.window, document: bootDom.window.document })
 const React = require('react')
 const { createRoot } = require('react-dom/client')
 
@@ -77,18 +80,18 @@ test('sign out revokes the backend session before ending the Supabase session', 
 
 test('signup confirmation requests a return to this application origin', async () => {
   const dom = browser()
-  const Controls = component('../src/auth/AccountControls.jsx')
+  // Sign-up moved from the account pop-up to the sign-in page; the same Supabase call is checked here.
+  const Page = component('../src/auth/SignInPage.jsx')
   let supplied
   const auth = { configured: true, ready: true, user: null, session: null,
     client: { auth: { signUp: async (value) => { supplied = value; return { data: { session: null } } } } } }
+  window.history.replaceState({}, '', '/signin?mode=create')
   const root = createRoot(document.getElementById('root'))
-  await React.act(async () => root.render(React.createElement(Controls, { auth })))
-  await React.act(async () => document.querySelector('.owner-account-trigger').click())
-  await React.act(async () => document.querySelector('.owner-account-switch').click())
+  await React.act(async () => root.render(React.createElement(Page, { auth, path: '/signin' })))
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
   await React.act(async () => {
-    for (const [type, value] of [['email', 'fixture@example.test'], ['password', 'fixture-password']]) {
-      const input = document.querySelector(`input[type=${type}]`)
+    const [password, again] = document.querySelectorAll('input[autocomplete=new-password]')
+    for (const [input, value] of [[document.querySelector('input[type=email]'), 'fixture@example.test'], [password, 'fixture1pass'], [again, 'fixture1pass']]) {
       setValue.call(input, value)
       input.dispatchEvent(new window.Event('input', { bubbles: true }))
     }

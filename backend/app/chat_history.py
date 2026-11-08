@@ -15,7 +15,7 @@ from redis import asyncio as redis
 from redis.exceptions import RedisError
 
 from .chat import ChatMemory
-from .schemas import Recommendation
+from .schemas import MAX_QUESTION_CHOICES, Recommendation
 from . import auth
 
 router = APIRouter()
@@ -52,7 +52,7 @@ def _valid_question_surface(item: dict[str, Any]) -> bool:
     return (question.get("id") == "root" and question.get("component") == "PennyQuestion"
             and question.get("question") == item.get("text")
             and isinstance(item.get("text"), str) and 1 <= len(item["text"]) <= 200
-            and isinstance(choices, list) and 2 <= len(choices) <= 4
+            and isinstance(choices, list) and 2 <= len(choices) <= MAX_QUESTION_CHOICES
             and all(isinstance(choice, str) and 1 <= len(choice) <= 80 for choice in choices)
             and isinstance(question.get("progress", ""), str) and len(question.get("progress", "")) <= 30)
 
@@ -169,7 +169,7 @@ class ChatSnapshot(BaseModel):
                         raise ValueError("Invalid chat source")
             if kind == "clarify":
                 choices = item.get("choices")
-                if not isinstance(choices, list) or len(choices) > 4 or any(not isinstance(choice, str) or len(choice) > 80 for choice in choices):
+                if not isinstance(choices, list) or len(choices) > MAX_QUESTION_CHOICES or any(not isinstance(choice, str) or len(choice) > 80 for choice in choices):
                     raise ValueError("Invalid chat choices")
             if item["kind"] == "a2ui" and not _valid_surface(item):
                 raise ValueError("Invalid chat surface")

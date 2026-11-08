@@ -11,6 +11,8 @@ import OptionsResults from './components/OptionsResults'
 import MultiPlan from './components/MultiPlan'
 import AccountControls from './auth/AccountControls'
 import { useOwnerAuth } from './auth/ownerAuth'
+import SignInPage from './auth/SignInPage'
+import { isAccountPath, usePath } from './auth/route'
 
 const stages = [
   { number: '01', title: 'Your business', detail: 'Give us a little context', anchor: 'business' },
@@ -182,8 +184,25 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
+const SITE_TITLE = 'Main Street AI | Find tools that fit your business'
+
 function App() {
   const auth = useOwnerAuth()
+  const path = usePath()
+  const accountPage = isAccountPath(path)
+
+  useEffect(() => {
+    if (accountPage) { window.scrollTo(0, 0); return undefined }
+    document.title = SITE_TITLE
+    // Coming back from the sign-in page to a section (for example #compare): scroll there once it has rendered.
+    const target = window.location.hash.slice(1)
+    if (!target) return undefined
+    // Scroll twice: once when the section exists, again after images and data have shifted the layout.
+    const timers = [400, 1200].map((delay) => window.setTimeout(() => document.getElementById(target)?.scrollIntoView({ behavior: 'instant', block: 'start' }), delay))
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [path, accountPage])
+
+  if (accountPage) return <SignInPage auth={auth} path={path} />
   return <Marketplace key={auth.user?.id || 'guest'} auth={auth} />
 }
 

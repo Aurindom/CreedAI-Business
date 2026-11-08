@@ -316,6 +316,10 @@ class Catalog(BaseModel):
         raise KeyError(f"unknown problem: {problem_id}")
 
 
+# Most choices one Penny question can show (the business question has three businesses, Other and Skip).
+MAX_QUESTION_CHOICES = 5
+
+
 class OwnedSoftware(BaseModel):
     tool_id: str
     plan: str | None = Field(default=None, max_length=100)

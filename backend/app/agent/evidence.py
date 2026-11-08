@@ -83,7 +83,8 @@ def _finish(status, claims, sources, required, winners, followups, default) -> E
     return EvidencePackage(package_id=hashlib.sha256(serial.encode()).hexdigest()[:24], **content)
 
 
-def build_request_evidence(catalog: Catalog, profile: BusinessProfile, text: str) -> EvidencePackage:
+def build_request_evidence(catalog: Catalog, profile: BusinessProfile, text: str,
+                           suggested: list[str] | None = None) -> EvidencePackage:
     """Resolve owner words without forcing unfamiliar tasks into an unrelated match.
 
     Alternatives are browsing choices, not recommendations that solve the original
@@ -100,7 +101,8 @@ def build_request_evidence(catalog: Catalog, profile: BusinessProfile, text: str
         message = ("What would you like help with? Choose an outcome you want, browse these tasks, or outline a custom workflow together."
                    if not text.strip() else
                    "Let's break that into the outcome you want. You can explore these tasks, or outline a custom workflow together.")
-        choices = catalog.problem_cards[:5]
+        # Tasks that fit the owner's business when the caller knows them; otherwise the first five.
+        choices = [catalog.problem(pid) for pid in suggested] if suggested else catalog.problem_cards[:5]
     for card in choices:
         followups[f"task:{card.id}"] = f"Explore: {card.title}"
     claim = Claim(id="clarify", text=message, evidence_ids=["policy"])

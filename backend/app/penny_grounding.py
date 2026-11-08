@@ -9,6 +9,43 @@ class ActionContextError(ValueError):
 
 
 TASK_QUESTION = 'What would you like help with?'
+# Tapping this lets the owner type their business; the site never sends it as an answer.
+OTHER_BUSINESS = 'Other'
+
+# Words that ask for "an AI tool" or "help" without naming a business problem.
+_GENERIC_WORDS = frozenset('''
+a an the i im i'm we our my me us you your can could would should will please just some any something
+want wants wanted need needs looking look find get use using try trying start started getting
+help helping choose choosing pick picking select selecting decide deciding recommend recommendation recommendations
+suggest suggestion suggestions which what whats what's best good right new few one ones kind type
+ai tool tools software app apps application applications program programs platform platforms option options
+solution solutions automation automate technology tech for to with of on in into about and or business company shop
+'''.split())
+_GENERIC_CORE = frozenset('ai tool tools software app apps application applications option options solution solutions '
+                          'automation automate technology tech recommend recommendation recommendations suggest '
+                          'suggestion suggestions choose choosing'.split())
+
+
+def is_generic_request(text):
+    """True for "I want an AI tool" or "help me choose software": a request with no business problem in it."""
+    words = re.findall(r"[a-z']+", str(text).casefold().replace('’', "'"))
+    return bool(words) and all(word in _GENERIC_WORDS for word in words) and any(word in _GENERIC_CORE for word in words)
+
+
+def suggested_task_ids(catalog, trade, limit=3):
+    """Tasks to offer when the owner hasn't named one: ones for their business first, then common ones.
+
+    A task listed only for other businesses is left out once the business is known.
+    """
+    cards = catalog.problem_cards
+    if trade:
+        names = {item.name.casefold(): item.id for item in catalog.trades}
+        trade = names.get(str(trade).strip().casefold(), str(trade).strip().casefold())
+    if not trade:
+        return [card.id for card in cards[:limit]]
+    specific = [card.id for card in cards if trade in card.trades]
+    common = [card.id for card in cards if 'all' in card.trades and card.id not in specific]
+    return (specific + common)[:limit]
 
 
 def plan_already_unknown(body):
@@ -72,6 +109,8 @@ def selected_task_ids(catalog, body, arguments):
     excerpt = arguments.get('task_text')
     if not isinstance(excerpt, str) or not 1 <= len(excerpt) <= 500:
         raise ActionContextError('Task needs an exact owner excerpt')
+    if is_generic_request(body.message) and selected not in pending_tasks(catalog, body):
+        raise ActionContextError('The owner has not named a business problem yet')
     current = resolve_task(catalog, body.message)
     choices = [card.id for card in current.choices]
     excerpt_match = resolve_task(catalog, excerpt)
@@ -130,8 +169,10 @@ def question_repeats(catalog, profile, body, key):
 
 def request_package(catalog, profile, body):
     tasks = task_ids(catalog, body)
-    return (build_evidence(catalog, profile, tasks) if tasks
-            else build_request_evidence(catalog, profile, body.message))
+    if tasks:
+        return build_evidence(catalog, profile, tasks)
+    trade = getattr(profile, 'trade', None) or getattr(body.memory, 'trade', None)
+    return build_request_evidence(catalog, profile, body.message, suggested=suggested_task_ids(catalog, trade, 5))
 
 
 def qualify_package(catalog, package, body=None):
@@ -211,7 +252,7 @@ def action_package(catalog, profile, body, name, arguments):
 def question(catalog, key, problem_ids=None):
     if key == 'business':
         return {'question': 'What kind of business do you run?',
-                'choices': [trade.name for trade in catalog.trades[:3]] + ['Skip these questions']}
+                'choices': [trade.name for trade in catalog.trades[:3]] + [OTHER_BUSINESS, 'Skip these questions']}
     if key == 'software':
         return {'question': 'Which software do you already use?',
                 'choices': ['I will type the names', 'No software yet', 'Skip these questions']}

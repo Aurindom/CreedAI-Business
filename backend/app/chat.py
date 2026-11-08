@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, PrivateAttr
 
 from . import chat_guard
+from .schemas import MAX_QUESTION_CHOICES
 from . import auth
 from .matching import recommend
 from .ownership import stated_ownership
@@ -38,7 +39,7 @@ from .agent.hermes_runtime import HermesError, HermesRun
 from .agent.prompts import SYSTEM_PROMPT as GROUNDED_PROMPT
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
 from .penny_conversation import ConversationReply, validate_conversation, reply_choices
-from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats, pending_tasks
+from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, is_generic_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -453,8 +454,23 @@ def _effective_profile(catalog: Catalog, profile: BusinessProfile, memory: ChatM
     )
 
 
+def _within_limits(memory: ChatMemory) -> ChatMemory:
+    """Trim each list to its ChatMemory limit. The browser sends memory back with every message,
+    so one over-long list would get every later message rejected."""
+    trimmed = {}
+    for name, field in ChatMemory.model_fields.items():
+        value = getattr(memory, name)
+        limit = next((rule.max_length for rule in field.metadata if getattr(rule, 'max_length', None)), None)
+        if limit is not None and isinstance(value, list):
+            value = value[:limit]
+        elif limit is not None and isinstance(value, dict):
+            value = dict(list(value.items())[:limit])
+        trimmed[name] = value
+    return ChatMemory.model_construct(**trimmed)
+
+
 def _memory_event(memory: ChatMemory) -> dict[str, Any]:
-    return {"type": "memory", "memory": memory.model_dump()}
+    return {"type": "memory", "memory": _within_limits(memory).model_dump()}
 
 
 def _catalog_brief(catalog: Catalog) -> str:
@@ -584,15 +600,27 @@ def _run_action(
             memory.budget_monthly_usd, memory.background_done = cleaned.budget_monthly_usd, cleaned.background_done
             return ActionResult(data={"saved": cleaned.model_dump()}, events=[_memory_event(cleaned)])
         if name == "ask_owner":
+            problem_ids = arguments.get('problem_ids')
+            if arguments.get('question_id') == 'task':
+                # The model sometimes asks the open "what do you need help with" question without choices.
+                # When the business is known, offer tasks that fit it rather than failing the whole turn.
+                known = {card.id for card in catalog.problem_cards}
+                valid = (isinstance(problem_ids, list) and 2 <= len(problem_ids) <= 3
+                         and len(set(problem_ids)) == len(problem_ids) and all(pid in known for pid in problem_ids))
+                trade = memory.trade or profile.trade
+                if not valid and trade:
+                    problem_ids = suggested_task_ids(catalog, trade, 3)
+            arguments_question_id = arguments.get('question_id')
             try:
-                arguments = question(catalog, arguments.get('question_id'), arguments.get('problem_ids'))
+                arguments = question(catalog, arguments.get('question_id'), problem_ids)
             except ValueError:
                 return ActionResult(data={'error': 'Choose a supported question_id. For task clarification, supply two or three relevant, distinct catalog problem_ids.'})
             question_text = str(arguments.get("question", ""))[:200]
-            choices = [choice[:80] for choice in _string_list(arguments.get("choices"))[:4]]
+            choices = [choice[:80] for choice in _string_list(arguments.get("choices"))[:MAX_QUESTION_CHOICES]]
             if not question_text or len(choices) < 2:
                 return ActionResult(data={"error": "Give one question and 2-4 choices."})
             event: dict[str, Any] = {"type": "clarify", "question": question_text, "choices": choices}
+            shown_tasks = list(problem_ids) if arguments_question_id == 'task' else []
             progress = arguments.get("progress")
             if isinstance(progress, str) and progress.strip():
                 event["progress"] = progress.strip()[:30]
@@ -608,7 +636,7 @@ def _run_action(
                     }]}},
                 ],
             }
-            return ActionResult(data={"asked": True}, events=[a2ui, event], stop=True)
+            return ActionResult(data={"asked": True, "shown_task_ids": shown_tasks}, events=[a2ui, event], stop=True)
     except KeyError as exc:
         return ActionResult(data={"error": str(exc.args[0])})
     chat_guard.audit("unknown_action", "tool")
@@ -729,6 +757,33 @@ def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, fo
         yield event
 
 
+async def _ask_what_they_need(gate, catalog, profile, memory, body) -> AsyncIterator[dict[str, Any]]:
+    """Answers a request that names no problem with a question and buttons. No model call."""
+    trade = memory.trade or profile.trade
+    if not trade and not memory.background_done:
+        arguments: dict[str, Any] = {'question_id': 'business'}
+    else:
+        arguments = {'question_id': 'task', 'problem_ids': suggested_task_ids(catalog, trade, 3)}
+    result = run_action(catalog, 'ask_owner', arguments, profile, memory)
+    yield {"type": "status", "text": "Penny is thinking",
+           'auth_mode': 'account' if body._principal.authenticated else 'guest',
+           'account_id': body._principal.user_id}
+    ready, settled = _settle_run(gate)
+    for event in settled:
+        yield event
+    if not ready or result.data.get('error'):
+        if ready:
+            yield _unavailable()
+        yield {"type": "done"}
+        return
+    memory.pending_question = arguments['question_id']
+    memory.pending_task_ids = arguments.get('problem_ids', [])
+    yield _memory_event(memory)
+    for event in result.events:
+        yield event
+    yield {"type": "done"}
+
+
 async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     blocked = chat_guard.check_request(body)
     if blocked:
@@ -776,6 +831,12 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     history = [{"role": item.role, "content": item.text} for item in body.history]
     while history and history[0]["role"] != "user":
         history.pop(0)
+    if is_generic_request(body.message) and not memory.pending_task_ids:
+        # "I want an AI tool" names no problem. Ask instead of letting the model guess one:
+        # start the background questions if the business is unknown, otherwise offer tasks that fit it.
+        async for event in _ask_what_they_need(gate, catalog, current, memory, body):
+            yield event
+        return
     if runtime() == "hermes":
         async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory):
             yield event
@@ -1008,7 +1069,8 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                     yield _memory_event(memory)
                 elif call['name'] == 'ask_owner':
                     memory.pending_question = call['arguments']['question_id']
-                    memory.pending_task_ids = call['arguments'].get('problem_ids', []) if memory.pending_question == 'task' else []
+                    # The tasks actually offered: the backend may have replaced the model's list.
+                    memory.pending_task_ids = result.data.get('shown_task_ids', []) if memory.pending_question == 'task' else []
                     yield _memory_event(memory)
             except ActionContextError:
                 package = qualify_package(catalog, request_package(catalog, current, body), body)
@@ -1016,7 +1078,8 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                                'pending_task_ids': pending_tasks(catalog, body)}
                 result.events = []
             except (KeyError, ValueError, TypeError):
-                package = build_evidence(catalog, current, [], available=False)
+                if call['name'] != 'ask_owner':
+                    package = build_evidence(catalog, current, [], available=False)
                 # Invalid context/IDs must not leave a stale result on screen.
                 result.events = []
             for event in result.events:

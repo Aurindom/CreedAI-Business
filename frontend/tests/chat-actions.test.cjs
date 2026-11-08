@@ -39,6 +39,7 @@ beforeEach(async () => {
     }
     if (url === '/api/chat/validate') {
       if (validation instanceof Error) throw validation
+      if (validation.status) return Response.json(validation.body, { status: validation.status })
       return Response.json(validation)
     }
     if (url === '/api/trades') return Response.json(catalog.trades)
@@ -98,4 +99,42 @@ test('unknown action statuses are not rendered as progress', async () => {
   replies.push([{ type: 'action', action: 'save_plan', status: 'done-ish', message: 'Saved!' }, { type: 'done' }])
   await submit('Save my plan')
   assert.equal(document.querySelector('.msc-action'), null)
+})
+
+
+for (const [status, body, expected] of [
+  [401, { detail: 'Sign in again to continue' }, /sign-in has expired/],
+  [429, { detail: 'Too many chat requests. Please try again shortly.' }, /Wait a minute/],
+  [503, { detail: 'Account verification is unavailable' }, /couldn't check your sign-in/],
+]) {
+  test(`a ${status} from the safety check says what to do instead of a generic error`, async () => {
+    validation = { status, body }
+    await submit('The books are behind')
+    assert.match(document.querySelector('.msc-panel').textContent, expected)
+    assert.equal(requests.filter(request => request.url === '/api/chat').length, 0)
+  })
+}
+
+test('tapping Other lets the owner type their business instead of sending "Other"', async () => {
+  replies.push([{ type: 'clarify', question: 'What kind of business do you run?', choices: ['Auto shop', 'Bakery', 'Bar or brewery', 'Other', 'Skip these questions'] }, { type: 'done' }])
+  await submit('Start with a few questions')
+  const sent = requests.filter(request => request.url === '/api/chat').length
+  const other = [...document.querySelectorAll('.msc-choices button')].find(button => button.textContent === 'Other')
+  assert.ok(other, 'the Other choice is shown')
+  await act(async () => other.click())
+  assert.equal(requests.filter(request => request.url === '/api/chat').length, sent, 'nothing is sent')
+  const field = document.querySelector('textarea')
+  assert.match(field.getAttribute('placeholder'), /kind of business/)
+  assert.equal(document.activeElement, field)
+})
+
+test('an over-long memory from the backend is trimmed so the next message is not rejected', async () => {
+  const five = ['bookkeeping', 'invoicing', 'email_marketing', 'review_replies', 'missed_calls']
+  replies.push([{ type: 'memory', memory: { pending_question: 'task', pending_task_ids: five, active_task_ids: [] } }, { type: 'message_delta', text: 'Which one?' }, { type: 'done' }])
+  await submit('Help me decide')
+  replies.push([{ type: 'message_delta', text: 'Here you go.' }, { type: 'done' }])
+  await submit('The books are behind')
+  const sent = requests.filter(request => request.url === '/api/chat/validate').at(-1).body
+  assert.equal(sent.memory.pending_task_ids.length, 3)
+  assert.equal(requests.filter(request => request.url === '/api/chat').at(-1).body.memory.pending_task_ids.length, 3)
 })

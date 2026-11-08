@@ -5,7 +5,7 @@ import { DraftBuilder, DraftCard } from './AssistantDraft'
 import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult, { safeUrl } from './ChatResult'
-import { clearSession, historyFor, loadSession, newConversationId, saveSession, visibleMessages } from './chatSession'
+import { clearSession, historyFor, loadSession, memoryForRequest, newConversationId, saveSession, visibleMessages } from './chatSession'
 import { queueHistory } from './historyCache'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
@@ -22,6 +22,18 @@ const ACTION_LABELS = {
   unconfirmed: 'We could not confirm that step finished. Please check before relying on it.',
 }
 
+// Why the safety check before sending failed, in words the owner can act on.
+export function checkFailureMessage(error) {
+  const status = error?.status
+  const detail = typeof error?.detail === 'string' ? error.detail : ''
+  if (error?.offline) return "We could not check this message safely because Penny can't reach the server. Check your connection, then try again."
+  if (status === 401) return 'Your sign-in has expired. Sign in again to keep chatting with Penny.'
+  if (status === 429) return "That's a lot of messages in a short time. Wait a minute, then try again."
+  if (status === 503 && /account verification/i.test(detail)) return "We couldn't check your sign-in right now. Try again in a moment, or sign out to chat as a guest."
+  if (status === 422) return "That message couldn't be sent. Start a new chat, then try again."
+  return 'We could not check this message safely. Please try again, or use the tool finder.'
+}
+
 const STARTERS = [
   'Start with a few questions',
   'I keep missing calls while I\'m on a job',
@@ -33,6 +45,7 @@ const SLOW_AFTER_MS = 8000
 const SPEAKING_MS = 1400
 const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
 const A2UISurface = React.lazy(() => import('./A2UISurface'))
+import { OTHER_CHOICE, otherHint } from './choices'
 const WANTS_ASSISTANT = /\b(custom|own|build|make|create|draft)\b.*\b(assistant|helper|bot|chatbot)\b/i
 
 // A recommendation can arrive as a plain result or as an A2UI recommendation card.
@@ -88,6 +101,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
   const [live, setLive] = useState(null)
   const [speaking, setSpeaking] = useState(false)
   const [input, setInput] = useState('')
+  const [typingHint, setTypingHint] = useState('')
   const [inputError, setInputError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
@@ -247,6 +261,13 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     setStatus('')
   }
 
+  // "Other": nothing is sent. The owner types their own answer, with a hint that fits the question.
+  function typeOwnAnswer(question) {
+    setTypingHint(otherHint(question))
+    setInputError('')
+    inputRef.current?.focus()
+  }
+
   async function send(rawText, { isRetry = false } = {}) {
     if (auth?.configured && (!auth.ready || (userId && hydratedFor !== userId))) {
       setInputError('Restoring your account conversation. Please wait a moment.')
@@ -261,6 +282,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     if (!isRetry && WANTS_ASSISTANT.test(text)) {
       setMessages((current) => [...current, { id: newId('m'), kind: 'user', text }, { id: newId('m'), kind: 'draft-builder', topic: '' }])
       setInput('')
+      setTypingHint('')
       setInputError('')
       setResumed(false)
       return
@@ -268,11 +290,15 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     const run = begin()
     setInputError('')
     try {
-      const validation = await api.validateChat({ conversation_id: conversationId, message: text, profile, memory, history: historyFor(messagesRef.current, { dropLastUser: isRetry }) }, authToken)
+      const validation = await api.validateChat({ conversation_id: conversationId, message: text, profile, memory: memoryForRequest(memory), history: historyFor(messagesRef.current, { dropLastUser: isRetry }) }, authToken)
       if (run !== runRef.current) return
       if (!validation.allowed) { setInputError(validation.message); finish(run); return }
-    } catch {
-      setInputError('We could not check this message safely. Please try again, or use the tool finder.')
+    } catch (error) {
+      if (error?.status === 422 && Array.isArray(error.detail)) {
+        // Field names only, to find what the backend rejected. Never the owner's text.
+        console.warn('Penny: the backend rejected these fields:', error.detail.map((item) => (item.loc || []).join('.')).join(', '))
+      }
+      setInputError(checkFailureMessage(error))
       finish(run)
       return
     }
@@ -291,6 +317,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     if (!isRetry) {
       addMessage({ kind: 'user', text })
       setInput('')
+      setTypingHint('')
     }
 
     function onEvent(event) {
@@ -342,7 +369,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
 
     try {
       abortRef.current = new AbortController()
-      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryRef.current, history, isRetry, accessToken: authToken, signal: abortRef.current.signal, context: contextFor(messagesRef.current) }, onEvent)
+      await adapter.sendMessage({ conversationId, message: text, profile, memory: memoryForRequest(memoryRef.current), history, isRetry, accessToken: authToken, signal: abortRef.current.signal, context: contextFor(messagesRef.current) }, onEvent)
     } catch {
       if (run === runRef.current) addMessage({ kind: 'error', text: UNAVAILABLE, retry: { type: 'send', text } })
     }
@@ -379,6 +406,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
     setMemory(EMPTY_MEMORY)
     setResumed(false)
     setInput('')
+    setTypingHint('')
     setInputError('')
     setNotice('')
     inputRef.current?.focus()
@@ -571,7 +599,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
           {visibleMessages(messages).map((message) => {
             if (message.kind === 'user') return <div className="msc-row msc-row-user" key={message.id}><p>{message.text}</p></div>
             if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{message.text}</p></div>
-            if (message.kind === 'a2ui') return <React.Suspense key={message.id} fallback={<div className="msc-loading">Loading result…</div>}><A2UISurface protocol={message.protocol} onSelect={send} busy={busy} ruledOut={memory.ruled_out} serviceUrls={names.urls} onPrint={printSummary} /></React.Suspense>
+            if (message.kind === 'a2ui') return <React.Suspense key={message.id} fallback={<div className="msc-loading">Loading result…</div>}><A2UISurface protocol={message.protocol} onSelect={send} onOther={typeOwnAnswer} busy={busy} ruledOut={memory.ruled_out} serviceUrls={names.urls} onPrint={printSummary} /></React.Suspense>
             if (message.kind === 'loading') return <div className="msc-loading" key={message.id}>Checking the catalog...</div>
             if (message.kind === 'clarify') {
               return (
@@ -579,7 +607,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
                   {message.progress && <span className="msc-progress">{message.progress}</span>}
                   <div className="msc-clarify-question"><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{message.text}</p></div>
                   <div className="msc-choices">
-                    {message.choices.map((choice) => <button type="button" key={choice} onClick={() => send(choice)} disabled={busy}>{choice}</button>)}
+                    {message.choices.map((choice) => <button type="button" key={choice} onClick={() => (choice === OTHER_CHOICE ? typeOwnAnswer(message.text) : send(choice))} disabled={busy}>{choice}</button>)}
                   </div>
                 </div>
               )
@@ -650,7 +678,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) 
               rows={1}
               value={input}
               maxLength={MAX_LENGTH}
-              placeholder="Type what is slowing you down..."
+              placeholder={typingHint || "Type what is slowing you down..."}
               aria-label="Tell Penny what's going on"
               onChange={(event) => {
                 setInput(event.target.value)

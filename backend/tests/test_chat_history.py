@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 import pytest
 from app import chat, chat_history
+from app.schemas import MAX_QUESTION_CHOICES
 from conftest import account_header
 
 
@@ -128,3 +129,13 @@ def test_logout_replay_cannot_extend_recovery_deadline(client, history):
     assert client.post('/api/auth/logout', headers=header).status_code == 401
     clock[0] = 301
     assert client.get('/api/chat/history', headers=account_header(1, 2)).json() is None
+
+
+@pytest.mark.parametrize('count,status', [(MAX_QUESTION_CHOICES, 204), (MAX_QUESTION_CHOICES + 1, 422)])
+def test_saved_question_keeps_up_to_the_choice_limit(client, history, count, status):
+    # The business question has five choices (three businesses, Other, Skip); a signed-in chat must still save.
+    question = 'What kind of business do you run?'
+    choices = [f'Choice {index}' for index in range(count)]
+    event = chat._a2ui_event('question', 'PennyQuestion', {'question': question, 'choices': choices}, question)
+    snapshot = {**SNAPSHOT, 'messages': [{'id': 'm', 'kind': 'a2ui', 'surface': 'question', 'text': question, 'protocol': event['messages']}]}
+    assert client.put('/api/chat/history', json=snapshot, headers=account_header()).status_code == status
