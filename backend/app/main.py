@@ -1,5 +1,7 @@
+import hmac
 import os
 import threading
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,7 +9,8 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import access, adoption, db
+from . import access, adoption, db, discovery, web
+from .capacity import Capacity
 from .chat import router as chat_router
 from .chat_history import router as chat_history_router
 from .comparison import AssignmentError, compare
@@ -68,12 +71,15 @@ async def lifespan(app: FastAPI):
         app.state.catalog = db.read_catalog(conn)
         app.state.conn = conn
         app.state.lock = threading.Lock()
+        app.state.capacity = Capacity(1)
+        app.state.discovery_finder = None
         yield
     finally:
         conn.close()
 
 
 app = FastAPI(title="Main Street AI", lifespan=lifespan)
+web.install(app)
 app.include_router(chat_router)
 app.include_router(chat_history_router)
 
@@ -256,3 +262,38 @@ def plan_refresh(request: Request, plan_id: str, owner: str = Depends(_owner)) -
             raise HTTPException(status_code=409, detail=f"This plan can't be rebuilt from today's catalog: {exc.args[0]}") from exc
         except (adoption.PlanNotReady, AssignmentError) as exc:
             raise HTTPException(status_code=409, detail=exc.args[0]) from exc
+
+
+def _discovery_allowed(request: Request, authorization: str | None = Header(default=None)) -> discovery.Finder:
+    """Discovery reads the open web, so it stays off unless the operator sets DISCOVERY_TOKEN and wires a finder."""
+    token = os.environ.get("DISCOVERY_TOKEN", "")
+    finder = getattr(request.app.state, "discovery_finder", None)
+    if not token or finder is None:
+        raise HTTPException(status_code=503, detail="Tool discovery is turned off on this server")
+    given = authorization[7:] if authorization and authorization[:7].casefold() == "bearer " else ""
+    if not hmac.compare_digest(given.encode(), token.encode()):
+        raise HTTPException(status_code=401, detail="Discovery needs the operator token", headers={"WWW-Authenticate": "Bearer"})
+    return finder
+
+
+@app.post("/api/discover")
+def discover_route(request: Request, body: discovery.DiscoveryRequest, finder: discovery.Finder = Depends(_discovery_allowed)) -> discovery.DiscoveryReport:
+    """Finds new candidate tools for one task. They are saved as pending and show up in /api/tools straight away.
+
+    The slow search runs outside the write lock so browsing keeps working. Only one run happens at a time.
+    """
+    try:
+        discovery.check_request(_catalog(request), body)
+    except discovery.DiscoveryFailed as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    claim = request.app.state.capacity.try_claim()
+    if claim is None:
+        raise HTTPException(status_code=429, detail="A discovery run is already going or still stopping. Try again when it finishes")
+    try:
+        result = discovery.run_finder(_catalog(request), body, finder, claim=claim)
+    except discovery.DiscoveryFailed as exc:
+        return discovery.DiscoveryReport(run_id=uuid.uuid4().hex, status="failed", error=discovery.ErrorInfo(code=exc.code, message=exc.message))
+    with request.app.state.lock:
+        report = discovery.store(request.app.state.conn, _catalog(request), body, result, _now().date())
+        request.app.state.catalog = db.read_catalog(request.app.state.conn)
+    return report

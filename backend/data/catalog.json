@@ -454,7 +454,8 @@
         "source_url": "https://www.getjobber.com/pricing/",
         "source_type": "vendor",
         "checked": "2026-11-06",
-        "note": "Core, 1 user, month to month. The order of the three prices shown was inferred."
+        "note": "Core, 1 user, month to month. The order of the three prices shown was inferred.",
+        "inferred": true
       },
       "entry_plan": {
         "status": "present",
@@ -542,6 +543,22 @@
         },
         {
           "capability": "phone_answering",
+          "addon_offer": {
+            "status": "present",
+            "value": "receptionist",
+            "source_url": "https://www.getjobber.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Pricing page lists one Receptionist add-on at $29/mo for calls and texts, questions, requests and booking. Pipeline ($49) and Marketing Suite ($99) are separate add-ons. Read from a browser capture by Aurindom."
+          },
+          "addon_from": {
+            "status": "present",
+            "value": "Core",
+            "source_url": "https://www.getjobber.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Pricing page offers the Receptionist add-on on Core, Connect and Grow, and includes it in Plus. Read from a browser capture by Aurindom."
+          },
           "access": {
             "status": "present",
             "value": "add_on",
@@ -560,6 +577,22 @@
         },
         {
           "capability": "lead_response",
+          "addon_offer": {
+            "status": "present",
+            "value": "receptionist",
+            "source_url": "https://www.getjobber.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Pricing page lists one Receptionist add-on at $29/mo for calls and texts, questions, requests and booking. Pipeline ($49) and Marketing Suite ($99) are separate add-ons. Read from a browser capture by Aurindom."
+          },
+          "addon_from": {
+            "status": "present",
+            "value": "Core",
+            "source_url": "https://www.getjobber.com/pricing/",
+            "source_type": "vendor",
+            "checked": "2026-11-07",
+            "note": "Pricing page offers the Receptionist add-on on Core, Connect and Grow, and includes it in Plus. Read from a browser capture by Aurindom."
+          },
           "access": {
             "status": "present",
             "value": "add_on",
@@ -625,7 +658,8 @@
         "source_url": "https://www.housecallpro.com/pricing/",
         "source_type": "vendor",
         "checked": "2026-11-06",
-        "note": "Basic, 1 user, billed monthly. $59 billed annually. The monthly mapping was inferred."
+        "note": "Basic, 1 user, billed monthly. $59 billed annually. The monthly mapping was inferred.",
+        "inferred": true
       },
       "entry_plan": {
         "status": "present",

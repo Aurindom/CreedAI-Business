@@ -73,6 +73,7 @@ def build_plan(catalog: Catalog, selection: Selection, plan_id: str, created_at:
     open_items += [f"{s.title}: {s.note}" for s in result.tasks if s.suggested]
     open_items += [f"Check that {name} fits before relying on it" for name in result.stack.unconfirmed]
     open_items += [f"{name}'s price for this isn't confirmed" for name in result.stack.unknown_cost_tools]
+    open_items += [f"Part of {name}'s price is our estimate. Check the vendor's pricing page" for name in result.stack.estimated]
     return AdoptionPlan(
         id=plan_id,
         selection=selection,

@@ -7,6 +7,7 @@ FactStatus = Literal["present", "absent", "unknown"]
 SourceType = Literal["vendor", "third_party"]
 Access = Literal["included", "add_on", "unknown"]
 ToolStatus = Literal["verified", "pending_review", "rejected"]
+Origin = Literal["catalog", "discovered"]
 Route = Literal["already_have", "check_plan", "native_add_on", "plan_upgrade", "compatible_tool", "separate_tool", "switch"]
 Outcome = Literal["no_new_tool", "add_on", "new_tool", "verify_with_vendor", "no_match"]
 Applicability = Literal["cross_industry", "restricted", "unknown"]
@@ -24,9 +25,12 @@ class Fact(BaseModel):
     source_type: SourceType | None = None
     checked: date | None = None
     note: str | None = None
+    inferred: bool = False
 
     @model_validator(mode="after")
     def enforce_evidence(self) -> "Fact":
+        if self.inferred and not (self.status == "present" and self.note):
+            raise ValueError("an inferred fact must be present and say in its note what was inferred")
         if self.status == "unknown":
             if self.value is not None:
                 raise ValueError("an unknown fact cannot carry a value")
@@ -77,6 +81,7 @@ class Tool(BaseModel):
     applicability: Applicability = "unknown"
     applicability_source: HttpUrl | None = None
     status: ToolStatus = "pending_review"
+    origin: Origin = "catalog"
     summary: str
     entry_monthly_usd: Fact = UNKNOWN
     entry_plan: Fact = UNKNOWN
@@ -332,6 +337,7 @@ class ToolFact(BaseModel):
     source_url: HttpUrl | None = None
     source_type: SourceType | None = None
     checked: date | None = None
+    inferred: bool = False
 
 
 class Option(BaseModel):
@@ -345,6 +351,7 @@ class Option(BaseModel):
     cost_note: str
     facts: list[ToolFact]
     within_budget: bool | None = None
+    price_estimated: bool = False
 
 
 class SetAside(BaseModel):
@@ -372,6 +379,7 @@ class StackCheck(BaseModel):
     known_monthly_usd: float
     total_monthly_usd: float | None
     unknown_cost_tools: list[str]
+    estimated_cost_tools: list[str] = Field(default_factory=list)
 
 
 Standing = Literal["eligible", "check_first", "set_aside"]
@@ -388,6 +396,7 @@ class TaskFit(BaseModel):
     route: Route | None = None
     added_monthly_usd: float | None = None
     cost_note: str | None = None
+    price_estimated: bool = False
 
 
 class ComparedTool(BaseModel):
@@ -426,6 +435,7 @@ class StackLine(BaseModel):
     monthly_usd: float | None
     note: str
     confirmed: bool = False
+    price_estimated: bool = False
 
 
 class StackCost(BaseModel):
@@ -437,6 +447,8 @@ class StackCost(BaseModel):
     within_budget: bool | None = None
     ready: bool = False
     unconfirmed: list[str] = Field(default_factory=list)
+    uncovered: list[str] = Field(default_factory=list)
+    estimated: list[str] = Field(default_factory=list)
 
 
 class AllInOne(BaseModel):
@@ -446,6 +458,7 @@ class AllInOne(BaseModel):
     coverage: Coverage
     monthly_usd: float | None
     note: str
+    price_estimated: bool = False
 
 
 class Comparison(BaseModel):

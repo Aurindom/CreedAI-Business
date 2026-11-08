@@ -294,3 +294,20 @@ def test_compare_endpoint_takes_assignments(client):
 @pytest.mark.parametrize("assignments", [{"missed_calls": "housecall_pro"}, {"nope": "jobber"}])
 def test_compare_rejects_assignments_outside_the_selection(client, assignments):
     assert client.post("/api/compare", json=_body(assignments=assignments)).status_code == 422
+
+
+def test_a_task_nothing_covers_blocks_readiness_but_keeps_the_subtotal(catalog):
+    profile = BusinessProfile(trade="hvac", budget_monthly_usd=500)
+    stack = run(catalog, ["calls", "books"], ["voice"], profile).stack
+    assert stack.total_monthly_usd == 100 and stack.uncovered == ["t"]
+    assert not stack.ready and stack.within_budget is None
+    assert any("isn't the full cost" in a for a in stack.assumptions)
+
+
+def test_jobber_receptionist_is_charged_once_for_calls_and_lead_replies(client):
+    def stack(problem_ids):
+        return client.post("/api/compare", json=_body(problem_ids=problem_ids)).json()["stack"]
+
+    one = stack(["missed_calls"])
+    both = stack(["missed_calls", "slow_lead_replies"])
+    assert one["total_monthly_usd"] is not None and both["total_monthly_usd"] == one["total_monthly_usd"]

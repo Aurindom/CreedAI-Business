@@ -300,7 +300,7 @@ Response:
 - `stack`: `null` when any task is still `alternatives`, because alternatives are not a bundle. Show `stack_note` instead ("Pick one per task first") and let the owner pick from `candidate_ids`, then call compare again with `assignments`. Otherwise it is built only from the assigned tasks, so each task is paid for once:
   - `lines[]`: one per tool, `monthly_usd` for all its tasks together. A plan shared by two tasks is charged once. Add-ons are charged once per recorded vendor offer. If we haven't recorded whether two add-ons are one purchase or separate, `monthly_usd` is `null` and `note` says so. `confirmed` is `false` if any of its tasks is only `possible`.
   - `known_monthly_usd`, `total_monthly_usd` (`null` if anything is unknown, never treated as 0), `unknown_cost_tools`.
-  - `ready`: `true` only when every price is known and every line is confirmed. `unconfirmed[]` names the tools still to check. Don't call a stack "checked" or "ready" unless `ready` is true.
+  - `ready`: `true` only when every price is known, every line is confirmed and every chosen task is covered. `unconfirmed[]` names the tools still to check. `uncovered[]` names the chosen tasks no chosen tool covers. Then the total is only a subtotal for the covered part, and `assumptions` says so. Don't call a stack "checked" or "ready" unless `ready` is true.
   - `within_budget`: only set when `ready` is true and a budget was given, otherwise `null`. When not ready, `assumptions` says what the priced parts come to, as a conditional number.
   - `assumptions[]`: show these under the total (fees not included, annual billing, tools still to check).
 - `stack_note`: always present. Says each task goes to one tool, mentions suggestions, tools still to check and tasks nothing chosen covers.
@@ -390,3 +390,141 @@ Don't do any of these: force-push, reset a shared branch, merge into `main`, dep
 ## 9. Money and keys
 
 Browse mode and the chat mock cost nothing. Live model calls will go through one shared OpenRouter key with a **$25 total budget for the whole team**. Don't make any paid calls without Aurindom's okay. Customer reviews, star ratings and sentiment bars are deliberately left out of this release.
+
+## 10. W07: reliability helpers and same-origin serving
+
+Backend and `api.js` are done. `App.jsx` has not been changed, so nothing below is used by the UI yet.
+
+### 10.1 Cancel and "latest request wins" (`frontend/src/api.js`)
+
+Every `api.*` method now takes an optional `AbortSignal` as its **last** argument. Old calls work unchanged. Examples: `api.compare(profile, problemIds, toolIds, assignments, signal)`, `api.tools(trade, category, signal)`, `api.trades(signal)`.
+
+`latestOnly()` makes a runner. Make one runner per thing that can change quickly (task search, business type, selection). A new call cancels the previous one, and an old answer can never overwrite a newer one.
+
+```js
+const runCompare = useRef(latestOnly()).current
+
+async function refresh() {
+  setLoading(true)
+  try {
+    const result = await runCompare((signal) => api.compare(profile, problemIds, toolIds, assignments, signal))
+    if (result.stale) return          // a newer request exists, ignore this one
+    setComparison(result.value)
+  } catch (error) {
+    showError(error)                  // see 10.2
+  } finally {
+    setLoading(false)                 // only safe if you don't need to keep the spinner for the newer call
+  }
+}
+```
+
+Note on the spinner: when a result is stale, a newer request is still running. Don't clear loading in that case. Return before `finally` clears it, or keep a counter.
+
+Also pass your own `AbortController().signal` in a `useEffect` cleanup if you only need cancel on unmount. `isAbort(error)` tells you an error is just a cancel and should be ignored.
+
+### 10.2 Errors the UI can show
+
+All thrown errors are normal `Error` objects whose `message` is safe to show.
+
+| Case | message | Extra fields |
+| --- | --- | --- |
+| Backend down or no network | "We can't reach the server right now. Check your connection and try again." | `offline: true`, `cause` |
+| 5xx | "Something went wrong on our side. Please try again in a moment." | `serverError: true`, `status`, `detail` |
+| 4xx | `"<status>: <detail>"` as before | `status`, `detail` |
+| Cancelled | browser `AbortError` | use `isAbort(error)` |
+
+Suggested use: if `error.offline`, show the message with a Retry button. For 5xx, show the message and keep `error.detail` out of the screen (it is for console or support). Nothing retries automatically. A POST that timed out may have been saved, so the retry must be a user click, and plan saves reuse the same `request_id` so a repeat is safe.
+
+### 10.3 Build and serve same-origin
+
+```
+cd hackathon-app/frontend
+npx vite build --outDir ../../sandbox/frontend-build/w07 --emptyOutDir
+```
+
+Then point the backend at that folder and start it:
+
+```
+FRONTEND_DIST="<absolute path to the build folder>" python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000/`. No Vite proxy is needed. If `FRONTEND_DIST` is not set, the backend looks for `frontend/dist` (the default `npm run build` output). The folder must contain `index.html`, otherwise the API runs alone as before.
+
+Rules the server follows:
+- Real files in the build folder are served as is. Anything outside the folder cannot be reached.
+- Any other GET path without a file extension returns `index.html` (so refreshing a client-side route works).
+- A missing file with an extension, for example `/assets/old.js`, is a plain 404, not the page.
+- `/api` is never replaced by the page. An unknown `/api/...` path returns JSON `{"detail": "Not Found"}`.
+- The folder is checked on each request, so a new build shows up without restarting.
+
+### 10.4 Server errors
+
+Any unhandled backend error returns `500` with `{"detail": "Something went wrong on our side. Please try again in a moment."}`. The stack trace goes to the server log only (logger `app.web`).
+
+### 10.5 What is and is not connected
+
+Connected and tested (backend tests, 13 new in `backend/tests/test_w07_serving.py`):
+- Same-origin serving of a built frontend, SPA fallback, `/api` JSON 404, path traversal blocked, no-dist behaviour, generic 500.
+- `api.js` signal support, `latestOnly`, offline and 5xx errors. The Vite build passes. These helpers have not been run in a browser and have no frontend unit tests (the project has no frontend test runner).
+
+Not connected yet:
+- `App.jsx` does not use signals, `latestOnly`, or `error.offline`. Rapid input changes can still let an old response win until teammates wire it in.
+- Loading, empty, retry and unavailable screens are UI work and are not built.
+- Keyboard and phone checks are not done.
+- No Docker, Azure, HTTPS or deployment files. Cloud work is gated.
+- No mock data is involved in any of this.
+
+## 11. Estimated prices (added 2026-11-07)
+
+Some vendor pricing pages don't say plainly which number is the monthly price, so we had to read it with some guessing. Those prices are now marked and never treated as confirmed. Today that's Jobber ($49 Core) and Housecall Pro ($79 Basic).
+
+### 11.1 New fields
+- Any fact can carry `"inferred": true`. It is always `present` and its `note` says what was guessed. Older facts without the field mean `false`.
+- `/api/tools/{id}/facts`: each fact has `inferred`. An estimated price's `value` ends with "(estimate)", like "$49/mo, Core plan (estimate)".
+- `/api/recommend` options and `/api/compare` task fits have `price_estimated`. The price is still shown, `cost_note` ends with "check the vendor's pricing page", and `within_budget` stays `null`.
+- If the top option's price is an estimate, the outcome is `verify_with_vendor` with no winner, and the message names the tool and says to check its pricing page.
+- `/api/compare` stack: each line has `price_estimated`, and `stack.estimated[]` names the tools with estimated prices. The total is still added up, but `ready` is `false`, `within_budget` is `null`, `assumptions` has a line about it and `stack_note` ends with "Prices to check on the vendor's page".
+- `all_in_one[]` entries have `price_estimated`.
+- `/api/stack/check` has `estimated_cost_tools[]`.
+- Saved plans: a plan with an estimated price is a `draft`, with an open item like "Part of Jobber's price is our estimate. Check the vendor's pricing page".
+
+### 11.2 What the UI should do
+- Show an estimated price with a small "estimate" label and a link to the fact's `source_url`, never as a confirmed price or within budget.
+- Never call a stack "ready" or a plan "checked" while `stack.estimated` has anything in it. The backend already enforces this.
+
+## 12. Tool discovery, W08 (added 2026-11-07)
+
+The backend can now add tools it finds on vendor sites. Nothing searches the web yet. The real search is the separate discovery worker, and its first scan waits on Aurindom's OK.
+
+### 12.1 New field on every tool
+- `origin`: `"catalog"` for the reviewed list we ship, `"discovered"` for tools found by discovery. Old rows mean `"catalog"`.
+- A discovered tool is always `status: "pending_review"`, so it never wins a recommendation. Its summary is always "Found by discovery on DATE. Not reviewed yet." Its plan access is unknown, and its price is only filled when the vendor's own page lists a flat US dollar monthly plan. Per-user, per-location, yearly or usage prices stay unknown, with a note and the pricing link, and never count toward the budget.
+- It shows up in `/api/tools`, `/api/tools/{id}`, recommend and compare straight away, with no restart, and it stays after a restart.
+
+### 12.2 What the UI should do
+- Show a small "Found by discovery, not reviewed" badge when `origin` is `"discovered"`, next to the existing pending badge.
+- Don't add a discovery button for owners. The endpoint below is for the operator only.
+
+### 12.3 Endpoint (operator only)
+`POST /api/discover` with `Authorization: Bearer <DISCOVERY_TOKEN>` and a body like `{"capability": "phone_answering", "trade": "hvac", "facets": {}, "max_results": 5, "max_pages": 6, "time_budget_s": 15}`.
+- 503 when `DISCOVERY_TOKEN` isn't set or no finder is connected. That is the state on every server today.
+- 401 for a missing or wrong token, 422 for an unknown task or filter or a cap over the limit (10 results, 16 pages, 30 seconds), 429 while another run is going or a timed-out run is still stopping.
+- 200 returns `{run_id, status, added[], updated[], duplicates[], excluded[], error, notice}`. A failed run (over time, over budget, broken result) saves nothing. A run over its time limit fails with error code `"stopping"`, and the next run can start once it has actually stopped.
+- If a later catalog change makes a discovered tool invalid, or a reviewed tool now covers the same product, it leaves the list on the next start. It is kept aside for the operator, not deleted. Nothing changes in the UI for this.
+
+## 13. Agent chat contract, W09 (added 2026-11-07)
+
+Mock-tested only. There is no live agent route yet, that waits for the Hermes go-ahead (W10). But this is the shape the chat UI will get, so you can build against it now.
+
+The chat stream is server-sent events. Each `data:` line is one JSON frame with a `type`:
+
+- `text`: `{"type":"text","text":"..."}`. Append it to the reply bubble. Text arrives a few characters late on purpose (a safety check holds the last 7 back).
+- `action`: `{"type":"action","seq":1,"action":"search_catalog","label":"Searching the catalog","status":"started","message":"Working on it."}`. Same `seq` comes again with `succeeded`, `failed` or `unconfirmed`. Show `label` and `message`, replace the row by `seq`. `action` is null for a step the assistant is not allowed to do.
+- `notice`: `{"type":"notice","code":"busy","message":"...","fallback":"browse"}`. Codes: busy, unavailable, timeout, interrupted, blocked, run_failed, run_cancelled. Show the message as is.
+- `done`: always the last frame, exactly once. `{"type":"done","turn":"completed","succeeded":1,"failed":0,"unconfirmed":0,"fallback":null}`.
+
+Rules for the UI:
+- A finished turn does not mean the action worked. `turn: "completed"` with `failed: 1` means the reply finished but the step failed. Show it as failed.
+- `unconfirmed` means we do not know. Don't show a green tick.
+- When `fallback` is `"browse"`, put the owner back on browse and compare (search box, tool cards). Never leave a spinner running.
+- `busy` means too many people at once. It is not an error on their side.

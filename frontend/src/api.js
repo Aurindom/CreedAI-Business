@@ -1,13 +1,52 @@
+export const OFFLINE_MESSAGE = "We can't reach the server right now. Check your connection and try again."
+export const SERVER_MESSAGE = 'Something went wrong on our side. Please try again in a moment.'
+
+// Nothing here retries. A POST that timed out may have been saved, and the plan save relies on request_id for safe repeats.
+function failure(message, extra) {
+  return Object.assign(new Error(message), extra)
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  })
+  let response
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    })
+  } catch (cause) {
+    if (cause?.name === 'AbortError') throw cause
+    throw failure(OFFLINE_MESSAGE, { offline: true, cause })
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
-    throw new Error(body.detail ? `${response.status}: ${JSON.stringify(body.detail)}` : `Request failed with ${response.status}`)
+    const detail = body.detail ?? null
+    if (response.status >= 500) {
+      throw failure(SERVER_MESSAGE, { status: response.status, serverError: true, detail })
+    }
+    const message = detail ? `${response.status}: ${JSON.stringify(detail)}` : `Request failed with ${response.status}`
+    throw failure(message, { status: response.status, detail })
   }
   return response.status === 204 ? null : response.json()
+}
+
+export function isAbort(error) {
+  return error?.name === 'AbortError'
+}
+
+export function latestOnly() {
+  let current = null
+  return (run) => {
+    current?.abort()
+    const controller = new AbortController()
+    current = controller
+    return run(controller.signal).then(
+      (value) => ({ value, stale: controller !== current }),
+      (error) => {
+        if (isAbort(error) || controller !== current) return { stale: true }
+        throw error
+      },
+    )
+  }
 }
 
 function query(params) {
@@ -56,25 +95,28 @@ export const api = {
   loadChatHistory: (token) => request('/api/chat/history', { headers: owner(token), cache: 'no-store' }),
   saveChatHistory: (token, snapshot) => request('/api/chat/history', { method: 'PUT', headers: owner(token), cache: 'no-store', body: JSON.stringify(snapshot) }),
   validateChat: (payload) => request('/api/chat/validate', { method: 'POST', body: JSON.stringify(payload) }),
-  trades: () => request('/api/trades'),
-  categories: () => request('/api/categories'),
-  problems: (trade, category) => request(`/api/problems${query({ trade, category })}`),
-  tools: (trade, category) => request(`/api/tools${query({ trade, category })}`),
-  toolFacts: (toolId) => request(`/api/tools/${encodeURIComponent(toolId)}/facts`),
-  recommend: (profile, problemId) => request('/api/recommend', { method: 'POST', body: JSON.stringify({ profile, problem_id: problemId }) }),
-  resolveTask: (text) => request('/api/tasks/resolve', { method: 'POST', body: JSON.stringify({ text }) }),
-  compare: (profile, problemIds, toolIds, assignments = {}) =>
-    request('/api/compare', { method: 'POST', body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds, assignments }) }),
-  stackCheck: (toolIds) => request('/api/stack/check', { method: 'POST', body: JSON.stringify({ tool_ids: toolIds }) }),
-  startSession: () => request('/api/sessions', { method: 'POST' }),
-  endSession: (token) => request('/api/sessions/current', { method: 'DELETE', headers: owner(token) }),
-  plans: (token) => request('/api/plans', { headers: owner(token) }),
-  savePlan: (token, profile, problemIds, toolIds, requestId, assignments = {}) =>
+  trades: (signal) => request('/api/trades', { signal }),
+  categories: (signal) => request('/api/categories', { signal }),
+  problems: (trade, category, signal) => request(`/api/problems${query({ trade, category })}`, { signal }),
+  tools: (trade, category, signal) => request(`/api/tools${query({ trade, category })}`, { signal }),
+  toolFacts: (toolId, signal) => request(`/api/tools/${encodeURIComponent(toolId)}/facts`, { signal }),
+  recommend: (profile, problemId, signal) =>
+    request('/api/recommend', { method: 'POST', body: JSON.stringify({ profile, problem_id: problemId }), signal }),
+  resolveTask: (text, signal) => request('/api/tasks/resolve', { method: 'POST', body: JSON.stringify({ text }), signal }),
+  compare: (profile, problemIds, toolIds, assignments = {}, signal) =>
+    request('/api/compare', { method: 'POST', body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds, assignments }), signal }),
+  stackCheck: (toolIds, signal) => request('/api/stack/check', { method: 'POST', body: JSON.stringify({ tool_ids: toolIds }), signal }),
+  startSession: (signal) => request('/api/sessions', { method: 'POST', signal }),
+  endSession: (token, signal) => request('/api/sessions/current', { method: 'DELETE', headers: owner(token), signal }),
+  plans: (token, signal) => request('/api/plans', { headers: owner(token), signal }),
+  savePlan: (token, profile, problemIds, toolIds, requestId, assignments = {}, signal) =>
     request('/api/plans', {
       method: 'POST',
       headers: owner(token),
       body: JSON.stringify({ profile, problem_ids: problemIds, tool_ids: toolIds, request_id: requestId, assignments }),
+      signal,
     }),
-  plan: (token, planId) => request(`/api/plans/${encodeURIComponent(planId)}`, { headers: owner(token) }),
-  refreshPlan: (token, planId) => request(`/api/plans/${encodeURIComponent(planId)}/refresh`, { method: 'POST', headers: owner(token) }),
+  plan: (token, planId, signal) => request(`/api/plans/${encodeURIComponent(planId)}`, { headers: owner(token), signal }),
+  refreshPlan: (token, planId, signal) =>
+    request(`/api/plans/${encodeURIComponent(planId)}/refresh`, { method: 'POST', headers: owner(token), signal }),
 }

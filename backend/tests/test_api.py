@@ -148,14 +148,18 @@ def test_unknown_tool_is_a_404(client):
     assert client.get("/api/tools/nope").status_code == 404
 
 
-def test_jobber_add_on_waits_until_its_plans_are_sourced(client):
+def test_jobber_add_on_asks_which_plan_the_owner_has(client):
     body = {"profile": {"trade": "hvac", "owned_tool_ids": ["jobber"], "budget_monthly_usd": 100}, "problem_id": "missed_calls"}
     result = client.post("/api/recommend", json=body).json()
     top = result["options"][0]
-    assert top["tool_id"] == "jobber" and top["route"] == "native_add_on"
-    assert top["added_monthly_usd"] is None
-    assert "$29/mo" in top["cost_note"] and "which plans can add it" in top["cost_note"]
-    assert result["outcome"] == "verify_with_vendor"
+    assert top["tool_id"] == "jobber" and top["route"] == "check_plan" and top["added_monthly_usd"] is None
+    assert "add-on from the Core plan" in top["cost_note"] and result["outcome"] == "verify_with_vendor"
+
+
+def test_jobber_add_on_is_priced_for_an_owner_on_a_plan_that_can_add_it(client):
+    body = {"profile": {"trade": "hvac", "owned": [{"tool_id": "jobber", "plan": "Core"}]}, "problem_id": "missed_calls"}
+    top = client.post("/api/recommend", json=body).json()["options"][0]
+    assert top["tool_id"] == "jobber" and top["route"] == "native_add_on" and top["added_monthly_usd"] == 29
 
 
 def test_restaurant_missed_calls_has_no_confident_winner(client):
@@ -178,4 +182,5 @@ def test_negative_budget_is_rejected(client):
 def test_stack_check_reports_duplicates_and_cost(client):
     result = client.post("/api/stack/check", json={"tool_ids": ["jobber", "housecall_pro"]}).json()
     assert result["total_monthly_usd"] == 128
+    assert result["estimated_cost_tools"] == ["Jobber", "Housecall Pro"]
     assert len(result["duplicates"]) == 2

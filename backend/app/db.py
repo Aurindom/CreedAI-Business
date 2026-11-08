@@ -1,7 +1,12 @@
+import hashlib
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from .domains import identity
 from .schemas import Catalog, Category, Facet, ProblemCard, Tool, Trade
 
 SCHEMA = """
@@ -31,9 +36,33 @@ CREATE TABLE IF NOT EXISTS adoption_plan (
     doc TEXT NOT NULL,
     UNIQUE (owner_hash, request_id)
 );
+CREATE TABLE IF NOT EXISTS quarantine (
+    key TEXT PRIMARY KEY,
+    tool_id TEXT NOT NULL,
+    raw TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    details TEXT NOT NULL,
+    canonical_id TEXT,
+    contract_version TEXT NOT NULL,
+    quarantined_at TEXT NOT NULL,
+    restored_at TEXT
+);
+CREATE TABLE IF NOT EXISTS quarantine_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    action TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    reason TEXT,
+    at TEXT NOT NULL
+);
 """
 CATALOG = "catalog"
 DISCOVERED = "discovered"
+TOOL_CONTRACT_VERSION = "1.1.0"
+QUARANTINED = "quarantined"
+ARCHIVED = "archived_duplicate"
+RESTORED = "restored"
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -53,13 +82,84 @@ def load_catalog_file(path: Path) -> Catalog:
     return Catalog.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def seed(conn: sqlite3.Connection, catalog: Catalog) -> None:
+def judge(doc: str, catalog: Catalog, reviewed_ids: set[str], reviewed_identity: dict[tuple[str, str], str]) -> tuple[str, str, str | None] | None:
+    """Why a stored discovered tool can't stay active, as (reason, details, canonical id), or None when it can.
+
+    The raw text is parsed here on purpose: a record from an older schema may not load as a Tool at all.
+    Details name fields and rules only, never the stored values.
+    """
+    try:
+        found = Tool.model_validate_json(doc)
+    except ValidationError as exc:
+        return "schema_invalid", _details(exc), None
+    twin = reviewed_identity.get(identity(found)) or (found.id if found.id in reviewed_ids else None)
+    if twin:
+        return "curated_duplicate", "same product as a reviewed catalog tool", twin
+    try:
+        Catalog(trades=catalog.trades, categories=catalog.categories, problem_cards=[], tools=[found], facets=catalog.facets)
+    except ValidationError as exc:
+        return "catalog_conflict", _details(exc), None
+    return None
+
+
+def _details(exc: ValidationError) -> str:
+    parts = [f"{'.'.join(str(p) for p in e['loc']) or 'record'}: {e['msg'][:120]}" for e in exc.errors()[:5]]
+    return "; ".join(parts)
+
+
+def now_text() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def quarantine_key(tool_id: str, doc: str) -> str:
+    return f"{tool_id}@{hashlib.sha256(doc.encode('utf-8')).hexdigest()[:12]}"
+
+
+def _park(conn: sqlite3.Connection, tool_id: str, doc: str, reason: str, details: str, canonical: str | None) -> None:
+    """Copies a record into quarantine without touching the tool table. The caller owns the transaction."""
+    key = quarantine_key(tool_id, doc)
+    state = ARCHIVED if reason == "curated_duplicate" else QUARANTINED
+    existing = conn.execute("SELECT state FROM quarantine WHERE key = ?", (key,)).fetchone()
+    if existing and existing[0] != RESTORED:
+        return
+    if existing:
+        conn.execute(
+            "UPDATE quarantine SET state = ?, reason = ?, details = ?, canonical_id = ?, quarantined_at = ?, restored_at = NULL WHERE key = ?",
+            (state, reason, details, canonical, now_text(), key),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO quarantine (key, tool_id, raw, state, reason, details, canonical_id, contract_version, quarantined_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (key, tool_id, doc, state, reason, details, canonical, TOOL_CONTRACT_VERSION, now_text()),
+        )
+    conn.execute(
+        "INSERT INTO quarantine_audit (key, action, outcome, reason, at) VALUES (?, 'quarantine', ?, ?, ?)",
+        (key, state, reason, now_text()),
+    )
+
+
+def seed(conn: sqlite3.Connection, catalog: Catalog) -> list[str]:
     """Catalog file wins on every start, so a corrected vendor fact reaches the app on the next deploy.
 
-    Only rows the catalog owns are replaced. Discovered tools survive a restart, and a discovered
-    tool that later appears in the catalog file is taken over by the reviewed catalog entry.
+    Only rows the catalog owns are replaced. Discovered tools survive a restart. A discovered tool the
+    new catalog can no longer hold, for example one naming a business type that was removed, moves into
+    the quarantine table with its original text and the reason, so the app still starts and nothing is
+    lost. A discovered tool that now duplicates a reviewed catalog entry (same id, or same owner domain
+    and name) is archived with a link to the reviewed id instead. Neither kind is read as part of the
+    catalog, and a repeated start moves nothing twice. Returns the ids that left the active catalog.
     """
+    reviewed_ids = {t.id for t in catalog.tools}
+    reviewed_identity = {identity(t): t.id for t in catalog.tools}
     with conn:
+        stored = conn.execute("SELECT id, doc FROM tool WHERE origin = ?", (DISCOVERED,)).fetchall()
+        moved = []
+        for tool_id, doc in stored:
+            verdict = judge(doc, catalog, reviewed_ids, reviewed_identity)
+            if verdict:
+                _park(conn, tool_id, doc, *verdict)
+                moved.append(tool_id)
+        conn.executemany("DELETE FROM tool WHERE id = ? AND origin = ?", [(i, DISCOVERED) for i in moved])
         for table in ("trade", "category", "problem_card", "facet"):
             conn.execute(f"DELETE FROM {table}")
         conn.execute("DELETE FROM tool WHERE origin = ?", (CATALOG,))
@@ -80,8 +180,13 @@ def seed(conn: sqlite3.Connection, catalog: Catalog) -> None:
         )
         conn.executemany(
             "INSERT OR REPLACE INTO tool (id, name, status, doc, origin) VALUES (?, ?, ?, ?, ?)",
-            [(t.id, t.name, t.status, t.model_dump_json(), CATALOG) for t in catalog.tools],
+            [(t.id, t.name, t.status, _doc(t, CATALOG), CATALOG) for t in catalog.tools],
         )
+    return moved
+
+
+def _doc(tool: Tool, origin: str) -> str:
+    return tool.model_copy(update={"origin": origin}).model_dump_json()
 
 
 def add_discovered_tool(conn: sqlite3.Connection, tool: Tool) -> None:
@@ -90,19 +195,24 @@ def add_discovered_tool(conn: sqlite3.Connection, tool: Tool) -> None:
     if tool.status == "verified":
         raise ValueError(f"discovered tool {tool.id!r} cannot be stored as verified")
     with conn:
-        row = conn.execute("SELECT origin FROM tool WHERE id = ?", (tool.id,)).fetchone()
-        if row and row[0] == CATALOG:
-            raise ValueError(f"tool {tool.id!r} is already in the reviewed catalog")
-        conn.execute(
-            "INSERT OR REPLACE INTO tool (id, name, status, doc, origin) VALUES (?, ?, ?, ?, ?)",
-            (tool.id, tool.name, tool.status, tool.model_dump_json(), DISCOVERED),
-        )
+        put_discovered(conn, tool)
+
+
+def put_discovered(conn: sqlite3.Connection, tool: Tool) -> None:
+    """The write behind add_discovered_tool, for callers that already hold a transaction."""
+    row = conn.execute("SELECT origin FROM tool WHERE id = ?", (tool.id,)).fetchone()
+    if row and row[0] == CATALOG:
+        raise ValueError(f"tool {tool.id!r} is already in the reviewed catalog")
+    conn.execute(
+        "INSERT OR REPLACE INTO tool (id, name, status, doc, origin) VALUES (?, ?, ?, ?, ?)",
+        (tool.id, tool.name, tool.status, _doc(tool, DISCOVERED), DISCOVERED),
+    )
 
 
 def read_catalog(conn: sqlite3.Connection) -> Catalog:
     trades = [Trade(id=row[0], name=row[1]) for row in conn.execute("SELECT id, name FROM trade ORDER BY name")]
     categories = [Category(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM category ORDER BY position")]
     cards = [ProblemCard(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM problem_card ORDER BY id")]
-    tools = [Tool(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM tool ORDER BY name")]
+    tools = [Tool(**{**json.loads(doc), "origin": origin}) for doc, origin in conn.execute("SELECT doc, origin FROM tool ORDER BY name")]
     facets = [Facet(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM facet ORDER BY position")]
     return Catalog(trades=trades, categories=categories, problem_cards=cards, tools=tools, facets=facets)
