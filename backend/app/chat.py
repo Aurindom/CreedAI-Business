@@ -814,7 +814,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     conversation = _conversation(system, history, body.message)
     conversation.messages[0]['_owner_excerpts'] = list(dict.fromkeys(
         excerpt for source in [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')][:4]
-        for excerpt in owner_excerpts(source)))[:24]
+        for excerpt in owner_excerpts(source, catalog)))[:24]
     errors = _provider_errors()
     resolved_tasks: list[str] = []
     yield {"type": "status", "text": "Penny is thinking",
@@ -1188,7 +1188,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
         return
     instructions = hermes_instructions(package, operations, run_context.build(body, profile, memory, guard), catalog, routing_done,
         list(dict.fromkeys(excerpt for source in [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')][:4]
-                           for excerpt in owner_excerpts(source)))[:24])
+                           for excerpt in owner_excerpts(source, catalog)))[:24])
     yield {"type": "status", "text": "Penny is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}

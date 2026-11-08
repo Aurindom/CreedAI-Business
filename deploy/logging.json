@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "app": {"()": "app.logging_config.SafeFormatter"},
+    "plain": {"format": "%(levelname)s %(name)s %(message)s"}
+  },
+  "handlers": {
+    "app": {"class": "logging.StreamHandler", "stream": "ext://sys.stderr", "formatter": "app"},
+    "plain": {"class": "logging.StreamHandler", "stream": "ext://sys.stderr", "formatter": "plain"}
+  },
+  "loggers": {
+    "app": {"handlers": ["app"], "level": "INFO", "propagate": false},
+    "uvicorn": {"handlers": ["plain"], "level": "INFO", "propagate": false},
+    "uvicorn.access": {"handlers": ["plain"], "level": "WARNING", "propagate": false}
+  }
+}

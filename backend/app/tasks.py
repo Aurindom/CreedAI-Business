@@ -36,29 +36,42 @@ def _negated(clause: str) -> bool:
     return bool(_NEGATION.search(_FALLING_BEHIND.sub(' ', clause)))
 
 
-def affirmative_excerpt(text: str, excerpt: str) -> bool:
+def _example_key(text: str) -> str:
+    # Exact sentence identity, not a bag of words: wrappers and extra negation
+    # must never acquire the authority of a server-owned example.
+    return ' '.join(text.casefold().replace('\u2019', "'").split()).strip(' .!?')
+
+
+def _example_cards(catalog: Catalog | None, text: str) -> list[ProblemCard]:
+    key = _example_key(text)
+    return [card for card in catalog.problem_cards if key and _example_key(card.plain_words) == key] if catalog else []
+
+
+def affirmative_excerpt(text: str, excerpt: str, catalog: Catalog | None = None) -> bool:
     """Require an exact owner excerpt inside an affirmative clause, not a quote with negation removed."""
     normalize = lambda value: ' '.join(value.casefold().replace('\u2019', "'").split())
     wanted = normalize(excerpt)
     clauses = [part for clause in _CLAUSE_BREAK.split(text.replace('\u2019', "'"))
                for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
     return len(wanted) >= 1 and any(
-        wanted in normalize(clause) and not _negated(clause)
+        wanted in normalize(clause) and (bool(_example_cards(catalog, clause)) or not _negated(clause))
         for clause in clauses)
 
 
-def owner_excerpts(text: str) -> list[str]:
+def owner_excerpts(text: str, catalog: Catalog | None = None) -> list[str]:
     """Offer exact source spans for structured routing, never catalog prose."""
     clauses = [part.strip() for clause in _CLAUSE_BREAK.split(text)
                for part in re.split(r'\b(?:so|therefore|as a result)\b', clause, flags=re.I)]
-    coordinated = [part.strip() for clause in clauses if affirmative_excerpt(text, clause)
+    coordinated = [part.strip() for clause in clauses if affirmative_excerpt(text, clause, catalog)
                    for part in re.split(r'\band\b', clause, flags=re.I)]
     return [part for part in dict.fromkeys([text, *clauses, *coordinated])
-            if 1 <= len(part) <= 500 and affirmative_excerpt(text, part)]
+            if 1 <= len(part) <= 500 and affirmative_excerpt(text, part, catalog)]
 
 
 def _stem(word: str) -> str:
     """Crude on purpose: it only has to make 'booking' meet 'book' and 'replies' meet 'reply'."""
+    if word == 'getting':
+        return 'get'
     for suffix, swap in _SUFFIXES:
         if word.endswith(suffix) and len(word) - len(suffix) >= 3:
             word = word[: -len(suffix)] + swap
@@ -104,6 +117,10 @@ def resolve_task(catalog: Catalog, text: str) -> TaskMatch:
     negated: list[ProblemCard] = []
     for clause in _CLAUSE_BREAK.split(_owner_text(text)):
         if clause and clause.strip():
+            examples = _example_cards(catalog, clause)
+            if examples:
+                _add(stated, examples)
+                continue
             _add(negated if _negated(clause) else stated, _clause_hits(catalog, _FALLING_BEHIND.sub(' ', clause)))
     choices = stated + [card for card in negated if card not in stated]
     if not choices:

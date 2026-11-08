@@ -98,6 +98,15 @@ fill its two secrets. Copy `deploy/settings.env.example` to `deploy/settings.env
 and set the budget numbers (see `docs/PRODUCTION_BUDGET.md`). Both filled files
 are ignored by git.
 
+The production frontend build now reads the `frontend_auth` BuildKit secret from
+`/srv/penny/secrets/app.env` and embeds only SUPABASE_URL and the public
+SUPABASE_PUBLISHABLE_KEY as Vite auth settings. Both are required at image build
+time. Changing the Supabase project requires a new image build. Internal service
+keys remain in the secret mount and are never exported to npm or image layers.
+App validation/routing reason codes are emitted as JSON using `deploy/logging.json`;
+private extra fields are excluded. See `docs/RELEASE_GATE.md` before merging or
+deploying another teammate's change.
+
 ## Start, check, stop
 ```
 cd deploy

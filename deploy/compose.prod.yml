@@ -34,7 +34,10 @@ services:
 
   app:
     <<: *app-image
-    build: {context: .., dockerfile: deploy/Dockerfile}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      secrets: [frontend_auth]
     env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env"]
     environment:
       CHAT_RUNTIME: hermes
@@ -46,7 +49,7 @@ services:
       HERMES_API_URL: http://hermes:8642
       PUBLIC_MCP_URL: http://actions:8000/mcp
       MODEL_GATEWAY_URL: http://gateway:9999
-    command: [python, -m, uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "1", --no-proxy-headers]
+    command: [python, -m, uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "1", --no-proxy-headers, --log-config, /srv/backend/logging.json]
     volumes: ["${PENNY_DATA:-/srv/penny}/state:/state"]
     networks: [edge, egress, private]
     healthcheck:
@@ -126,3 +129,7 @@ networks:
   egress: {}
   private:
     internal: true
+
+secrets:
+  frontend_auth:
+    file: ${PENNY_SECRETS:-/srv/penny/secrets}/app.env
