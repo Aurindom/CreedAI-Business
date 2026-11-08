@@ -160,6 +160,24 @@ def test_action_updates_roundtrip_without_breaking_saved_history(client, history
     assert client.put('/api/chat/history', json=snapshot, headers=account_header()).status_code == 422
 
 
+def test_new_comparison_plan_and_draft_cards_are_validated_and_retained(client, history):
+    headers = account_header()
+    selection = {'profile': {'trade': 'hvac'}, 'problem_ids': ['missed_calls'], 'tool_ids': ['jobber']}
+    comparison = client.post('/api/compare', json=selection).json()
+    plan = client.post('/api/plans', json={**selection, 'request_id': 'cache-merge-plan-1'}, headers=headers)
+    assert plan.status_code == 201
+    messages = [
+        {'id': 'a', 'kind': 'alternatives', 'state': 'ready', 'comparison': comparison},
+        {'id': 'b', 'kind': 'saved-plan', 'plan': plan.json()},
+        {'id': 'c', 'kind': 'draft-builder', 'topic': 'Team workflow'},
+        {'id': 'd', 'kind': 'draft', 'draft': {'name': 'Helper', 'purpose': 'Help the team', 'knowledge': 'Our own notes', 'limits': 'Ask the manager if unsure', 'question': ''}},
+    ]
+    assert client.put('/api/chat/history', json={**SNAPSHOT, 'messages': messages}, headers=headers).status_code == 204
+    assert len(client.get('/api/chat/history', headers=headers).json()['messages']) == 4
+    messages[0]['comparison'] = {'tools': 'invalid'}
+    assert client.put('/api/chat/history', json={**SNAPSHOT, 'messages': messages}, headers=headers).status_code == 422
+
+
 def test_delete_history_is_account_scoped_and_does_not_remove_favourites(client, history):
     alice, bob = account_header(1, 1), account_header(2, 2)
     for headers in [alice, bob]:

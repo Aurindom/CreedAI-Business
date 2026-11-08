@@ -28,7 +28,8 @@ export function statusLabel(status) {
 
 export function costText(option) {
   if (option.added_monthly_usd == null) return 'Check current pricing'
-  return `$${Number(option.added_monthly_usd).toLocaleString()} more each month`
+  const amount = `$${Number(option.added_monthly_usd).toLocaleString()} more each month`
+  return option.price_estimated ? `About ${amount} (estimate)` : amount
 }
 
 export function safeUrl(url) {
@@ -46,6 +47,7 @@ function FactRow({ fact, serviceLink }) {
       <span className="msc-fact-label">{fact.label}</span>
       <span>
         {fact.known ? fact.value : 'Confirm with the service'}
+        {fact.inferred && <span className="msc-estimate"> (estimate)</span>}
         {fact.note && <span className="msc-fact-note">{fact.note}</span>}
         {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">{fact.known ? 'Source' : 'View service details'}{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
       </span>

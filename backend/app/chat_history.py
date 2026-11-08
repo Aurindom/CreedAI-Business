@@ -15,14 +15,14 @@ from redis import asyncio as redis
 from redis.exceptions import RedisError
 
 from .chat import ChatMemory
-from .schemas import Recommendation
+from .schemas import AdoptionPlan, Comparison, Recommendation
 from . import auth
 
 router = APIRouter()
 TTL_SECONDS = 30 * 24 * 60 * 60
 ACTIVE_TTL_SECONDS = TTL_SECONDS
 MAX_SNAPSHOT_BYTES = 128_000
-ALLOWED_KINDS = {"user", "assistant", "clarify", "a2ui", "result", "sources", "error", "action"}
+ALLOWED_KINDS = {"user", "assistant", "clarify", "a2ui", "result", "sources", "error", "action", "alternatives", "saved-plan", "draft", "draft-builder"}
 PENNY_CATALOG = "https://mainstreet.ai/catalogs/penny/v1"
 
 
@@ -153,6 +153,21 @@ class ChatSnapshot(BaseModel):
                 raise ValueError("Missing chat text")
             if kind == 'action' and item.get('status') not in ('succeeded', 'failed', 'not_executed', 'unconfirmed'):
                 raise ValueError('Invalid action status')
+            if kind == 'alternatives':
+                if item.get('state') not in ('loading', 'none', 'ready'):
+                    raise ValueError('Invalid comparison state')
+                if item['state'] == 'ready':
+                    Comparison.model_validate(item.get('comparison'))
+            if kind == 'saved-plan':
+                AdoptionPlan.model_validate(item.get('plan'))
+            if kind == 'draft-builder' and (not isinstance(item.get('topic', ''), str) or len(item.get('topic', '')) > 200):
+                raise ValueError('Invalid draft topic')
+            if kind == 'draft':
+                draft = item.get('draft')
+                limits = {'name': 60, 'purpose': 200, 'knowledge': 4000, 'limits': 600, 'question': 200}
+                if (not isinstance(draft, dict) or set(draft) != set(limits)
+                        or any(not isinstance(draft[key], str) or len(draft[key]) > maximum for key, maximum in limits.items())):
+                    raise ValueError('Invalid assistant draft')
             if kind == "result":
                 try:
                     Recommendation.model_validate(item.get("recommendation"))

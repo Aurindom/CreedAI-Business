@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import BusinessCarousel from './BusinessCarousel'
 
 const featured = [
@@ -7,12 +7,12 @@ const featured = [
   { id: 'quickbooks_online', label: 'See the bigger picture.', category: 'BOOKKEEPING', mark: 'qb', theme: 'lime' },
 ]
 
-export default function ProductShowcase({ tools, paused, onChooseBusiness, onCompare }) {
+export default function ProductShowcase({ part = 'hero', scene, onSceneChange, tools, paused, onChooseBusiness, onChooseProblem, onAskPenny, onCompare }) {
   const section = useRef(null)
-  const [scene, setScene] = useState({ image: 'coffee-shop', type: 'Coffee shop', theme: '#edc49e' })
 
   useEffect(() => {
     const root = section.current
+    if (!root) return undefined
     const stage = root.querySelector('.product-sticky')
     const composition = root.querySelector('.product-composition')
     const intro = root.querySelector('.story-intro')
@@ -80,9 +80,12 @@ export default function ProductShowcase({ tools, paused, onChooseBusiness, onCom
 
   const products = featured.map((item) => ({ ...item, tool: tools.find((tool) => tool.id === item.id) }))
 
+  if (part === 'hero') {
+    return <BusinessCarousel paused={paused} onChooseBusiness={onChooseBusiness} onChooseProblem={onChooseProblem} onAskPenny={onAskPenny} onCompare={onCompare} onSceneChange={onSceneChange} />
+  }
+
   return (
     <>
-      <BusinessCarousel paused={paused} onChooseBusiness={onChooseBusiness} onCompare={onCompare} onSceneChange={setScene} />
       <section className="showcase-bridge" aria-label="From your business to the right tools" style={{ '--scene-accent': scene.theme }}>
         <div className="bridge-photo" style={{ backgroundImage: `url(/images/${scene.image}.jpg)` }} aria-hidden="true" />
         <div className="bridge-line" aria-hidden="true" />

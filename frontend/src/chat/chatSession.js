@@ -27,6 +27,7 @@ export function loadSession(emptyMemory, storage = store()) {
         ...saved.memory,
         owned: Array.isArray(saved.memory?.owned) ? saved.memory.owned : [],
         ruled_out: Array.isArray(saved.memory?.ruled_out) ? saved.memory.ruled_out : [],
+        plans: saved.memory?.plans && typeof saved.memory.plans === 'object' ? saved.memory.plans : {},
       },
     }
   } catch {
@@ -79,6 +80,9 @@ export function historyFor(messages, { dropLastUser = false } = {}) {
     if (message.kind === 'a2ui' && message.surface === 'sources') return []
     if (message.kind === 'assistant' || message.kind === 'clarify' || message.kind === 'a2ui') return [{ role: 'assistant', text: message.text }]
     if (message.kind === 'result') return [{ role: 'assistant', text: `I showed these results: ${message.recommendation.message}` }]
+    if (message.kind === 'alternatives' && message.comparison) return [{ role: 'assistant', text: `I showed alternatives: ${message.comparison.tools.map((tool) => tool.tool_name).join(', ')}` }]
+    if (message.kind === 'saved-plan') return [{ role: 'assistant', text: `I saved a plan with ${message.plan.steps.map((step) => step.tool_name).join(', ')}` }]
+    if (message.kind === 'draft') return [{ role: 'assistant', text: `I drafted a custom assistant called ${message.draft.name}` }]
     return []
   }).map((item) => ({ ...item, text: item.text.slice(0, 2000) }))
     .filter((item) => item.text.trim())

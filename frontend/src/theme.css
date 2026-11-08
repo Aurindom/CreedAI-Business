@@ -526,6 +526,8 @@ footer { padding-bottom: 100px; }
 
 /* Keep the sticky handoff lightweight while the finder enters the viewport. */
 .street-header { backdrop-filter: none; background: linear-gradient(180deg, #111019, #151419); }
+.street-header .nav-label-short { display: none; }
+@media (max-width: 700px) { .street-header .nav-label-full { display: none; }.street-header .nav-label-short { display: inline; } }
 .product-composition { contain: layout style; will-change: auto; }
 .showcase-scene { will-change: opacity; }
 @media (max-width: 360px) {

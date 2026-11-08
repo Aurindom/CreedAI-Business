@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { api } from '../api'
+import { api, newRequestId } from '../api'
+import { DraftBuilder, DraftCard } from './AssistantDraft'
 import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult, { safeUrl } from './ChatResult'
@@ -9,7 +10,9 @@ import { queueHistory, deleteSavedHistory } from './historyCache'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
 import PennyMemory from './PennyMemory'
+import { AlternativesCard, SavedPlanCard } from './ResultExtras'
 import SpeechInput from './SpeechInput'
+import { useDraggable, useIsPhone } from './useDraggable'
 import './chat.css'
 
 const ACTION_LABELS = {
@@ -30,11 +33,35 @@ const SLOW_AFTER_MS = 8000
 const SPEAKING_MS = 1400
 const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
 const A2UISurface = React.lazy(() => import('./A2UISurface'))
+const WANTS_ASSISTANT = /\b(custom|own|build|make|create|draft)\b.*\b(assistant|helper|bot|chatbot)\b/i
+
+// A recommendation can arrive as a plain result or as an A2UI recommendation card.
+function resultInfo(message) {
+  if (message?.kind === 'result' && message.recommendation?.problem_id) {
+    return { id: message.id, recommendation: message.recommendation, problemTitle: message.problemTitle }
+  }
+  if (message?.kind === 'a2ui' && message.surface === 'recommendation') {
+    const component = message.protocol?.[1]?.updateComponents?.components?.[0]
+    const recommendation = component?.recommendation
+    if (recommendation?.problem_id && Array.isArray(recommendation.options) && Array.isArray(recommendation.check_first)) {
+      return { id: message.id, recommendation, problemTitle: component.problemTitle || 'Your problem' }
+    }
+  }
+  return null
+}
+
+function latestResult(list) {
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const info = resultInfo(list[index])
+    if (info) return info
+  }
+  return null
+}
 
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
 
-function Panel({ profile, auth, open, onClose, onActivityChange }) {
+function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone }) {
   const adapter = useMemo(() => createChatAdapter(), [])
   const [restored] = useState(() => auth?.configured ? null : loadSession(EMPTY_MEMORY))
   const [conversationId, setConversationId] = useState(() => restored?.conversationId || newConversationId())
@@ -114,8 +141,14 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   }, [auth?.configured, userId, authToken, hydratedFor, historyReady, deletingHistory, conversationId, messages, memory])
 
   useEffect(() => {
-    if (open) inputRef.current?.focus()
-  }, [open])
+    if (!open) return
+    inputRef.current?.focus()
+    drag.reclamp()
+  }, [open, drag])
+
+  useEffect(() => {
+    if (!input && inputRef.current) inputRef.current.style.height = ''
+  }, [input])
 
   useEffect(() => {
     if (!open) return undefined
@@ -212,6 +245,13 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
       return
     }
     if (busyRef.current) return
+    if (!isRetry && WANTS_ASSISTANT.test(text)) {
+      setMessages((current) => [...current, { id: newId('m'), kind: 'user', text }, { id: newId('m'), kind: 'draft-builder', topic: '' }])
+      setInput('')
+      setInputError('')
+      setResumed(false)
+      return
+    }
     const run = begin()
     setInputError('')
     try {
@@ -341,8 +381,131 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
     }
   }
 
+  // The owner's details as Penny knows them, for comparing or saving outside the chat stream.
+  function currentProfile() {
+    const known = memoryRef.current
+    const owned = [...(profile?.owned || [])]
+    ;(known.owned || []).forEach((toolId) => {
+      if (!owned.some((entry) => entry.tool_id === toolId)) owned.push({ tool_id: toolId })
+    })
+    return {
+      trade: known.trade || profile?.trade || null,
+      owned: owned.map(entry => ({ ...entry, plan: entry.plan || known.plans?.[entry.tool_id] || null })),
+      budget_monthly_usd: known.budget_monthly_usd ?? profile?.budget_monthly_usd ?? null,
+    }
+  }
+
+  async function runAction(work) {
+    if (busyRef.current) return
+    const run = begin()
+    try {
+      await work(run)
+    } finally {
+      finish(run)
+    }
+  }
+
+  function compareAlternatives(info) {
+    runAction(async (run) => {
+      const id = newId('m')
+      setMessages((current) => [...current, { id, kind: 'alternatives', state: 'loading', forResult: info.id }])
+      try {
+        const { recommendation } = info
+        const problemId = recommendation.problem_id
+        const owner = currentProfile()
+        const winner = recommendation.winner_tool_id
+        const skip = new Set([winner, ...(memoryRef.current.ruled_out || [])])
+        const idsFrom = (found) => [...found.options, ...found.check_first].map((option) => option.tool_id).filter((toolId) => !skip.has(toolId))
+        let others = idsFrom(recommendation)
+        if (others.length < 2 && owner.owned.some((entry) => entry.tool_id === winner)) {
+          const asNewBuyer = await api.recommend({ ...owner, owned: owner.owned.filter((entry) => entry.tool_id !== winner) }, problemId)
+          others = [...new Set([...others, ...idsFrom(asNewBuyer)])]
+        }
+        others = others.slice(0, 2)
+        if (run !== runRef.current) return
+        if (!others.length) {
+          replaceMessage(id, { kind: 'alternatives', state: 'none', forResult: info.id })
+          return
+        }
+        const comparison = await api.compare(owner, [problemId], [winner, ...others].filter(Boolean).slice(0, 3))
+        if (run !== runRef.current) return
+        replaceMessage(id, { kind: 'alternatives', state: 'ready', comparison, forResult: info.id })
+      } catch {
+        if (run === runRef.current) replaceMessage(id, { kind: 'error', text: "I couldn't check alternatives just now. Try again in a moment." })
+      }
+    })
+  }
+
+  function savePlan(info) {
+    const winner = info.recommendation.winner_tool_id
+    if (!winner) {
+      addMessage({ kind: 'assistant', text: "I can't save a plan until one tool is confirmed. Want me to compare the options first?" })
+      return
+    }
+    if (!authToken) {
+      addMessage({
+        kind: 'assistant',
+        text: auth?.configured
+          ? 'Sign in with your account to save plans. Your chat stays right here.'
+          : "Saving plans needs an account, and accounts aren't set up on this server yet.",
+      })
+      return
+    }
+    runAction(async (run) => {
+      const id = newId('m')
+      setMessages((current) => [...current, { id, kind: 'loading' }])
+      try {
+        const plan = await api.savePlan(authToken, currentProfile(), [info.recommendation.problem_id], [winner], newRequestId())
+        if (run !== runRef.current) return
+        replaceMessage(id, { kind: 'saved-plan', plan, forResult: info.id })
+      } catch {
+        if (run === runRef.current) replaceMessage(id, { kind: 'error', text: "I couldn't save the plan just now. Your results are still here. Try again in a moment." })
+      }
+    })
+  }
+
+  function askAnother() {
+    addMessage({ kind: 'assistant', text: "Sure. What else is getting in the way? Tell me in your own words, and I'll keep what I know about your business." })
+    inputRef.current?.focus()
+  }
+
+  function openBuilder(topic) {
+    setMessages((current) => [...current.filter((item) => item.kind !== 'draft-builder'), { id: newId('m'), kind: 'draft-builder', topic }])
+  }
+
+  function buildDraft(builderId, draft) {
+    setMessages((current) => [...current.filter((item) => item.id !== builderId), { id: newId('m'), kind: 'draft', draft }])
+  }
+
+  function quickReplies() {
+    if (busy) return []
+    const last = [...messages].reverse().find((message) => message.kind !== 'loading')
+    if (!last || ['clarify', 'draft-builder', 'user'].includes(last.kind) || (last.kind === 'a2ui' && last.surface === 'question')) return []
+    const result = latestResult(messages)
+    if (!result) return []
+    const { recommendation } = result
+    const winner = recommendation.winner_tool_id
+    const saved = messages.some((message) => message.kind === 'saved-plan' && message.forResult === result.id)
+    const compared = messages.some((message) => message.kind === 'alternatives' && message.forResult === result.id)
+    const drafted = messages.some((message) => message.kind === 'draft')
+    const choices = recommendation.options.length + recommendation.check_first.length
+    return [
+      winner && !saved && { label: 'Save this plan', run: () => savePlan(result) },
+      !compared && (winner || choices > 1) && { label: 'Compare alternatives', run: () => compareAlternatives(result) },
+      !drafted && { label: 'Build a custom assistant', run: () => openBuilder(result.problemTitle) },
+      { label: 'Ask about another problem', run: askAnother },
+    ].filter(Boolean)
+  }
+
+  const quick = quickReplies()
+
   function forget({ field, id }) {
     setMemory((current) => {
+      if (id && field === 'owned') {
+        const plans = { ...(current.plans || {}) }
+        delete plans[id]
+        return { ...current, owned: current.owned.filter((item) => item !== id), plans }
+      }
       if (id) return { ...current, [field]: current[field].filter((item) => item !== id) }
       return { ...current, [field]: null }
     })
@@ -362,8 +525,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
 
   return (
     <>
-      <section className="msc-panel" id="penny-chat-panel" role="dialog" aria-label="Chat with Penny" hidden={!open}>
-        <header className="msc-header">
+      <section className="msc-panel" id="penny-chat-panel" role="dialog" aria-label="Chat with Penny" hidden={!open} ref={drag.ref} style={phone ? undefined : drag.style}>
+        <header className={`msc-header${phone ? '' : ' msc-drag-handle'}`} {...(phone ? {} : drag.handleProps)}>
           <div className="msc-identity">
             <span className="penny-panel-mark" data-state={avatarState} aria-hidden="true"><PennyAvatar size={36} state={avatarState} /><span /></span>
             <div className="penny-panel-heading">
@@ -373,12 +536,17 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
             </div>
           </div>
           <div className="msc-header-actions">
+            {!phone && (
+              <button type="button" className="msc-move" data-drag-ok onKeyDown={drag.onKeyDown} aria-label="Move chat window with arrow keys" title="Drag the top bar, or use arrow keys here">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>
+              </button>
+            )}
             <button type="button" className="msc-text-button" onClick={startOver} disabled={deletingHistory}>New chat</button>
             <button type="button" className="msc-close" onClick={onClose} aria-label="Close chat">×</button>
           </div>
         </header>
 
-        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence and flags unknowns.</p></details>
+        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence, which means facts we have checked, and tells you when something is unknown.</p></details>
         {live === false && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
         {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
@@ -420,6 +588,20 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
               )
             }
             if (message.kind === 'action') return <p className="msc-action" data-status={message.status} role="status" key={message.id}>{message.text}</p>
+            if (message.kind === 'alternatives') return <AlternativesCard key={message.id} message={message} serviceUrls={names.urls} />
+            if (message.kind === 'saved-plan') return <SavedPlanCard key={message.id} plan={message.plan} serviceUrls={names.urls} />
+            if (message.kind === 'draft') return <DraftCard key={message.id} draft={message.draft} />
+            if (message.kind === 'draft-builder') {
+              return (
+                <DraftBuilder
+                  key={message.id}
+                  topic={message.topic}
+                  disabled={busy}
+                  onBuild={(draft) => buildDraft(message.id, draft)}
+                  onCancel={() => setMessages((current) => current.filter((item) => item.id !== message.id))}
+                />
+              )
+            }
             if (message.kind === 'error') {
               return (
                 <div className="msc-error" role="alert" key={message.id}>
@@ -441,22 +623,38 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
             )
           })}
 
-          {busy && <div className="msc-loading" role="status">{slow ? 'Still working. Thanks for waiting.' : status || 'Working on it...'}</div>}
+          {busy && (
+            <div className="msc-typing" role="status">
+              <span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} state="thinking" /></span>
+              <span className="msc-dots" aria-hidden="true"><i /><i /><i /></span>
+              <small>{slow ? 'Still working. Thanks for waiting.' : status || 'Penny is typing'}</small>
+            </div>
+          )}
         </div>
+
+        {quick.length > 0 && (
+          <div className="msc-quick" aria-label="Suggested replies">
+            {quick.map((item) => <button type="button" key={item.label} onClick={item.run}>{item.label}</button>)}
+          </div>
+        )}
 
         <form className="msc-form" onSubmit={submit} noValidate>
           {(inputError || notice) && <p className="msc-input-note" role="alert">{inputError || notice}</p>}
           <div className="msc-input-row">
             <textarea
               ref={inputRef}
-              rows={2}
+              rows={1}
               value={input}
               maxLength={MAX_LENGTH}
-              placeholder="Ask about a tool or business task..."
+              placeholder="Type what is slowing you down..."
               aria-label="Tell Penny what's going on"
               onChange={(event) => {
                 setInput(event.target.value)
                 setInputError('')
+              }}
+              onInput={(event) => {
+                event.currentTarget.style.height = 'auto'
+                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`
               }}
               onKeyDown={onInputKey}
             />
@@ -474,7 +672,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
             />
             <button type="submit" className="msc-send" disabled={busy}>{busy ? 'Working' : 'Send'}</button>
           </div>
-          <p className="penny-composer-note">Catalog-backed guidance. Verify details before subscribing.</p>
+          <p className="penny-composer-note">Penny uses checked facts. Confirm prices with the company before you pay.</p>
         </form>
       </section>
       <ChatSummary data={printData} serviceUrls={names.urls} onClose={() => setPrintData(null)} onPrint={() => printSummary(printData)} />
@@ -482,28 +680,116 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   )
 }
 
+const LAUNCHER_KEY = 'main-street-penny-launcher-v1'
+const FIGURE_SCROLL_LIMIT = 240
+
+function savedLauncher() {
+  try {
+    const mode = window.sessionStorage.getItem(LAUNCHER_KEY)
+    return mode === 'compact' || mode === 'hidden' ? mode : 'figure'
+  } catch {
+    return 'figure'
+  }
+}
+
+function useNearTop() {
+  const [nearTop, setNearTop] = useState(() => typeof window === 'undefined' || window.scrollY < FIGURE_SCROLL_LIMIT)
+  useEffect(() => {
+    const update = () => setNearTop(window.scrollY < FIGURE_SCROLL_LIMIT)
+    window.addEventListener('scroll', update, { passive: true })
+    return () => window.removeEventListener('scroll', update)
+  }, [])
+  return nearTop
+}
+
 function ChatPanelInner({ profile, auth }) {
   const [open, setOpen] = useState(false)
   const [activity, setActivity] = useState('idle')
+  const [launcherMode, setLauncherMode] = useState(savedLauncher)
+  const nearTop = useNearTop()
+  const showFigure = launcherMode === 'figure' && nearTop && !open
+  const phone = useIsPhone()
+  const bubble = useDraggable({ storageKey: 'main-street-penny-bubble-v1' })
+  const chatWindow = useDraggable({ storageKey: 'main-street-penny-window-v1', enabled: !phone })
   const launcher = useRef(null)
   const wasOpen = useRef(false)
+  const anchor = useRef(null)
   const close = useMemo(() => () => setOpen(false), [])
 
+  const returnFocus = useRef(false)
+
   useEffect(() => {
-    if (wasOpen.current && !open) launcher.current?.focus()
+    if (wasOpen.current && !open) {
+      // After a first chat Penny stays small, so she doesn't cover the page.
+      if (launcherMode === 'figure') changeLauncher('compact')
+      returnFocus.current = true
+    }
     wasOpen.current = open
   }, [open])
 
+  // Runs after the launcher has re-rendered, so focus lands on the button that is actually on screen.
+  useEffect(() => {
+    if (!returnFocus.current || open || !launcher.current) return
+    returnFocus.current = false
+    launcher.current.focus()
+  })
+
+  function changeLauncher(mode) {
+    setLauncherMode(mode)
+    try {
+      window.sessionStorage.setItem(LAUNCHER_KEY, mode)
+    } catch {
+      // Only remembered for convenience.
+    }
+  }
+
+  useEffect(() => {
+    if (!open || chatWindow.position || !bubble.position || !anchor.current) return undefined
+    const frame = requestAnimationFrame(() => chatWindow.placeNear(anchor.current))
+    return () => cancelAnimationFrame(frame)
+  }, [open, chatWindow, bubble.position])
+
+  useEffect(() => {
+    function openFromPage() {
+      anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+      setOpen(true)
+    }
+    window.addEventListener('penny:open', openFromPage)
+    return () => window.removeEventListener('penny:open', openFromPage)
+  }, [bubble.ref])
+
+  function openChat() {
+    if (bubble.wasDragged()) return
+    anchor.current = bubble.ref.current?.getBoundingClientRect() || null
+    setOpen(true)
+  }
+
   return (
     <div className="msc-root">
-      {!open && (
-        <button type="button" className={`msc-launcher penny-character-launcher penny-is-${activity}`} ref={launcher} onClick={() => setOpen(true)} aria-label="Talk to Penny" aria-expanded={open} aria-controls="penny-chat-panel">
-          <span className="penny-speech"><strong>Hi, I'm Penny.</strong><span>{activity === 'thinking' ? 'Checking the catalog...' : activity === 'speaking' ? 'Your answer is coming in' : 'Your business. A little backup.'}</span></span>
-          <span className="penny-character-stage"><span className="penny-stage-glow" aria-hidden="true" /><PennyAvatar size={130} variant="figure" state={activity} /></span>
-          <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Penny <span aria-hidden="true">&#8599;</span></span>
+      {!open && launcherMode === 'hidden' && (
+        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('compact')} aria-label="Show Penny, your AI guide">
+          <PennyAvatar size={28} />
+          <span>Penny</span>
         </button>
       )}
-      <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} />
+      {!open && launcherMode !== 'hidden' && (
+        <div className={`msc-bubble${showFigure ? '' : ' msc-bubble-compact'}`} ref={bubble.ref} style={bubble.style} {...bubble.handleProps}>
+          {showFigure ? (
+            <button type="button" className={`msc-launcher penny-character-launcher penny-is-${activity}`} data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Penny. Drag to move, or use arrow keys." title="Talk to Penny. Drag to move." aria-expanded={open} aria-controls="penny-chat-panel">
+              <span className="penny-speech"><strong>Hi, I'm Penny.</strong><span>{activity === 'thinking' ? 'Checking the catalog...' : activity === 'speaking' ? 'Your answer is coming in' : 'Ask me what is slowing you down.'}</span></span>
+              <span className="penny-character-stage"><span className="penny-stage-glow" aria-hidden="true" /><PennyAvatar size={130} variant="figure" state={activity} /></span>
+              <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Penny <span aria-hidden="true">&#8599;</span></span>
+            </button>
+          ) : (
+            <button type="button" className="penny-compact-launcher" data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Penny, your AI guide. Drag to move, or use arrow keys." title="Talk to Penny" aria-expanded={open} aria-controls="penny-chat-panel">
+              <PennyAvatar size={48} state={activity} />
+              <span className="penny-compact-label">Ask Penny</span>
+            </button>
+          )}
+          <button type="button" className="penny-hide" onClick={() => changeLauncher('hidden')} aria-label="Hide Penny" title="Hide Penny">×</button>
+        </div>
+      )}
+      <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} drag={chatWindow} phone={phone} />
     </div>
   )
 }
