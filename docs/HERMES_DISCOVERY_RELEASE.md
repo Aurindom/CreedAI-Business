@@ -23,6 +23,13 @@ URLs. Run Hermes v0.23.0 with only the marketplace public tool enabled; its mode
 base URL points at the gateway with the gateway client credential. Disable
 `auxiliary.title_generation.enabled`; the tested value is `false`.
 
+Run exactly one Uvicorn worker. `CHAT_MAX_INFLIGHT` (default 3, valid 1 to 50,
+anything else falls back to 3) limits concurrent chat turns per process for every
+runtime; with more workers the real limit is workers x cap. A full cap returns a
+retryable `agent_busy` event, not an outage. Production files and the runbook are
+in `deploy/` and `docs/PRODUCTION_DEPLOY.md`; budget policy is in
+`docs/PRODUCTION_BUDGET.md`.
+
 Run the public MCP server with `python -m app.public_mcp` and the provider gateway
 with `python -m app.model_gateway`. Install `backend/requirements-mcp.txt` for the
 MCP process. MCP and the application share the same persistent `APP_DB_PATH` on

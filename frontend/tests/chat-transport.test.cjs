@@ -91,3 +91,11 @@ test('availability is rechecked so a recovered provider can be retried', async (
   assertUnavailable(first)
   assert.ok(second.some(event => event.text === 'Recovered'))
 })
+
+test('a busy refusal stays retryable and does not mark Penny as down', async () => {
+  const busy = { type: 'error', code: 'agent_busy', message: 'Penny is helping other people right now. Try again in a few seconds.', retryable: true }
+  const events = await run(async url => url.endsWith('/status') ? Response.json({ available: true }) : stream([busy]))
+  assert.deepEqual(events.filter(event => event.type === 'mode').map(event => event.live), [true])
+  assert.deepEqual(events.find(event => event.type === 'error'), busy)
+  assert.equal(events.at(-1).type, 'done')
+})
