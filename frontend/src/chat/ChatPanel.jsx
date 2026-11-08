@@ -21,7 +21,7 @@ const MAX_LENGTH = 500
 const SLOW_AFTER_MS = 8000
 const SPEAKING_MS = 1400
 const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
-const A2UIQuestion = React.lazy(() => import('./A2UIQuestion'))
+const A2UISurface = React.lazy(() => import('./A2UISurface'))
 
 let nextId = 0
 const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
@@ -115,7 +115,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
     if (!log) return
     const results = log.querySelectorAll('.msc-result')
     const latest = results[results.length - 1]
-    if (messages[messages.length - 1]?.kind === 'result' && latest) {
+    if ((messages[messages.length - 1]?.kind === 'result' || messages[messages.length - 1]?.surface === 'recommendation') && latest) {
       log.scrollTop += latest.getBoundingClientRect().top - log.getBoundingClientRect().top - 8
     } else {
       log.scrollTop = log.scrollHeight
@@ -212,12 +212,15 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
       return
     }
     setNotice('')
-    setMessages((current) => current.map((item) => (item.kind === 'clarify' || item.kind === 'a2ui' ? { id: item.id, kind: 'assistant', text: item.text } : item)))
+    setMessages((current) => current.map((item) => (item.kind === 'clarify' || (item.kind === 'a2ui' && (!item.surface || item.surface === 'question')) ? { id: item.id, kind: 'assistant', text: item.text } : item)))
     setResumed(false)
 
     const pending = []
     let replyId = null
     let receivedA2UIQuestion = false
+    let receivedA2UIRecommendation = false
+    let receivedA2UIText = false
+    let receivedA2UISources = false
     const history = historyFor(messagesRef.current, { dropLastUser: isRetry })
     if (!isRetry) {
       addMessage({ kind: 'user', text })
@@ -229,7 +232,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
       if (event.type === 'status') setStatus(event.text)
       if (event.type === 'mode') setLive(event.live)
       if (event.type === 'memory') setMemory({ ...EMPTY_MEMORY, ...event.memory })
-      if (event.type === 'message_delta') {
+      if (event.type === 'message_delta' && !receivedA2UIText) {
         setSpeaking(true)
         clearTimeout(speakTimer.current)
         speakTimer.current = setTimeout(() => setSpeaking(false), SPEAKING_MS)
@@ -242,12 +245,21 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
         }
       }
       if (event.type === 'a2ui') {
-        receivedA2UIQuestion = true
-        addMessage({ kind: 'a2ui', text: event.question, protocol: event.messages })
+        const surface = ['recommendation', 'text', 'sources'].includes(event.surface) ? event.surface : 'question'
+        if (surface === 'recommendation') receivedA2UIRecommendation = true
+        if (surface === 'question') receivedA2UIQuestion = true
+        if (surface === 'text') {
+          receivedA2UIText = true
+          setSpeaking(true)
+          clearTimeout(speakTimer.current)
+          speakTimer.current = setTimeout(() => setSpeaking(false), SPEAKING_MS)
+        }
+        if (surface === 'sources') receivedA2UISources = true
+        addMessage({ kind: 'a2ui', surface, text: event.question || event.message, protocol: event.messages })
       }
       if (event.type === 'clarify' && !receivedA2UIQuestion) addMessage({ kind: 'clarify', text: event.question, choices: event.choices || [], progress: event.progress || '' })
-      if (event.type === 'recommendation') pending.push(fetchRecommendation(event.problem_id, event.profile, run))
-      if (event.type === 'sources') addMessage({ kind: 'sources', items: event.items || [] })
+      if (event.type === 'recommendation' && !receivedA2UIRecommendation) pending.push(fetchRecommendation(event.problem_id, event.profile, run))
+      if (event.type === 'sources' && !receivedA2UISources) addMessage({ kind: 'sources', items: event.items || [] })
       if (event.type === 'error') {
         addMessage({
           kind: 'error',
@@ -351,7 +363,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
           {messages.map((message) => {
             if (message.kind === 'user') return <div className="msc-row msc-row-user" key={message.id}><p>{message.text}</p></div>
             if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{message.text}</p></div>
-            if (message.kind === 'a2ui') return <React.Suspense key={message.id} fallback={<div className="msc-loading">Loading choices…</div>}><A2UIQuestion protocol={message.protocol} onSelect={send} busy={busy} /></React.Suspense>
+            if (message.kind === 'a2ui') return <React.Suspense key={message.id} fallback={<div className="msc-loading">Loading result…</div>}><A2UISurface protocol={message.protocol} onSelect={send} busy={busy} ruledOut={memory.ruled_out} onPrint={setPrintData} /></React.Suspense>
             if (message.kind === 'loading') return <div className="msc-loading" key={message.id}>Checking the catalog...</div>
             if (message.kind === 'clarify') {
               return (

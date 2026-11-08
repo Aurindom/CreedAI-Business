@@ -423,6 +423,17 @@ class ActionResult(BaseModel):
 BACKGROUND_FIRST = "Ask for background first with ask_owner: business type, software they pay for, then monthly budget. If the owner skips, call update_memory with background_done true."
 
 
+def _a2ui_event(surface: str, component: str, properties: dict[str, Any], message: str) -> dict[str, Any]:
+    surface_id = f"penny-{surface}-{secrets.token_urlsafe(8)}"
+    return {
+        "type": "a2ui", "surface": surface, "message": message,
+        "messages": [
+            {"version": "v0.9", "createSurface": {"surfaceId": surface_id, "catalogId": "https://mainstreet.ai/catalogs/penny/v1"}},
+            {"version": "v0.9", "updateComponents": {"surfaceId": surface_id, "components": [{"id": "root", "component": component, **properties}]}},
+        ],
+    }
+
+
 def _run_action(
     catalog: Catalog,
     name: str,
@@ -440,21 +451,42 @@ def _run_action(
             found = recommend(catalog, current, catalog.problem(str(arguments.get("problem_id"))))
             result = found.model_dump(mode="json")
             result["ruled_out_by_owner"] = memory.ruled_out
+            surface_id = f"penny-recommendation-{secrets.token_urlsafe(8)}"
+            a2ui = {
+                "type": "a2ui",
+                "surface": "recommendation",
+                "message": found.message,
+                "messages": [
+                    {"version": "v0.9", "createSurface": {"surfaceId": surface_id, "catalogId": "https://mainstreet.ai/catalogs/penny/v1"}},
+                    {"version": "v0.9", "updateComponents": {"surfaceId": surface_id, "components": [{
+                        "id": "root", "component": "PennyRecommendation",
+                        "recommendation": found.model_dump(mode="json"),
+                        "problemTitle": catalog.problem(found.problem_id).title,
+                        "statuses": {option.tool_id: option.status for option in [*found.options, *found.check_first]},
+                    }]}},
+                ],
+            }
             event = {"type": "recommendation", "problem_id": found.problem_id, "profile": current.model_dump(mode="json", exclude={"owned_tool_ids"})}
-            return ActionResult(data=result, events=[event])
+            return ActionResult(data=result, events=[a2ui, event])
         if name == "compare_tools":
             ids = _string_list(arguments.get("tool_ids"))[:3]
             if len(ids) < 2:
                 return ActionResult(data={"error": "Choose 2 or 3 tools."})
             tools = [_visible_tool(catalog, tool_id) for tool_id in ids]
             stack = check_stack(catalog, ids).model_dump(mode="json")
+            sources = _sources(tools)
             return ActionResult(
                 data={"tools": [_tool_facts(tool) for tool in tools], "overlap_and_cost": stack},
-                events=[{"type": "sources", "items": _sources(tools)}],
+                events=[_a2ui_event("sources", "PennySources", {"items": sources}, "Sources for this comparison"),
+                        {"type": "sources", "items": sources}],
             )
         if name == "get_tool_details":
             tool = _visible_tool(catalog, str(arguments.get("tool_id")))
-            return ActionResult(data=_tool_facts(tool), events=[{"type": "sources", "items": _sources([tool])}])
+            sources = _sources([tool])
+            return ActionResult(data=_tool_facts(tool), events=[
+                _a2ui_event("sources", "PennySources", {"items": sources}, "Sources for this tool"),
+                {"type": "sources", "items": sources},
+            ])
         if name == "update_memory":
             next_memory = memory.model_copy(deep=True)
             trade = arguments.get("trade")
@@ -589,7 +621,9 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
 
         if not turn["calls"]:
             reply = turn["text"].strip() or NO_ANSWER
-            yield {"type": "message_delta", "text": _grounded(reply, evidence)}
+            answer = _grounded(reply, evidence)
+            yield _a2ui_event("text", "PennyText", {"text": answer}, answer)
+            yield {"type": "message_delta", "text": answer}
             yield {"type": "done"}
             return
 
@@ -611,6 +645,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         conversation.add_results(results)
         yield {"type": "status", "text": "Checking what we know"}
 
+    yield _a2ui_event("text", "PennyText", {"text": NO_ANSWER}, NO_ANSWER)
     yield {"type": "message_delta", "text": NO_ANSWER}
     yield {"type": "done"}
 

@@ -65,8 +65,8 @@ def test_status_is_off_without_a_key(client, monkeypatch):
 def test_plain_reply_streams_and_finishes(client, monkeypatch):
     script(monkeypatch, reply("Happy to help."))
     events = send(client)
-    assert kinds(events) == ["status", "message_delta", "done"]
-    assert events[1]["text"] == "Happy to help."
+    assert kinds(events) == ["status", "a2ui", "message_delta", "done"]
+    assert events[1]["messages"][1]["updateComponents"]["components"][0]["text"] == "Happy to help."
 
 
 def test_recommendation_uses_real_catalog_logic_and_memory(client, monkeypatch):
@@ -77,6 +77,11 @@ def test_recommendation_uses_real_catalog_logic_and_memory(client, monkeypatch):
     assert event["profile"]["owned"] == [{"tool_id": "quickbooks_online", "plan": None}]
     tool_result = json.loads(seen[1][-1]["content"])
     assert tool_result["outcome"] == "verify_with_vendor"
+    surface = next(e for e in events if e["type"] == "a2ui" and e.get("surface") == "recommendation")
+    component = surface["messages"][1]["updateComponents"]["components"][0]
+    assert component["component"] == "PennyRecommendation"
+    assert component["recommendation"]["outcome"] == tool_result["outcome"]
+    assert component["problemTitle"]
 
 
 def test_plan_from_the_page_is_kept(client, monkeypatch):
@@ -93,7 +98,7 @@ def test_plan_from_the_page_is_kept(client, monkeypatch):
 
 def test_invented_price_is_replaced(client, monkeypatch):
     script(monkeypatch, reply("Jobber is only $7 a month."))
-    assert send(client)[1]["text"] == chat.NO_GUESSING
+    assert next(e for e in send(client) if e["type"] == "message_delta")["text"] == chat.NO_GUESSING
 
 
 def test_price_from_an_action_is_allowed(client, monkeypatch):
@@ -151,7 +156,7 @@ def test_round_limit_stops_the_loop(client, monkeypatch):
     seen = script(monkeypatch, *[calls(("get_tool_details", {"tool_id": "jobber"})) for _ in range(chat.MAX_ROUNDS)])
     events = send(client)
     assert len(seen) == chat.MAX_ROUNDS
-    assert kinds(events)[-2:] == ["message_delta", "done"]
+    assert kinds(events)[-3:] == ["a2ui", "message_delta", "done"]
 
 
 def test_model_failure_reports_unavailable_without_leaking(client, monkeypatch):

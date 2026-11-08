@@ -54,6 +54,7 @@ export function clearSession(storage = store()) {
 export function historyFor(messages, { dropLastUser = false } = {}) {
   const items = messages.flatMap((message) => {
     if (message.kind === 'user') return [{ role: 'user', text: message.text }]
+    if (message.kind === 'a2ui' && message.surface === 'sources') return []
     if (message.kind === 'assistant' || message.kind === 'clarify' || message.kind === 'a2ui') return [{ role: 'assistant', text: message.text }]
     if (message.kind === 'result') return [{ role: 'assistant', text: `I showed these results: ${message.recommendation.message}` }]
     return []

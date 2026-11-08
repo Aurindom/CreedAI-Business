@@ -53,6 +53,80 @@ def _valid_question_surface(item: dict[str, Any]) -> bool:
             and isinstance(question.get("progress", ""), str) and len(question.get("progress", "")) <= 30)
 
 
+def _valid_recommendation_surface(item: dict[str, Any]) -> bool:
+    protocol = item.get("protocol")
+    if not isinstance(protocol, list) or len(protocol) != 2:
+        return False
+    first, second = protocol
+    if not isinstance(first, dict) or not isinstance(second, dict):
+        return False
+    created, updated = first.get("createSurface"), second.get("updateComponents")
+    if (first.get("version") != "v0.9" or second.get("version") != "v0.9"
+            or not isinstance(created, dict) or not isinstance(updated, dict)):
+        return False
+    surface_id = created.get("surfaceId")
+    if (not isinstance(surface_id, str) or not surface_id.startswith("penny-recommendation-")
+            or len(surface_id) > 100 or created.get("catalogId") != PENNY_CATALOG
+            or updated.get("surfaceId") != surface_id):
+        return False
+    components = updated.get("components")
+    if not isinstance(components, list) or len(components) != 1 or not isinstance(components[0], dict):
+        return False
+    component = components[0]
+    if component.get("id") != "root" or component.get("component") != "PennyRecommendation":
+        return False
+    if not isinstance(component.get("problemTitle"), str) or len(component["problemTitle"]) > 200:
+        return False
+    try:
+        recommendation = Recommendation.model_validate(component.get("recommendation"))
+    except ValidationError:
+        return False
+    expected = {option.tool_id: option.status for option in [*recommendation.options, *recommendation.check_first]}
+    return (component.get("statuses") == expected
+            and item.get("text") == recommendation.message
+            and isinstance(item.get("text"), str) and len(item["text"]) <= 2000)
+
+
+def _valid_simple_surface(item: dict[str, Any], surface: str, component_name: str) -> bool:
+    protocol = item.get("protocol")
+    if not isinstance(protocol, list) or len(protocol) != 2:
+        return False
+    first, second = protocol
+    if not isinstance(first, dict) or not isinstance(second, dict):
+        return False
+    created, updated = first.get("createSurface"), second.get("updateComponents")
+    if (first.get("version") != "v0.9" or second.get("version") != "v0.9"
+            or not isinstance(created, dict) or not isinstance(updated, dict)):
+        return False
+    surface_id = created.get("surfaceId")
+    if (not isinstance(surface_id, str) or not surface_id.startswith(f"penny-{surface}-")
+            or len(surface_id) > 100 or created.get("catalogId") != PENNY_CATALOG
+            or updated.get("surfaceId") != surface_id):
+        return False
+    components = updated.get("components")
+    if not isinstance(components, list) or len(components) != 1 or not isinstance(components[0], dict):
+        return False
+    payload = components[0]
+    if payload.get("id") != "root" or payload.get("component") != component_name:
+        return False
+    if surface == "text":
+        return (isinstance(payload.get("text"), str) and payload["text"] == item.get("text")
+                and 1 <= len(payload["text"]) <= 2000)
+    sources = payload.get("items")
+    return (item.get("text") in ("Sources for this comparison", "Sources for this tool")
+            and isinstance(sources, list) and len(sources) <= 6
+            and all(isinstance(source, dict) and isinstance(source.get("title"), str)
+                    and len(source["title"]) <= 200 and isinstance(source.get("url"), str)
+                    and urlparse(source["url"]).scheme in ("http", "https")
+                    and isinstance(source.get("checked", ""), str) for source in sources))
+
+
+def _valid_surface(item: dict[str, Any]) -> bool:
+    return (_valid_question_surface(item) or _valid_recommendation_surface(item)
+            or _valid_simple_surface(item, "text", "PennyText")
+            or _valid_simple_surface(item, "sources", "PennySources"))
+
+
 class ChatSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,7 +165,7 @@ class ChatSnapshot(BaseModel):
                 choices = item.get("choices")
                 if not isinstance(choices, list) or len(choices) > 4 or any(not isinstance(choice, str) or len(choice) > 80 for choice in choices):
                     raise ValueError("Invalid chat choices")
-            if item["kind"] == "a2ui" and not _valid_question_surface(item):
+            if item["kind"] == "a2ui" and not _valid_surface(item):
                 raise ValueError("Invalid chat surface")
         if len(self.model_dump_json().encode("utf-8")) > MAX_SNAPSHOT_BYTES:
             raise ValueError("Chat history is too large")

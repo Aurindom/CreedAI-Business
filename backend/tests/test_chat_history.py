@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import chat_history
+from app import chat, chat_history
+from app.schemas import BusinessProfile
 
 
 class FakeRedis:
@@ -79,6 +80,41 @@ def test_cache_rejects_unapproved_a2ui_component(client, monkeypatch):
     ]}]}
     assert client.put("/api/chat/history", json=forged).status_code == 422
     assert cache.items == {}
+
+
+def test_cache_accepts_catalog_recommendation_surface(client, monkeypatch):
+    cache = FakeRedis([0])
+
+    async def user(_authorization):
+        return "alice", "redis://test"
+
+    monkeypatch.setattr(chat_history, "_user_id", user)
+    monkeypatch.setattr(chat_history.redis, "from_url", lambda *args, **kwargs: cache)
+    action = chat._run_action(client.app.state.catalog, "recommend_tools", {"problem_id": "bookkeeping"}, BusinessProfile(), chat.ChatMemory())
+    event = next(event for event in action.events if event["type"] == "a2ui")
+    snapshot = {"conversationId": "c", "messages": [{"id": "m", "kind": "a2ui", "surface": "recommendation", "text": event["message"], "protocol": event["messages"]}]}
+    assert client.put("/api/chat/history", json=snapshot).status_code == 204
+    assert client.get("/api/chat/history").json()["messages"][0]["protocol"] == event["messages"]
+    snapshot["messages"][0]["protocol"][1]["updateComponents"]["components"][0]["component"] = "HTML"
+    assert client.put("/api/chat/history", json=snapshot).status_code == 422
+
+
+def test_cache_restores_a2ui_answer_and_sources(client, monkeypatch):
+    cache = FakeRedis([0])
+
+    async def user(_authorization):
+        return "alice", "redis://test"
+
+    monkeypatch.setattr(chat_history, "_user_id", user)
+    monkeypatch.setattr(chat_history.redis, "from_url", lambda *args, **kwargs: cache)
+    answer = chat._a2ui_event("text", "PennyText", {"text": "Here is what the catalog says."}, "Here is what the catalog says.")
+    sources = chat._a2ui_event("sources", "PennySources", {"items": [{"title": "Vendor", "url": "https://example.com", "checked": ""}]}, "Sources for this tool")
+    snapshot = {"conversationId": "c", "messages": [
+        {"id": "m1", "kind": "a2ui", "surface": "text", "text": answer["message"], "protocol": answer["messages"]},
+        {"id": "m2", "kind": "a2ui", "surface": "sources", "text": sources["message"], "protocol": sources["messages"]},
+    ]}
+    assert client.put("/api/chat/history", json=snapshot).status_code == 204
+    assert len(client.get("/api/chat/history").json()["messages"]) == 2
 
 
 @pytest.mark.parametrize("status,expected", [(401, 401), (403, 401), (500, 503)])
