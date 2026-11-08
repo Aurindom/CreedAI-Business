@@ -1,0 +1,29 @@
+# Copy to /srv/penny/hermes/config.yaml, mode 0600. Holds two secrets, never commit the filled copy.
+model:
+  default: anthropic/claude-haiku-4.5
+  provider: custom
+  base_url: http://gateway:9999/v1
+  api_key: REPLACE_SAME_VALUE_AS_gateway.env_GATEWAY_CLIENT_KEY
+agent:
+  max_turns: 6
+  api_max_retries: 1
+  auto_recovery_cycles: 0
+tools:
+  tool_search:
+    enabled: 'off'
+platform_toolsets:
+  api_server: [mcp-marketplace]
+mcp_servers:
+  marketplace:
+    url: http://actions:8000/mcp
+    headers:
+      Authorization: Bearer REPLACE_SAME_VALUE_AS_actions.env_PUBLIC_MCP_TOKEN
+    tools:
+      include: [get_tool_details]
+      resources: false
+      prompts: false
+    sampling:
+      enabled: false
+auxiliary:
+  title_generation:
+    enabled: false

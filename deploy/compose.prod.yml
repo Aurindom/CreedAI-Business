@@ -1,0 +1,128 @@
+name: penny
+
+x-app-image: &app-image
+  image: ${PENNY_IMAGE:-penny-app:local}
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: "5"}
+
+x-tcp-check: &tcp-check
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+services:
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      PENNY_DOMAIN: ${PENNY_DOMAIN:?set PENNY_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${PENNY_DATA:-/srv/penny}/caddy/data:/data
+      - ${PENNY_DATA:-/srv/penny}/caddy/config:/config
+    networks:
+      edge: {ipv4_address: 172.30.10.10}
+    depends_on:
+      app: {condition: service_healthy}
+
+  app:
+    <<: *app-image
+    build: {context: .., dockerfile: deploy/Dockerfile}
+    env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env"]
+    environment:
+      CHAT_RUNTIME: hermes
+      CHAT_MAX_INFLIGHT: ${CHAT_MAX_INFLIGHT:-3}
+      CHAT_TRUST_PROXY: "1"
+      CHAT_TRUSTED_PROXY_CIDRS: 172.30.10.10/32
+      APP_DB_PATH: /state/app.db
+      CHAT_SPEND_PATH: /state/chat_spend.db
+      HERMES_API_URL: http://hermes:8642
+      PUBLIC_MCP_URL: http://actions:8000/mcp
+      MODEL_GATEWAY_URL: http://gateway:9999
+    command: [python, -m, uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "1", --no-proxy-headers]
+    volumes: ["${PENNY_DATA:-/srv/penny}/state:/state"]
+    networks: [edge, egress, private]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+      <<: *tcp-check
+    depends_on:
+      redis: {condition: service_healthy}
+
+  actions:
+    <<: *app-image
+    env_file: ["${PENNY_SECRETS:-/srv/penny/secrets}/actions.env"]
+    environment:
+      APP_DB_PATH: /state/app.db
+      PUBLIC_MCP_ALLOWED_HOST: actions:8000
+    command: [python, -m, app.public_mcp]
+    volumes: ["${PENNY_DATA:-/srv/penny}/state:/state"]
+    networks: [private]
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1', 8000), 4).close()"]
+      <<: *tcp-check
+    depends_on:
+      app: {condition: service_healthy}
+
+  gateway:
+    <<: *app-image
+    env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/gateway.env"]
+    environment:
+      GATEWAY_UPSTREAM: https://openrouter.ai/api/v1/chat/completions
+      GATEWAY_STATE_PATH: /gw/gateway.db
+    command: [python, -m, app.model_gateway]
+    volumes: ["${PENNY_DATA:-/srv/penny}/gateway:/gw"]
+    networks: [egress, private]
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1', 9999), 4).close()"]
+      <<: *tcp-check
+
+  hermes:
+    image: nousresearch/hermes-agent:v0.23.0
+    restart: unless-stopped
+    command: [gateway, run]
+    env_file: ["${PENNY_SECRETS:-/srv/penny/secrets}/hermes.env"]
+    environment:
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      HERMES_HOME: /opt/data
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes: ["${PENNY_DATA:-/srv/penny}/hermes:/opt/data"]
+    networks: [private]
+    mem_limit: 1g
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "5"}
+    healthcheck:
+      test: [CMD, /opt/hermes/.venv/bin/python, -c, "import socket; socket.create_connection(('127.0.0.1', 8642), 4).close()"]
+      <<: *tcp-check
+    depends_on:
+      gateway: {condition: service_healthy}
+      actions: {condition: service_healthy}
+
+  redis:
+    image: redis:7.4.12-alpine
+    restart: unless-stopped
+    env_file: ["${PENNY_SECRETS:-/srv/penny/secrets}/redis.env"]
+    command: [sh, -c, 'exec redis-server --appendonly yes --save 60 1 --requirepass "$$REDIS_PASSWORD"']
+    volumes: ["${PENNY_DATA:-/srv/penny}/redis:/data"]
+    networks: [private]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      <<: *tcp-check
+
+networks:
+  edge:
+    ipam:
+      config: [{subnet: 172.30.10.0/24}]
+  egress: {}
+  private:
+    internal: true

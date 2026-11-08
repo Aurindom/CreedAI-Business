@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/venv
+**/.env
+**/.env.*
+**/*.db
+**/*.db-*
+**/*.log
+sandbox
+scratch
+.git

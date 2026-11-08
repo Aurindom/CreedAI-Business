@@ -79,7 +79,7 @@ export function createChatAdapter({ fetcher = (...args) => fetch(...args) } = {}
     onEvent({ type: 'mode', live: true })
     try {
       await agent.sendMessage(request, (event) => {
-        if (event.type === 'error') onEvent({ type: 'mode', live: false })
+        if (event.type === 'error' && event.code !== 'agent_busy') onEvent({ type: 'mode', live: false })
         onEvent(event)
       })
     } catch {

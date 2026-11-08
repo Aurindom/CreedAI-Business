@@ -16,3 +16,6 @@ __pycache__/
 venv/
 *.db
 *.db-*
+
+deploy/settings.env
+deploy/secrets/

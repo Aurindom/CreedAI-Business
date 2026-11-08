@@ -347,7 +347,8 @@ def test_full_inflight_cap_refuses_before_any_reservation_and_frees_its_slot(cli
     monkeypatch.setattr(chat, '_inflight', 1)
     before = chat.ledger().total()
     events = frames(client.post('/api/chat', json=BODY))
-    assert error_code(events) == 'agent_unavailable' and events[-1] == {'type': 'done'}
+    assert error_code(events) == 'agent_busy' and events[-1] == {'type': 'done'}
+    assert next(e for e in events if e['type'] == 'error')['retryable'] is True
     assert not fake.requests and fake.checks == []
     assert chat.ledger().total() == pytest.approx(before) and rows() == []
     monkeypatch.setattr(chat, '_inflight', 0)

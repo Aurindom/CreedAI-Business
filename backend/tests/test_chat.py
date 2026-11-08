@@ -343,3 +343,42 @@ def test_provider_choice(monkeypatch, env, expected):
 def test_chosen_provider_needs_its_own_key(client, monkeypatch):
     monkeypatch.setenv("CHAT_PROVIDER", "anthropic")
     assert client.get("/api/chat/status").json() == {"available": False}
+
+
+def test_inflight_cap_also_covers_the_openrouter_runtime(client, monkeypatch):
+    seen = script(monkeypatch, reply('{"text": "ok"}'))
+    monkeypatch.setenv("CHAT_MAX_INFLIGHT", "2")
+    monkeypatch.setattr(chat, "_inflight", 2)
+    before = chat.ledger().total()
+    events = send(client)
+    error = next(e for e in events if e["type"] == "error")
+    assert error["code"] == "agent_busy" and error["retryable"] is True and events[-1] == {"type": "done"}
+    assert seen == [] and chat.ledger().total() == pytest.approx(before)
+    monkeypatch.setattr(chat, "_inflight", 0)
+    send(client)
+    assert len(seen) == 1 and chat._inflight == 0
+
+
+def test_failed_openrouter_turn_frees_its_slot(client, monkeypatch):
+    script(monkeypatch, httpx.ConnectError("down"))
+    send(client)
+    assert chat._inflight == 0
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "2.5", "0", "-1", "51", "1e3", "nan"])
+def test_bad_max_inflight_falls_back_to_the_default(monkeypatch, raw):
+    monkeypatch.setenv("CHAT_MAX_INFLIGHT", raw)
+    assert chat.max_inflight() == chat.DEFAULT_MAX_INFLIGHT
+
+
+@pytest.mark.parametrize("raw,expected", [("1", 1), (" 5 ", 5), ("50", 50)])
+def test_valid_max_inflight_is_used(monkeypatch, raw, expected):
+    monkeypatch.setenv("CHAT_MAX_INFLIGHT", raw)
+    assert chat.max_inflight() == expected
+
+
+def test_malformed_max_inflight_never_fails_a_request(client, monkeypatch):
+    script(monkeypatch, reply('{"text": "ok"}'))
+    monkeypatch.setenv("CHAT_MAX_INFLIGHT", "lots")
+    events = send(client)
+    assert not any(e.get("code") == "agent_busy" for e in events) and events[-1] == {"type": "done"}
