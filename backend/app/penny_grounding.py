@@ -121,14 +121,14 @@ def selected_task_ids(catalog, body, arguments):
     choices = [card.id for card in current.choices]
     excerpt_match = resolve_task(catalog, excerpt)
     specific_excerpt = excerpt_match.status == 'matched' and excerpt_match.problem_id == selected
-    separate_need = (excerpt_match.status == 'unsupported' and excerpt in owner_excerpts(body.message)
+    separate_need = (excerpt_match.status == 'unsupported' and excerpt in owner_excerpts(body.message, catalog)
                      and excerpt.strip() != body.message.strip())
     if (current.status == 'matched' and not separate_need) or (current.status == 'ambiguous' and choices != [selected]
                                       and not (selected in choices and specific_excerpt)):
         raise ActionContextError('Do not override the current task or its ambiguity')
     pending = pending_tasks(catalog, body)
     if (current.status == 'unsupported' and pending == [selected]
-            and affirmative_excerpt(body.message, excerpt)):
+            and affirmative_excerpt(body.message, excerpt, catalog)):
         return [selected]
     if len(excerpt) < 3:
         raise ActionContextError('A new task needs a meaningful owner excerpt')
@@ -137,7 +137,7 @@ def selected_task_ids(catalog, body, arguments):
             raise ActionContextError('Choose which pending task before recommending one')
     sources = [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')]
     for source in sources:
-        if not affirmative_excerpt(source, excerpt):
+        if not affirmative_excerpt(source, excerpt, catalog):
             continue
         match = resolve_task(catalog, source)
         if (match.status == 'unsupported' or (match.status == 'matched' and match.problem_id == selected)

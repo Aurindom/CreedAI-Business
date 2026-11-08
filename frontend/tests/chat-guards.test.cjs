@@ -143,3 +143,30 @@ test('validation outage fails closed instead of recording or sending the draft',
   assertNotRecorded(text)
   assert.match(document.querySelector('.msc-input-note').textContent, /could not check this message safely/)
 })
+
+test('one click on a suggestion sends one chat request, even if clicked again while busy', async () => {
+  const suggestion = 'I never get around to replying to reviews'
+  liveEvents = [{ type: 'message_delta', text: 'Here is what fits.', validation: 'validated' }]
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  const base = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (url === '/api/chat') {
+      const response = await base(url, options)
+      await held
+      return response
+    }
+    return base(url, options)
+  }
+  const button = () => [...document.querySelectorAll('.msc-starters button')].find(b => b.textContent.includes(suggestion))
+  const first = button()
+  await act(async () => first.click())
+  await act(async () => first.click())
+  if (button()) await act(async () => button().click())
+  await submit(suggestion)
+  await act(async () => { release(); await held })
+  const sent = requests.filter(request => request.url === '/api/chat')
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].body.message, suggestion)
+  assert.equal(requests.filter(request => request.url === '/api/chat/validate').length, 1)
+})

@@ -11,6 +11,10 @@ log = logging.getLogger("app.web")
 
 DEFAULT_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 API_PREFIX = "api"
+PROBE_PREFIXES = frozenset({
+    "actuator", "backup", "backups", "bak", "old", "cgi-bin", "phpmyadmin", "pma", "server-status",
+    "vendor", "wordpress", "wp", "wp-admin", "wp-content", "wp-includes", "config", "admin",
+})
 
 
 def dist_dir() -> Path | None:
@@ -27,6 +31,15 @@ def _safe_file(root: Path, relative: str) -> Path | None:
     return None
 
 
+def _is_probe(path: str) -> bool:
+    """Scanners ask for dot folders and well-known admin paths. None of them are app pages, so they
+    must 404 instead of getting the SPA shell, which reads to a scanner like the file exists."""
+    segments = [s for s in path.split("/") if s]
+    if any(s.startswith(".") for s in segments):
+        return True
+    return bool(segments) and segments[0].lower() in PROBE_PREFIXES
+
+
 def _is_api(path: str) -> bool:
     first = path.lstrip("/").split("/", 1)[0]
     return first == API_PREFIX
@@ -35,6 +48,8 @@ def _is_api(path: str) -> bool:
 async def _not_found_or_page(request: Request, exc: StarletteHTTPException):
     """Only an unmatched GET outside /api becomes a page. Everything else keeps the JSON error."""
     if exc.status_code != 404 or request.method not in ("GET", "HEAD") or _is_api(request.url.path):
+        return await http_exception_handler(request, exc)
+    if _is_probe(request.scope["path"]):
         return await http_exception_handler(request, exc)
     root = dist_dir()
     if root is None:

@@ -13,3 +13,7 @@
 sandbox
 scratch
 .git
+deploy/settings.env
+deploy/secrets
+**/*.pem
+**/*.key

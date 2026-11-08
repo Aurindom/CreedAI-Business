@@ -744,6 +744,28 @@ def recover_alternatives(reply, package, guard):
     return reply
 
 
+_CONTEXT_REASONS = {
+    'Task needs an exact owner excerpt': 'context_no_excerpt',
+    'Do not override the current task or its ambiguity': 'context_overrides_current_task',
+    'A new task needs a meaningful owner excerpt': 'context_weak_excerpt',
+    'Choose which pending task before recommending one': 'context_pending_choice',
+    'Task excerpt must come from an affirmative owner request': 'context_not_affirmative',
+    'The owner has not named a business problem yet': 'context_no_problem_named',
+}
+_FIXED_REASONS = {'routing_already_fixed', 'unbound_business_context'}
+
+
+def routing_reason(exc: Exception) -> str:
+    """Only fixed codes leave here. Pydantic and JSON errors can quote model output, so their text is never logged."""
+    if isinstance(exc, ActionContextError):
+        return _CONTEXT_REASONS.get(str(exc), 'context_rejected')
+    if isinstance(exc, json.JSONDecodeError):
+        return 'output_not_json'
+    if type(exc) is ValueError and str(exc) in _FIXED_REASONS:
+        return str(exc)
+    return 'invalid_' + type(exc).__name__.casefold()
+
+
 def register_expected(gate: RunGate, body: ChatRequest) -> None:
     """Writes the owner asked for are registered here, before dispatch, through gate.expect. Penny has no UI save
     intent yet and save_plan is not offered, so a normal catalog turn registers nothing."""
@@ -897,7 +919,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     conversation = _conversation(system, history, body.message)
     conversation.messages[0]['_owner_excerpts'] = list(dict.fromkeys(
         excerpt for source in [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')][:4]
-        for excerpt in owner_excerpts(source)))[:24]
+        for excerpt in owner_excerpts(source, catalog)))[:24]
     errors = _provider_errors()
     resolved_tasks: list[str] = []
     yield {"type": "status", "text": "Penny is thinking",
@@ -1277,7 +1299,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
         return
     instructions = hermes_instructions(package, operations, run_context.build(body, profile, memory, guard), catalog, routing_done,
         list(dict.fromkeys(excerpt for source in [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')][:4]
-                           for excerpt in owner_excerpts(source)))[:24])
+                           for excerpt in owner_excerpts(source, catalog)))[:24])
     yield {"type": "status", "text": "Penny is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
@@ -1398,8 +1420,9 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                                                       catalog, next_profile, memory, routing_done=True):
                             yield event
                         return
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError) as exc:
             routing_invalid = True
+            logger.info('penny_routing_rejected', extra={'stage': 'routing', 'routing_reason': routing_reason(exc)})
     ready, settled = _settle_run(gate, (tool_code,) if tool_code else ())
     for event in settled:
         yield event

@@ -37,9 +37,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-      args:
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?set public Supabase project URL in settings.env}
-        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:?set public Supabase publishable key in settings.env}
+      secrets: [frontend_auth]
     env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env"]
     environment:
       CHAT_RUNTIME: hermes
@@ -51,7 +49,7 @@ services:
       HERMES_API_URL: http://hermes:8642
       PUBLIC_MCP_URL: http://actions:8000/mcp
       MODEL_GATEWAY_URL: http://gateway:9999
-    command: [python, -m, uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "1", --no-proxy-headers]
+    command: [python, -m, uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "1", --no-proxy-headers, --log-config, /srv/backend/logging.json]
     volumes: ["${PENNY_DATA:-/srv/penny}/state:/state"]
     networks: [edge, egress, private]
     healthcheck:
@@ -109,8 +107,8 @@ services:
       test: [CMD, /opt/hermes/.venv/bin/python, -c, "import socket; socket.create_connection(('127.0.0.1', 8642), 4).close()"]
       <<: *tcp-check
     depends_on:
-      gateway: {condition: service_healthy}
-      actions: {condition: service_healthy}
+      gateway: {condition: service_healthy, restart: true}
+      actions: {condition: service_healthy, restart: true}
 
   redis:
     image: redis:7.4.12-alpine
@@ -131,3 +129,7 @@ networks:
   egress: {}
   private:
     internal: true
+
+secrets:
+  frontend_auth:
+    file: ${PENNY_SECRETS:-/srv/penny/secrets}/app.env
