@@ -9,6 +9,8 @@ from typing import AsyncIterator, Awaitable, Callable, Mapping
 from ..capacity import Capacity
 from .contracts import (ActionFrame, ActionResult, ActionSpec, ActionStarted, DoneFrame, NoticeCode, NoticeFrame,
                         RunEnded, RuntimeEvent, TextDelta, TextFrame, TurnStatus)
+from .bindings import PRIVATE_ACTIONS
+from .completion import MESSAGES as REPORT_MESSAGES, ActionReport, Completion
 from .guard import LeakGuard
 from .outcomes import MESSAGES, action_outcome, outcome_message
 
@@ -22,6 +24,7 @@ NOTICES: dict[NoticeCode, str] = {
     "blocked": "We stopped that reply because it contained something it should not. Browsing and comparing tools still work.",
     "run_failed": "The assistant could not finish that request. Browsing and comparing tools still work.",
     "run_cancelled": "That request was cancelled. Browsing and comparing tools still work.",
+    "session_ended": "This sign-in has ended, so the answer was not shown. Sign in again to continue.",
 }
 
 
@@ -93,9 +96,12 @@ async def call_with_retry(call: Callable[[], Awaitable], *, attempts: int, write
 
 
 class _Turn:
-    def __init__(self, actions: Mapping[str, ActionSpec], guard: LeakGuard) -> None:
+    def __init__(self, actions: Mapping[str, ActionSpec], guard: LeakGuard,
+                 settle: Callable[[], Completion] | None = None) -> None:
         self.actions = actions
         self.guard = guard
+        self.settle = settle
+        self.held: list[str] = []
         self.calls: dict[str, tuple[int, ActionSpec | None, str]] = {}
         self.counts = {"succeeded": 0, "failed": 0, "unconfirmed": 0}
 
@@ -113,6 +119,9 @@ class _Turn:
     def handle(self, event: RuntimeEvent) -> list[AppFrame]:
         if isinstance(event, TextDelta):
             text = self.guard.feed(event.text)
+            if text and self.settle:
+                self.held.append(text)
+                return []
             return [TextFrame(text=text)] if text else []
         if isinstance(event, ActionStarted):
             if event.call_id in self.calls:
@@ -126,21 +135,65 @@ class _Turn:
             known = self.calls.get(event.call_id)
             if known is None or known[2] != "started":
                 return []
+            if self.settle and known[1] and known[1].name in PRIVATE_ACTIONS:
+                return []
             status, code = action_outcome(event.result)
             return [self._settle(event.call_id, status, code)]
         return []
 
+    def _private_calls(self) -> list[tuple[str, ActionSpec]]:
+        return [(call_id, spec) for call_id, (_, spec, status) in self.calls.items()
+                if status == "started" and spec and spec.name in PRIVATE_ACTIONS]
+
+    def _report(self, call_id: str | None, spec: ActionSpec | None, report: ActionReport) -> ActionFrame:
+        status = "failed" if report.status == "not_executed" else report.status
+        if call_id is None:
+            call_id = f"report-{len(self.calls) + 1}"
+            self.calls[call_id] = (len(self.calls) + 1, spec, "started")
+        frame = self._settle(call_id, status)
+        return frame.model_copy(update={"message": REPORT_MESSAGES[report.status]})
+
+    def _settled(self) -> tuple[Completion | None, list[AppFrame]]:
+        """Private calls are settled only from what the server stored. If that check itself fails, they stay
+        unconfirmed and the answer is held back, because nothing trustworthy says what happened."""
+        try:
+            completion = self.settle()
+        except Exception:
+            return None, []
+        reports = list(completion.actions)
+        frames: list[AppFrame] = []
+        for call_id, spec in self._private_calls():
+            match = next((r for r in reports if r.call_id == call_id), None) or next((r for r in reports if r.action == spec.name), None)
+            if match is None:
+                continue
+            reports.remove(match)
+            frames.append(self._report(call_id, spec, match))
+        for report in reports:
+            spec = self.actions.get(report.action) or ActionSpec(name=report.action, label="Account step")
+            frames.append(self._report(None, spec, report))
+        return completion, frames
+
     def finish(self, turn: TurnStatus, notice: NoticeCode | None) -> list[AppFrame]:
         frames: list[AppFrame] = []
         tail = self.guard.flush()
-        if tail:
+        completion, code = None, None
+        if self.settle:
+            completion, reported = self._settled()
+            text = "".join(self.held) + tail
+            if completion is not None and completion.deliver and text:
+                frames.append(TextFrame(text=text))
+            frames += reported
+            code = completion.code if completion else "action_unconfirmed"
+        elif tail:
             frames.append(TextFrame(text=tail))
         for call_id, (_, _, status) in list(self.calls.items()):
             if status == "started":
                 frames.append(self._settle(call_id, "unconfirmed"))
         if notice:
             frames.append(NoticeFrame(code=notice, message=NOTICES[notice]))
-        frames.append(DoneFrame(turn=turn, fallback=None if turn == "completed" else "browse", **self.counts))
+        if completion is not None and not completion.deliver:
+            frames.append(NoticeFrame(code="session_ended", message=NOTICES["session_ended"]))
+        frames.append(DoneFrame(turn=turn, fallback=None if turn == "completed" else "browse", code=code, **self.counts))
         return frames
 
 
@@ -161,12 +214,13 @@ async def _close(stream, cleanup_s: float) -> bool:
 
 async def run_turn(runtime: Runtime, actions: Mapping[str, ActionSpec], guard: LeakGuard, capacity: Capacity,
                    policy: TurnPolicy = TurnPolicy(), on_finish: Callable[[TurnRecord], None] | None = None,
-                   ) -> AsyncIterator[AppFrame]:
+                   settle: Callable[[], Completion] | None = None) -> AsyncIterator[AppFrame]:
     """One owner turn. Action outcomes and the turn's own status are reported separately, every frame passes the
-    leak guard, and any stop other than a completed run hands the owner back to browsing."""
+    leak guard, and any stop other than a completed run hands the owner back to browsing. With settle, the
+    answer is held until the server's own records say what the private steps did, and only then released."""
     began = time.monotonic()
     first_text: float | None = None
-    turn = _Turn(actions, guard)
+    turn = _Turn(actions, guard, settle)
     claim = capacity.try_claim()
     if claim is None:
         for frame in turn.finish("rejected", "busy"):

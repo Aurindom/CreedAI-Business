@@ -40,7 +40,7 @@ function FactRow({ fact }) {
     <li>
       <span className="msc-fact-label">{fact.label}</span>
       <span>
-        {fact.known ? fact.value : 'Unknown'}
+        {fact.known ? fact.value : 'Confirm with vendor'}
         {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
       </span>
     </li>

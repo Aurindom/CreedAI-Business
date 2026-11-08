@@ -11,7 +11,7 @@ function SummaryOption({ option, status }) {
       <ul>
         {option.facts.map((fact) => {
           const url = safeUrl(fact.source_url)
-          return <li key={fact.label}>{fact.label}: {fact.known ? fact.value : 'Unknown'}{url ? ` (${url}${fact.checked ? `, checked ${fact.checked}` : ''})` : ''}</li>
+          return <li key={fact.label}>{fact.label}: {fact.known ? fact.value : 'Confirm with vendor'}{url ? ` (${url}${fact.checked ? `, checked ${fact.checked}` : ''})` : ''}</li>
         })}
       </ul>
     </div>

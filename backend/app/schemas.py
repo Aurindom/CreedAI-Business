@@ -73,6 +73,16 @@ class Capability(BaseModel):
         return self.access.value if self.access.known else "unknown"
 
 
+class AutomaticReview(BaseModel):
+    checked: date
+    capability: str
+    checks: dict[str, bool]
+    notes: list[str]
+    sources: list[HttpUrl]
+    eligible: bool = False
+    evidence: dict[str, dict[str, str | None]] = Field(default_factory=dict)
+
+
 class Tool(BaseModel):
     id: str
     name: str
@@ -83,6 +93,7 @@ class Tool(BaseModel):
     status: ToolStatus = "pending_review"
     origin: Origin = "catalog"
     summary: str
+    auto_review: AutomaticReview | None = None
     entry_monthly_usd: Fact = UNKNOWN
     entry_plan: Fact = UNKNOWN
     entry_billing: Fact = UNKNOWN
