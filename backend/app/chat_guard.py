@@ -11,7 +11,7 @@ from collections import deque
 
 logger = logging.getLogger("penny.guard")
 BLOCKED_INSTRUCTIONS = "I can help with business tools, but I cannot follow instructions to bypass safeguards or reveal private instructions. Please ask about the task or tools you want to compare."
-BLOCKED_PERSONAL = "Please remove email addresses and phone numbers before sending. Describe the business task without personal contact details."
+BLOCKED_PERSONAL = "Please remove email addresses, phone numbers, card or account numbers, ID numbers, passwords and keys before sending. Describe the business task without personal or payment details."
 _EMAIL = re.compile(r"\b[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9.-]*[A-Z0-9])?\.[A-Z]{2,}\b", re.I)
 _PHONE = re.compile(r"(?<![\w$])(?:\+?\d[\d ().-]{7,}\d)(?!\w)")
 _INJECTIONS = [
@@ -19,6 +19,15 @@ _INJECTIONS = [
     re.compile(r"\b(?:reveal|show|print|repeat|expose|leak|return|display)\b.{0,55}\b(?:system\s*(?:prompt|message)|developer\s*(?:prompt|message)|(?:your|hidden|private|internal|original)\s+(?:prompt|instructions?)|api\s*key|secret\s*key)\b", re.I),
     re.compile(r"(?:<\|(?:im_start|system|developer)|\[INST\]|(?:^|\n)\s*(?:SYSTEM|DEVELOPER)\s*:)", re.I),
     re.compile(r"\b(?:send|post|upload|exfiltrate)\b.{0,60}\b(?:keys?|secrets?|tokens?|credentials?|conversation|chat\s*history)\b", re.I),
+    # Persona jailbreaks: "you are now DAN", "developer mode", "act as an unfiltered AI".
+    re.compile(r"\b(?:you\s+are|you're)\s+now\b.{0,60}\b(?:DAN|unrestricted|unfiltered|uncensored|jailbroken|no\s+(?:rules|restrictions|limits|guidelines|filters))\b", re.I),
+    re.compile(r"\b(?:developer|god|debug|jailbreak|DAN|unrestricted)\s+mode\b", re.I),
+    re.compile(r"\b(?:act|behave|pretend|roleplay|role-play)\b.{0,50}\b(?:unfiltered|unrestricted|uncensored|jailbroken|(?:no|without)\s+(?:rules|restrictions|limits|guidelines|filters))\b", re.I),
+    re.compile(r"\bnew\s+(?:system\s+)?(?:instructions?|rules|prompt)\s*:", re.I),
+    re.compile(r"\b(?:what\s+(?:are|is|were)|tell\s+me|list)\b.{0,20}\byour\s+(?:system\s+)?(?:instructions?|prompt|rules|guidelines)\b", re.I),
+    re.compile(r"\b(?:decode|base64)\b.{0,40}\b(?:follow|execute|run|obey)\b", re.I),
+    # The same override in Spanish, French, German and Portuguese.
+    re.compile(r"\b(?:ignora|ignore[zr]?|ignoriere|olvida|oublie[zr]?|vergiss|esque[cç]a)\b.{0,60}\b(?:instrucciones|instruções|instructions|anweisungen|reglas|règles|regeln|regras)\b", re.I),
 ]
 
 def normalized(text: str) -> str:
@@ -32,9 +41,42 @@ def instruction_attempt(text: str) -> bool:
     variants = [clean, spaced, re.sub(r"\s+", " ", clean), re.sub(r"\s+", " ", spaced)]
     return any(pattern.search(value) for pattern in _INJECTIONS for value in variants)
 
+_CARD = re.compile(r"(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])")
+_SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b|\b(?:ssn|social\s+security(?:\s+(?:number|no\.?))?)\D{0,15}\d{9}\b", re.I)
+_IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}(?:\s?[A-Z0-9]{1,3})?\b")
+_SECRET = re.compile(
+    r"\b(?:sk-(?:or-v1-|ant-|proj-)?[A-Za-z0-9_-]{16,}|sb_secret_[A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}"
+    r"|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,})"
+    r"|\b(?:password|passcode|passwd)\s*(?:is|:|=)\s*\S{4,}", re.I)
+
+
+def _luhn(digits: str) -> bool:
+    total = 0
+    for index, char in enumerate(reversed(digits)):
+        value = int(char) * (2 if index % 2 else 1)
+        total += value - 9 if value > 9 else value
+    return total % 10 == 0
+
+
+def _iban_valid(text: str) -> bool:
+    code = re.sub(r"\s", "", text).upper()
+    moved = code[4:] + code[:4]
+    return 15 <= len(code) <= 34 and int("".join(str(int(char, 36)) for char in moved)) % 97 == 1
+
+
+def payment_or_credential(text: str) -> bool:
+    """Card numbers (Luhn-checked), US Social Security numbers, IBANs (checksum-verified), passwords and API keys."""
+    clean = normalized(text)
+    if any(_luhn(re.sub(r"\D", "", match.group())) for match in _CARD.finditer(clean)):
+        return True
+    if _SSN.search(clean) or _SECRET.search(clean):
+        return True
+    return any(_iban_valid(match.group()) for match in _IBAN.finditer(clean))
+
+
 def personal_data(text: str) -> bool:
     clean = normalized(text)
-    if _EMAIL.search(clean):
+    if _EMAIL.search(clean) or payment_or_credential(clean):
         return True
     for match in _PHONE.finditer(clean):
         candidate = match.group()

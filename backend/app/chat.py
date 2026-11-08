@@ -1384,9 +1384,11 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                 resolved = hermes_routing.apply(routed, catalog, profile, memory, body)
                 if resolved is not None:
                     next_package, next_profile, tasks = resolved
-                    if routing_done:
+                    changed = next_package.package_id != package.package_id or next_profile != profile
+                    if routing_done and changed:
+                        # The second run may not re-route; restating the routing it was given is harmless.
                         raise ValueError('routing_already_fixed')
-                    if next_package.package_id != package.package_id or next_profile != profile:
+                    if changed:
                         memory.trade = next_profile.trade
                         memory.active_task_ids = tasks
                         memory.pending_question = None

@@ -24,7 +24,13 @@ class Routing(Strict):
 def apply(raw, catalog, profile, memory, body):
     proposal = Routing.model_validate({key: raw.get(key) for key in ('routes', 'trade', 'trade_text')})
     tasks = []
+    problems = {card.id for card in catalog.problem_cards}
     for route in proposal.routes or []:
+        if route.problem_id not in problems and catalog.resolve_trade(route.problem_id):
+            # The model listed a business type ("bakery") as if it were a task. The business change
+            # travels in trade/trade_text, which is verified below; skip the route rather than discard
+            # the whole answer. Any other unknown task id still fails.
+            continue
         tasks += selected_task_ids(catalog, body, route.model_dump())
     tasks = list(dict.fromkeys(tasks))
     updated = profile
