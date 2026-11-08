@@ -34,7 +34,12 @@ services:
 
   app:
     <<: *app-image
-    build: {context: .., dockerfile: deploy/Dockerfile}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?set public Supabase project URL in settings.env}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:?set public Supabase publishable key in settings.env}
     env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env"]
     environment:
       CHAT_RUNTIME: hermes
