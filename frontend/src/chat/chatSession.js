@@ -1,6 +1,19 @@
 const KEY = 'main-street-penny-session-v2'
 const MAX_SAVED_MESSAGES = 40
 const MAX_HISTORY = 12
+// The backend's ChatMemory limits. Memory goes back with every message, so a list over its
+// limit would get every message rejected; trimming here also heals a chat that is already stuck.
+const MEMORY_LIMITS = { owned: 20, ruled_out: 20, active_task_ids: 5, pending_task_ids: 3 }
+const MAX_PLANS = 20
+
+export function memoryForRequest(memory = {}) {
+  const trimmed = { ...memory }
+  for (const [name, limit] of Object.entries(MEMORY_LIMITS)) {
+    if (Array.isArray(trimmed[name])) trimmed[name] = trimmed[name].slice(0, limit)
+  }
+  if (trimmed.plans && typeof trimmed.plans === 'object') trimmed.plans = Object.fromEntries(Object.entries(trimmed.plans).slice(0, MAX_PLANS))
+  return trimmed
+}
 
 function store() {
   try {
@@ -27,6 +40,7 @@ export function loadSession(emptyMemory, storage = store()) {
         ...saved.memory,
         owned: Array.isArray(saved.memory?.owned) ? saved.memory.owned : [],
         ruled_out: Array.isArray(saved.memory?.ruled_out) ? saved.memory.ruled_out : [],
+        plans: saved.memory?.plans && typeof saved.memory.plans === 'object' ? saved.memory.plans : {},
       },
     }
   } catch {
@@ -79,6 +93,9 @@ export function historyFor(messages, { dropLastUser = false } = {}) {
     if (message.kind === 'a2ui' && message.surface === 'sources') return []
     if (message.kind === 'assistant' || message.kind === 'clarify' || message.kind === 'a2ui') return [{ role: 'assistant', text: message.text }]
     if (message.kind === 'result') return [{ role: 'assistant', text: `I showed these results: ${message.recommendation.message}` }]
+    if (message.kind === 'alternatives' && message.comparison) return [{ role: 'assistant', text: `I showed alternatives: ${message.comparison.tools.map((tool) => tool.tool_name).join(', ')}` }]
+    if (message.kind === 'saved-plan') return [{ role: 'assistant', text: `I saved a plan with ${message.plan.steps.map((step) => step.tool_name).join(', ')}` }]
+    if (message.kind === 'draft') return [{ role: 'assistant', text: `I drafted a custom assistant called ${message.draft.name}` }]
     return []
   }).map((item) => ({ ...item, text: item.text.slice(0, 2000) }))
     .filter((item) => item.text.trim())

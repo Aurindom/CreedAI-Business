@@ -11,6 +11,7 @@ from .schemas import Catalog, Category, Facet, ProblemCard, Tool, Trade
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS trade (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS trade_alias (trade_id TEXT NOT NULL, alias TEXT NOT NULL, PRIMARY KEY (trade_id, alias));
 CREATE TABLE IF NOT EXISTS category (id TEXT PRIMARY KEY, position INTEGER NOT NULL, doc TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS problem_card (id TEXT PRIMARY KEY, doc TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS facet (id TEXT PRIMARY KEY, position INTEGER NOT NULL, doc TEXT NOT NULL);
@@ -36,6 +37,13 @@ CREATE TABLE IF NOT EXISTS revoked_auth_session (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     revoked_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS favourite_tool (
+    user_id TEXT NOT NULL,
+    tool_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, tool_id)
 );
 CREATE TABLE IF NOT EXISTS chat_conversation (
     user_id TEXT NOT NULL,
@@ -184,12 +192,14 @@ def seed(conn: sqlite3.Connection, catalog: Catalog) -> list[str]:
                 _park(conn, tool_id, doc, *verdict)
                 moved.append(tool_id)
         conn.executemany("DELETE FROM tool WHERE id = ? AND origin = ?", [(i, DISCOVERED) for i in moved])
-        for table in ("trade", "category", "problem_card", "facet"):
+        for table in ("trade_alias", "trade", "category", "problem_card", "facet"):
             conn.execute(f"DELETE FROM {table}")
         conn.execute("DELETE FROM tool WHERE origin = ?", (CATALOG,))
         conn.executemany(
             "INSERT OR REPLACE INTO trade VALUES (?, ?)", [(t.id, t.name) for t in catalog.trades]
         )
+        conn.executemany("INSERT INTO trade_alias (trade_id, alias) VALUES (?, ?)",
+                         [(trade.id, alias) for trade in catalog.trades for alias in dict.fromkeys(trade.aliases)])
         conn.executemany(
             "INSERT OR REPLACE INTO category VALUES (?, ?, ?)",
             [(c.id, i, c.model_dump_json()) for i, c in enumerate(catalog.categories)],
@@ -234,7 +244,10 @@ def put_discovered(conn: sqlite3.Connection, tool: Tool) -> None:
 
 
 def read_catalog(conn: sqlite3.Connection) -> Catalog:
-    trades = [Trade(id=row[0], name=row[1]) for row in conn.execute("SELECT id, name FROM trade ORDER BY name")]
+    aliases: dict[str, list[str]] = {}
+    for trade_id, alias in conn.execute("SELECT trade_id, alias FROM trade_alias ORDER BY alias"):
+        aliases.setdefault(trade_id, []).append(alias)
+    trades = [Trade(id=row[0], name=row[1], aliases=aliases.get(row[0], [])) for row in conn.execute("SELECT id, name FROM trade ORDER BY name")]
     categories = [Category(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM category ORDER BY position")]
     cards = [ProblemCard(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM problem_card ORDER BY id")]
     tools = [Tool(**{**json.loads(doc), "origin": origin}) for doc, origin in conn.execute("SELECT doc, origin FROM tool ORDER BY name")]

@@ -4,7 +4,7 @@ function PennyMemory({ memory, names, onRemove }) {
   const label = (type, id) => names[type]?.[id] || id
   const items = [
     ...(memory.trade ? [{ key: 'trade', text: `Business: ${label('trades', memory.trade)}`, remove: { field: 'trade' } }] : []),
-    ...memory.owned.map((id) => ({ key: `owned-${id}`, text: `Uses ${label('tools', id)}`, remove: { field: 'owned', id } })),
+    ...memory.owned.map((id) => ({ key: `owned-${id}`, text: `Uses ${label('tools', id)}${memory.plans?.[id] ? ` (${memory.plans[id]})` : ''}`, remove: { field: 'owned', id } })),
     ...memory.ruled_out.map((id) => ({ key: `out-${id}`, text: `Doesn't want ${label('tools', id)}`, remove: { field: 'ruled_out', id } })),
     ...(memory.budget_monthly_usd === null || memory.budget_monthly_usd === undefined ? [] : [{ key: 'budget', text: `Budget: $${memory.budget_monthly_usd}/mo`, remove: { field: 'budget_monthly_usd' } }]),
   ]
@@ -12,7 +12,10 @@ function PennyMemory({ memory, names, onRemove }) {
 
   return (
     <details className="msc-memory">
-      <summary>Business context ({items.length})</summary>
+      <summary>
+        <span>Business context</span>
+        <small>{items.map((item) => item.text).join(' · ')}</small>
+      </summary>
       <ul className="msc-memory-list">
         {items.map((item) => (
           <li key={item.key}>

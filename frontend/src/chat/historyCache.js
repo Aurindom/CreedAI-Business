@@ -42,3 +42,11 @@ export function forgetQueuedHistory() {
     pending = null
   }
 }
+
+export async function deleteSavedHistory(token) {
+  // Discard pending drafts and let already-started saves finish before deletion.
+  // This prevents a delayed PUT from restoring the history just deleted.
+  forgetQueuedHistory()
+  queue = queue.catch(() => {}).then(() => api.deleteChatHistory(token))
+  await queue
+}

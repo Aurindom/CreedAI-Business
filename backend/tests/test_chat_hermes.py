@@ -487,6 +487,61 @@ def test_routing_cannot_override_explicit_business_with_history(client):
                              body.profile, body.memory, body)
 
 
+def test_routing_skips_a_business_type_listed_as_a_task(client):
+    # Live Hermes re-proposed {"problem_id": "bakery"} next to the real task after "Actually I run a bakery";
+    # that one entry used to discard a correct answer with "I could not validate that answer".
+    from app import hermes_routing
+    catalog = client.app.state.catalog
+    body = chat.ChatRequest(**{**BODY, 'message': 'Actually I run a bakery', 'memory': {'active_task_ids': ['bookkeeping']},
+                               'history': [{'role': 'user', 'text': 'My books are behind'}]})
+    task = {'problem_id': 'bookkeeping', 'task_text': 'My books are behind'}
+    business = {'trade': 'bakery', 'trade_text': 'Actually I run a bakery'}
+    plain = hermes_routing.apply({'routes': [task], **business}, catalog, body.profile, body.memory, body)
+    mislabelled = hermes_routing.apply({'routes': [task, {'problem_id': 'bakery', 'task_text': 'Actually I run a bakery'}], **business},
+                                       catalog, body.profile, body.memory, body)
+    assert mislabelled[2] == plain[2] == ['bookkeeping']
+    assert mislabelled[1].trade == 'bakery'
+    assert mislabelled[0].package_id == plain[0].package_id, 'same evidence, so the second run keeps its answer'
+
+
+def _bakery_correction_runs(second_routes):
+    """Run 1 routes the correction; run 2 selects claims and restates (or changes) the routing."""
+    outputs = []
+    def script(package):
+        outputs.append(package)
+        task = {'problem_id': 'bookkeeping', 'task_text': 'My books are behind'}
+        business = {'trade': 'bakery', 'trade_text': 'Actually I run a bakery'}
+        if len(outputs) == 1:
+            raw = {'claim_ids': [], 'followup_id': None, 'conversation_intent': None, 'reply_id': None, 'routes': [task], **business}
+            return answer(package, tools=(), output=json.dumps(raw))
+        raw = {'claim_ids': list(package.default_claim_ids), 'followup_id': None, 'conversation_intent': None,
+               'reply_id': None, 'routes': second_routes(task), **business}
+        return answer(package, output=json.dumps(raw))
+    return outputs, script
+
+
+def test_second_run_restating_the_routing_keeps_its_answer(client, hermes):
+    # Live: "Actually I run a bakery" was routed correctly, then the second run repeated that routing
+    # (plus {"problem_id": "bakery"}) and a correct answer was replaced by "I could not validate that answer".
+    outputs, script = _bakery_correction_runs(lambda task: [task, {'problem_id': 'bakery', 'task_text': 'Actually I run a bakery'}])
+    hermes(FakeHermes(script))
+    events = frames(client.post('/api/chat', json={**BODY, 'profile': {}, 'message': 'Actually I run a bakery',
+                                                   'memory': {'active_task_ids': ['bookkeeping']},
+                                                   'history': [{'role': 'user', 'text': 'My books are behind'}]}))
+    assert len(outputs) == 2
+    assert any(e['type'] == 'memory' and e['memory']['trade'] == 'bakery' for e in events)
+    assert any(e.get('validation') == 'validated' for e in texts(events))
+
+
+def test_second_run_that_changes_the_routing_is_still_refused(client, hermes):
+    outputs, script = _bakery_correction_runs(lambda task: [{'problem_id': 'invoicing', 'task_text': 'My books are behind'}])
+    hermes(FakeHermes(script))
+    events = frames(client.post('/api/chat', json={**BODY, 'profile': {}, 'message': 'Actually I run a bakery',
+                                                   'memory': {'active_task_ids': ['bookkeeping']},
+                                                   'history': [{'role': 'user', 'text': 'My books are behind'}]}))
+    assert not any(e.get('validation') == 'validated' for e in texts(events))
+
+
 REVIEWS_SUGGESTION = 'I never get around to replying to reviews'
 
 

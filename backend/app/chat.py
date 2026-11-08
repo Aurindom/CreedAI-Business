@@ -21,8 +21,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, PrivateAttr
 
 from . import chat_guard
+from .schemas import MAX_QUESTION_CHOICES
 from . import auth
 from .matching import recommend
+from .ownership import stated_ownership
 from .tasks import owner_excerpts
 from .schemas import BusinessProfile, Catalog, Fact, OwnedSoftware, Tool
 from .agent.grounding import default_answer, validate_answer, FALLBACK
@@ -38,7 +40,9 @@ from .agent.hermes_runtime import HermesError, HermesRun
 from .agent.prompts import SYSTEM_PROMPT as GROUNDED_PROMPT
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
 from .penny_conversation import ConversationReply, validate_conversation, reply_choices
-from .penny_grounding import ActionContextError, action_package, filtered_context, question, request_package, qualify_package, plan_already_unknown, question_repeats, pending_tasks
+from .penny_grounding import (ActionContextError, action_package, filtered_context, question, request_package, qualify_package,
+                              plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, is_generic_request,
+                              recommendation_catalog, recommendation_package, alternatives_note)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -84,6 +88,7 @@ Rules:
 - Ask about budget as what the owner can ADD to the monthly bill, not their existing subscription total. Zero is a valid preference. Never reinterpret a current bill as a budget. A lower published entry price does not establish savings or the cost of the required plan.
 - If the task is unclear, ask one specific question with 2-4 relevant choices using ask_owner. Preserve negation: an owner saying a task is fine is not asking for help with it. If they ask to compare tools but have not named them, ask which tools; if the task matters, ask what job they need done. Never assume the first named tool is the one they own.
 - For a known task call recommend_tools, then submit_answer selecting relevant claim_ids from the returned evidence_package. Use claim_ids=[] for the backend default. The backend includes required context, uncertainty and winner evidence; you never supply those policy fields. Do not repeat full cards or introduce another tool call merely to restate evidence.
+- When the owner asks for alternatives to a suggested tool, keep the same task. Call recommend_tools with use_active_task=true, task_text copied from the current request, and exclude_tool_ids containing the suggested tool IDs. Use this reference only with one active task; otherwise clarify which task. Do not permanently rule out a tool merely because the owner wants alternatives. If the lookup finds no other supported option, select the supplied alternatives:scope claim and explain the catalog limitation with its official service link. Never invent a substitute or repeat the excluded recommendation.
 - An owner describing a clear business problem wants a shortlist of relevant tools. Route it and call recommend_tools immediately. A lack of staff, time or resources describes a problem; it does not reject that task. Quote the affirmative problem or consequence clause in task_text. Ask for confirmation only when the meaning is genuinely unresolved. When the owner confirms a pending task, recommend that task and preserve their business type, existing tools and budget. Prefer the latest explicitly stated business type over older context.
 - An affirmative answer to a pending task confirmation means proceed with recommendations, not small talk. Include the owner's confirmation as task_text. If several tasks were offered, identify which one before proceeding.
 - Catalog phrase matching is only an initial hint, not a limit on understanding the owner's wording. Map an affirmative request semantically to a supported catalog problem_id; include task_text copied exactly from the owner's request when using recommend_tools. Use the recent owner turns to understand short answers and complaints about repetition. Never override an explicit different task, a negation, or an unresolved choice between multiple tasks.
@@ -108,6 +113,8 @@ ACTIONS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "problem_id": {"type": "string"},
+                    "use_active_task": {"type": "boolean", "description": "True for a follow-up referring to the one active task, such as asking for alternatives to the suggested tool. Still include the exact current owner excerpt in task_text. Do not use for a different or ambiguous task."},
+                    "exclude_tool_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 3, "uniqueItems": True, "description": "For alternatives, catalog IDs of the suggested tools to leave out of this lookup. This does not permanently reject them or imply the owner subscribes."},
                     "task_text": {"type": "string", "minLength": 1, "maxLength": 500, "description": "Exact affirmative problem/consequence excerpt from the owner request, or the owner's confirmation of a single pending task. Never invent or remove negation."},
                 },
                 "required": ["problem_id"],
@@ -208,6 +215,7 @@ class ChatMemory(BaseModel):
     active_task_ids: list[str] = Field(default_factory=list, max_length=5)
     pending_question: Literal['business', 'software', 'budget', 'task', 'plan'] | None = None
     pending_task_ids: list[str] = Field(default_factory=list, max_length=3)
+    plans: dict[str, str] = Field(default_factory=dict, max_length=20)
 
 
 class ChatRequest(BaseModel):
@@ -435,13 +443,18 @@ def _clean_memory(catalog: Catalog, memory: ChatMemory) -> ChatMemory:
         active_task_ids=[pid for pid in dict.fromkeys(memory.active_task_ids) if pid in tasks],
         pending_question=memory.pending_question,
         pending_task_ids=[pid for pid in dict.fromkeys(memory.pending_task_ids) if pid in tasks],
+        plans={tool_id: plan.strip()[:100] for tool_id, plan in memory.plans.items() if tool_id in known and isinstance(plan, str) and plan.strip()},
     )
 
 
 def _effective_profile(catalog: Catalog, profile: BusinessProfile, memory: ChatMemory) -> BusinessProfile:
     known = {tool.id for tool in catalog.tools if tool.status != "rejected"}
-    owned = [entry for entry in profile.owned if entry.tool_id in known]
-    owned += [OwnedSoftware(tool_id=tool_id) for tool_id in memory.owned if all(e.tool_id != tool_id for e in owned)]
+    plans = memory.plans or {}
+    owned = [
+        OwnedSoftware(tool_id=entry.tool_id, plan=entry.plan or plans.get(entry.tool_id))
+        for entry in profile.owned if entry.tool_id in known
+    ]
+    owned += [OwnedSoftware(tool_id=tool_id, plan=plans.get(tool_id)) for tool_id in memory.owned if all(e.tool_id != tool_id for e in owned)]
     return BusinessProfile(
         trade=memory.trade or profile.trade,
         owned=owned,
@@ -449,8 +462,23 @@ def _effective_profile(catalog: Catalog, profile: BusinessProfile, memory: ChatM
     )
 
 
+def _within_limits(memory: ChatMemory) -> ChatMemory:
+    """Trim each list to its ChatMemory limit. The browser sends memory back with every message,
+    so one over-long list would get every later message rejected."""
+    trimmed = {}
+    for name, field in ChatMemory.model_fields.items():
+        value = getattr(memory, name)
+        limit = next((rule.max_length for rule in field.metadata if getattr(rule, 'max_length', None)), None)
+        if limit is not None and isinstance(value, list):
+            value = value[:limit]
+        elif limit is not None and isinstance(value, dict):
+            value = dict(list(value.items())[:limit])
+        trimmed[name] = value
+    return ChatMemory.model_construct(**trimmed)
+
+
 def _memory_event(memory: ChatMemory) -> dict[str, Any]:
-    return {"type": "memory", "memory": memory.model_dump()}
+    return {"type": "memory", "memory": _within_limits(memory).model_dump()}
 
 
 def _catalog_brief(catalog: Catalog) -> str:
@@ -523,8 +551,13 @@ def _run_action(
     """Everything the model may do. Unknown names and bad ids return an error for it to recover from."""
     try:
         if name == "recommend_tools":
+            source_catalog = catalog
+            catalog = recommendation_catalog(catalog, arguments)
             current = _effective_profile(catalog, profile, memory)
             found = recommend(catalog, current, catalog.problem(str(arguments.get("problem_id"))))
+            if arguments.get('exclude_tool_ids'):
+                note = alternatives_note(source_catalog, arguments['exclude_tool_ids'], bool(found.options or found.check_first))
+                found = found.model_copy(update={'message': note + (' ' + found.message if found.options or found.check_first else '')})
             result = found.model_dump(mode="json")
             result["ruled_out_by_owner"] = memory.ruled_out
             surface_id = f"penny-recommendation-{secrets.token_urlsafe(8)}"
@@ -580,15 +613,27 @@ def _run_action(
             memory.budget_monthly_usd, memory.background_done = cleaned.budget_monthly_usd, cleaned.background_done
             return ActionResult(data={"saved": cleaned.model_dump()}, events=[_memory_event(cleaned)])
         if name == "ask_owner":
+            problem_ids = arguments.get('problem_ids')
+            if arguments.get('question_id') == 'task':
+                # The model sometimes asks the open "what do you need help with" question without choices.
+                # When the business is known, offer tasks that fit it rather than failing the whole turn.
+                known = {card.id for card in catalog.problem_cards}
+                valid = (isinstance(problem_ids, list) and 2 <= len(problem_ids) <= 3
+                         and len(set(problem_ids)) == len(problem_ids) and all(pid in known for pid in problem_ids))
+                trade = memory.trade or profile.trade
+                if not valid and trade:
+                    problem_ids = suggested_task_ids(catalog, trade, 3)
+            arguments_question_id = arguments.get('question_id')
             try:
-                arguments = question(catalog, arguments.get('question_id'), arguments.get('problem_ids'))
+                arguments = question(catalog, arguments.get('question_id'), problem_ids)
             except ValueError:
                 return ActionResult(data={'error': 'Choose a supported question_id. For task clarification, supply two or three relevant, distinct catalog problem_ids.'})
             question_text = str(arguments.get("question", ""))[:200]
-            choices = [choice[:80] for choice in _string_list(arguments.get("choices"))[:4]]
+            choices = [choice[:80] for choice in _string_list(arguments.get("choices"))[:MAX_QUESTION_CHOICES]]
             if not question_text or len(choices) < 2:
                 return ActionResult(data={"error": "Give one question and 2-4 choices."})
             event: dict[str, Any] = {"type": "clarify", "question": question_text, "choices": choices}
+            shown_tasks = list(problem_ids) if arguments_question_id == 'task' else []
             progress = arguments.get("progress")
             if isinstance(progress, str) and progress.strip():
                 event["progress"] = progress.strip()[:30]
@@ -604,7 +649,7 @@ def _run_action(
                     }]}},
                 ],
             }
-            return ActionResult(data={"asked": True}, events=[a2ui, event], stop=True)
+            return ActionResult(data={"asked": True, "shown_task_ids": shown_tasks}, events=[a2ui, event], stop=True)
     except KeyError as exc:
         return ActionResult(data={"error": str(exc.args[0])})
     chat_guard.audit("unknown_action", "tool")
@@ -687,12 +732,25 @@ def observe_validation(reply):
                                          'validation_reason': reply.reason or 'ok'})
 
 
+def recover_alternatives(reply, package, guard):
+    """Discard invalid model output; a completed alternatives lookup can still answer.
+
+    The replacement is rebuilt from the checked package, never from rejected prose.
+    Guard interceptions and unavailable lookups remain closed.
+    """
+    if (reply.status == 'fallback' and not guard.tripped and package.status == 'ok'
+            and 'alternatives:scope' in package.required_claim_ids):
+        return validate_answer(default_answer(package), package, guard)
+    return reply
+
+
 _CONTEXT_REASONS = {
     'Task needs an exact owner excerpt': 'context_no_excerpt',
     'Do not override the current task or its ambiguity': 'context_overrides_current_task',
     'A new task needs a meaningful owner excerpt': 'context_weak_excerpt',
     'Choose which pending task before recommending one': 'context_pending_choice',
     'Task excerpt must come from an affirmative owner request': 'context_not_affirmative',
+    'The owner has not named a business problem yet': 'context_no_problem_named',
 }
 _FIXED_REASONS = {'routing_already_fixed', 'unbound_business_context'}
 
@@ -750,6 +808,33 @@ def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, fo
         yield event
 
 
+async def _ask_what_they_need(gate, catalog, profile, memory, body) -> AsyncIterator[dict[str, Any]]:
+    """Answers a request that names no problem with a question and buttons. No model call."""
+    trade = memory.trade or profile.trade
+    if not trade and not memory.background_done:
+        arguments: dict[str, Any] = {'question_id': 'business'}
+    else:
+        arguments = {'question_id': 'task', 'problem_ids': suggested_task_ids(catalog, trade, 3)}
+    result = run_action(catalog, 'ask_owner', arguments, profile, memory)
+    yield {"type": "status", "text": "Penny is thinking",
+           'auth_mode': 'account' if body._principal.authenticated else 'guest',
+           'account_id': body._principal.user_id}
+    ready, settled = _settle_run(gate)
+    for event in settled:
+        yield event
+    if not ready or result.data.get('error'):
+        if ready:
+            yield _unavailable()
+        yield {"type": "done"}
+        return
+    memory.pending_question = arguments['question_id']
+    memory.pending_task_ids = arguments.get('problem_ids', [])
+    yield _memory_event(memory)
+    for event in result.events:
+        yield event
+    yield {"type": "done"}
+
+
 async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     """One in-flight slot per chat turn, for every runtime, taken before any readiness check or spend reservation."""
     if not _claim_inflight():
@@ -784,6 +869,20 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         yield {"type": "done"}
         return
     memory = _clean_memory(catalog, body.memory)
+    # Software the owner plainly says they already use is recorded before any lookup,
+    # so a first answer never treats an existing subscription as a new purchase.
+    stated = stated_ownership(catalog, body.message)
+    learned_ownership = False
+    for tool_id, plan in stated:
+        if tool_id not in memory.owned:
+            memory.owned.append(tool_id)
+            learned_ownership = True
+        if plan and memory.plans.get(tool_id) != plan:
+            memory.plans[tool_id] = plan
+            learned_ownership = True
+    if learned_ownership:
+        memory.ruled_out = [tool_id for tool_id in memory.ruled_out if tool_id not in memory.owned]
+        memory = _clean_memory(catalog, memory)
     body.memory = memory
     if not memory.pending_task_ids:
         memory.pending_task_ids = pending_tasks(catalog, body)[:3]
@@ -797,6 +896,12 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     history = [{"role": item.role, "content": item.text} for item in body.history]
     while history and history[0]["role"] != "user":
         history.pop(0)
+    if is_generic_request(body.message) and not memory.pending_task_ids:
+        # "I want an AI tool" names no problem. Ask instead of letting the model guess one:
+        # start the background questions if the business is unknown, otherwise offer tasks that fit it.
+        async for event in _ask_what_they_need(gate, catalog, current, memory, body):
+            yield event
+        return
     if runtime() == "hermes":
         async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory):
             yield event
@@ -820,6 +925,8 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     yield {"type": "status", "text": "Penny is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
+    if learned_ownership:
+        yield _memory_event(memory)
 
     for _ in range(MAX_ROUNDS):
         if body._check_session is not None:
@@ -914,6 +1021,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                 return
             validated = submit_selection(raw, package, guard)
             observe_validation(validated)
+            validated = recover_alternatives(validated, package, guard)
             if chat_guard.reason(validated.text):
                 validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
             followup = raw.get('followup_id') if isinstance(raw, dict) else None
@@ -935,6 +1043,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                 return
             validated = validate_answer(turn['text'], package, guard)
             observe_validation(validated)
+            validated = recover_alternatives(validated, package, guard)
             if chat_guard.reason(validated.text):
                 validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
             for event in catalog_reply_events(catalog, body.profile, memory, validated, guard, resolved_tasks):
@@ -1017,7 +1126,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                                 else action_package(catalog, current, body, call['name'], call['arguments']))
                 if call['name'] == 'recommend_tools':
                     next_tasks = list(dict.fromkeys([*resolved_tasks, str(call['arguments']['problem_id'])]))
-                    next_package = build_evidence(catalog, current, next_tasks)
+                    next_package = recommendation_package(catalog, current, next_tasks, call['arguments'])
                 package = qualify_package(catalog, next_package, body)
                 if call['name'] == 'recommend_tools':
                     resolved_tasks = next_tasks
@@ -1027,7 +1136,8 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                     yield _memory_event(memory)
                 elif call['name'] == 'ask_owner':
                     memory.pending_question = call['arguments']['question_id']
-                    memory.pending_task_ids = call['arguments'].get('problem_ids', []) if memory.pending_question == 'task' else []
+                    # The tasks actually offered: the backend may have replaced the model's list.
+                    memory.pending_task_ids = result.data.get('shown_task_ids', []) if memory.pending_question == 'task' else []
                     yield _memory_event(memory)
             except ActionContextError:
                 package = qualify_package(catalog, request_package(catalog, current, body), body)
@@ -1035,7 +1145,8 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                                'pending_task_ids': pending_tasks(catalog, body)}
                 result.events = []
             except (KeyError, ValueError, TypeError):
-                package = build_evidence(catalog, current, [], available=False)
+                if call['name'] != 'ask_owner':
+                    package = build_evidence(catalog, current, [], available=False)
                 # Invalid context/IDs must not leave a stale result on screen.
                 result.events = []
             for event in result.events:
@@ -1295,9 +1406,11 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                 resolved = hermes_routing.apply(routed, catalog, profile, memory, body)
                 if resolved is not None:
                     next_package, next_profile, tasks = resolved
-                    if routing_done:
+                    changed = next_package.package_id != package.package_id or next_profile != profile
+                    if routing_done and changed:
+                        # The second run may not re-route; restating the routing it was given is harmless.
                         raise ValueError('routing_already_fixed')
-                    if next_package.package_id != package.package_id or next_profile != profile:
+                    if changed:
                         memory.trade = next_profile.trade
                         memory.active_task_ids = tasks
                         memory.pending_question = None

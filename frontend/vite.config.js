@@ -8,7 +8,8 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      '/api': 'http://127.0.0.1:8152',
+      // Backend port 8152 (see docs); end-to-end tests point this elsewhere with API_PROXY_TARGET.
+      '/api': process.env.API_PROXY_TARGET || 'http://127.0.0.1:8152',
     },
     fs: {
       allow: ['..'],

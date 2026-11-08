@@ -1,4 +1,5 @@
 import hmac
+import logging
 import asyncio
 import os
 import threading
@@ -8,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
 
 from . import access, adoption, auth, db, discovery, web
@@ -15,6 +18,7 @@ from .agent import bindings
 from .capacity import Capacity
 from .chat import router as chat_router
 from .chat_history import router as chat_history_router
+from .favourites import router as favourites_router
 from .comparison import AssignmentError, compare
 from .facts import tool_facts
 from .matching import check_stack, recommend
@@ -89,15 +93,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Main Street AI", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def _log_rejected_fields(request: Request, exc: RequestValidationError):
+    """Say which fields a rejected request got wrong (names only, never their content), then answer as usual."""
+    fields = sorted({'.'.join(str(part) for part in error.get('loc', ())) for error in exc.errors()})
+    logging.getLogger('app.requests').warning('Rejected %s %s: invalid %s', request.method, request.url.path, ', '.join(fields))
+    return await request_validation_exception_handler(request, exc)
 web.install(app)
 app.include_router(chat_router)
 app.include_router(chat_history_router)
+app.include_router(favourites_router)
 
 
 @app.middleware('http')
 async def private_responses_are_not_cached(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(('/api/auth/', '/api/plans', '/api/chat/history')):
+    if request.url.path.startswith(('/api/auth/', '/api/plans', '/api/chat/history', '/api/favourites')):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Vary'] = 'Authorization'
     return response

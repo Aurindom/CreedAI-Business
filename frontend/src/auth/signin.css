@@ -1,0 +1,69 @@
+/* The sign-in page. It reuses the site's header, kicker, heading, card and field classes
+   (theme.css, a11y.css); this file only lays them out and styles the few parts the site doesn't have. */
+.site-shell.signin-page { min-height: 100vh; display: flex; flex-direction: column; background: radial-gradient(ellipse at 50% 0%, #30213e44, transparent 60%), var(--page); color: var(--text); }
+.signin-page .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* Header: the site's street header. Keep the back button visible on phones, where the site hides its Compare button. */
+.site-shell .street-header .nav-quick-compare.signin-back { display: inline-flex; font-size: 14px; min-height: 44px; }
+
+.signin-main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); align-items: center; gap: clamp(32px, 6vw, 96px); width: 100%; max-width: 1120px; margin: 0 auto; padding: clamp(40px, 7vw, 96px) clamp(20px, 4vw, 64px); box-sizing: border-box; }
+
+/* Left: the same kicker and heading as the finder's steps. */
+.site-shell .signin-intro.section-heading { display: block; margin: 0; animation: signin-in .45s ease both; }
+.signin-intro h2 { margin: 16px 0 22px; font-size: clamp(34px, 4.4vw, 56px); line-height: 1.06; letter-spacing: -.05em; }
+.signin-intro ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.signin-intro li { position: relative; padding-left: 28px; color: var(--muted); font-size: 16px; line-height: 1.6; }
+.signin-intro li::before { content: '✳'; position: absolute; left: 0; color: var(--accent); }
+
+/* Right: the site's form card. */
+.form-card.signin-card { display: block; animation: signin-in .45s .08s ease both; }
+.signin-card h1 { margin: 0 0 8px; color: var(--text); font-size: 30px; font-weight: 560; line-height: 1.2; letter-spacing: -.05em; outline: none; }
+.signin-sub { margin: 0 0 20px; color: var(--muted); font-size: 16px; line-height: 1.6; }
+.signin-policy { margin: -6px 0 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); color: var(--text); font-size: 14px; line-height: 1.5; }
+.signin-note { margin: 0 0 16px; color: var(--text); font-size: 16px; line-height: 1.6; }
+
+.signin-form { display: grid; gap: 18px; }
+.signin-field-group { display: grid; gap: 8px; }
+.signin-label { color: var(--text); font-size: 15px; font-weight: 550; line-height: 1.5; }
+.site-shell .signin-field input { width: 100%; box-sizing: border-box; padding: 12px 14px; }
+.site-shell .signin-field input[aria-invalid='true'] { border-color: #d98a84; }
+.signin-password { position: relative; }
+.site-shell .signin-password input { padding-right: 84px; }
+.signin-show { position: absolute; top: 3px; right: 3px; min-width: 72px; min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--accent); font-size: 14px; font-weight: 600; cursor: pointer; }
+.signin-show:hover { background: #2a2037; }
+
+.signin-rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.signin-rules li { display: flex; align-items: center; gap: 8px; color: var(--subtle); font-size: 14px; line-height: 1.5; transition: color .2s ease; }
+.signin-rules li span[aria-hidden] { display: inline-grid; place-items: center; width: 18px; }
+.signin-rules li.is-met { color: var(--positive); }
+
+/* Same lavender pill as the finder's "See my options" button. */
+.signin-primary { width: 100%; min-height: 48px; margin-top: 4px; padding: 0 20px; border: 0; border-radius: 24px; background: var(--accent); color: var(--accent-ink); font-size: 16px; font-weight: 700; cursor: pointer; transition: transform .2s ease, opacity .2s ease; }
+.signin-primary:hover:not(:disabled) { transform: translateY(-1px); }
+.signin-primary:disabled { opacity: .6; cursor: progress; }
+.signin-link { min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--accent); font-size: 15px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+.signin-card > .signin-link { display: block; margin: 8px auto 0; }
+.signin-forgot { justify-self: end; margin-top: -10px; }
+.signin-switch { margin: 0; color: var(--muted); font-size: 15px; text-align: center; }
+
+.signin-error { margin: 0; padding: 12px 14px; border: 1px solid #d98a84; border-radius: 12px; background: #3a1d1f; color: #ffd9d4; font-size: 15px; line-height: 1.5; }
+.signin-success { margin: 0 0 16px; padding: 12px 14px; border: 1px solid #3a5b49; border-radius: 12px; background: #16271f; color: #d6f2e1; font-size: 15px; line-height: 1.5; }
+
+/* The site's footer line. */
+.signin-footer { display: flex; justify-content: center; padding: 22px 20px 28px; border-top: 1px solid var(--line); color: var(--subtle); font-size: 13px; }
+
+@keyframes signin-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 820px) {
+  .signin-main { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 28px; padding-top: 28px; }
+  .form-card.signin-card { order: -1; }
+  .signin-intro h2 { font-size: 30px; margin-bottom: 14px; }
+}
+@media (max-width: 480px) {
+  .site-shell .street-header .nav-quick-compare.signin-back { font-size: 13px; padding: 8px 12px; }
+  .signin-card h1 { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .signin-intro, .signin-card { animation: none; }
+  .signin-primary, .signin-rules li { transition: none; }
+}
