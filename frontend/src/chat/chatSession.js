@@ -51,6 +51,28 @@ export function clearSession(storage = store()) {
   }
 }
 
+// Older snapshots saved the evidence paragraph after the same turn's cards.
+// Keep the stored conversation intact; omit that duplicate from presentation.
+export function visibleMessages(messages) {
+  let title = null
+  let evidence = false
+  return messages.filter((message) => {
+    if (message.kind === 'user') { title = null; evidence = false }
+    const component = message.protocol?.[1]?.updateComponents?.components?.[0]
+    if (message.kind === 'result' || component?.component === 'PennyRecommendation') {
+      title = message.problemTitle || component?.problemTitle
+      evidence = false
+    }
+    const isText = message.kind === 'assistant' || (message.kind === 'a2ui' && message.surface === 'text')
+    if (title && isText && (evidence || (message.text?.startsWith(`${title}:`) && message.text.includes('Source: https://')))) {
+      evidence = true
+      return false
+    }
+    if (!isText) evidence = false
+    return true
+  })
+}
+
 export function historyFor(messages, { dropLastUser = false } = {}) {
   const items = messages.flatMap((message) => {
     if (message.kind === 'user') return [{ role: 'user', text: message.text }]

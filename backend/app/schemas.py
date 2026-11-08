@@ -343,6 +343,7 @@ class ToolFact(BaseModel):
 class Option(BaseModel):
     tool_id: str
     tool_name: str
+    service_url: HttpUrl | None = None
     status: ToolStatus
     route: Route
     fit: Fit

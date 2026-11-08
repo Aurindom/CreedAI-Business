@@ -18,6 +18,10 @@ Penny interprets owner language and selects catalog task keys. The backend retri
 
 The recommendation surface presents up to three catalog options first, with remaining alternatives and product facts/sources expandable. Each card names the catalog task purpose. If only uncertain candidates exist, the surface labels them for checking. The options are alternatives, not a bundle of subscriptions the owner must buy. Prices, eligibility, review status and uncertainty remain controlled by the existing recommendation engine. No HVAC-specific response or vendor list was added to routing.
 
+Validated task selections also emit cards when the planner submits the initial evidence directly, without first calling `recommend_tools`. Evidence text remains available on the compatible event stream with `presentation: recommendation_evidence`; the card renderer omits that duplicate prose. Comparison/stack replies and validation failures are not suppressed. Older cached evidence following the same task's cards is compacted only for display, preserving stored history.
+
+Every new option includes `service_url` from the catalog tool record. Missing pricing is presented as “Check current pricing”; missing facts say “Confirm with the service” with a safe service/source link. Existing uncertainty notes remain visible. Cached cards can recover their URL from the loaded catalog or an existing source; links and prices are never invented. The printable summary follows the same wording and link policy.
+
 ## Verification
 
 `backend/tests/test_penny_routing.py` exercises paraphrases across several categories, the reservation-question loop and a complaint about repetition, known budget preservation, active-task state, multiple task actions, specific-task answers before intake, relevant clarification choices, fabricated excerpts, assistant-only excerpts, negation and conflicting tasks. Model responses are mocked for these offline tests; they do not prove live model behavior.

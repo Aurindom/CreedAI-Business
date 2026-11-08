@@ -163,6 +163,7 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
     return Option(
         tool_id=tool.id,
         tool_name=tool.name,
+        service_url=tool.url,
         status=tool.status,
         route=route,
         fit=fit,

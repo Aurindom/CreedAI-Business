@@ -28,7 +28,9 @@
 .msc-row-user { align-items: stretch; }
 .msc-resume { margin: 0; color: #4d6365; font-size: 13px; text-align: center; }
 .msc-ai-note { font-size: 13px; }
-.msc-row p { margin: 0; max-width: 88%; padding: 10px 13px; border-radius: 12px; background: #e9eee8; line-height: 1.45; overflow-wrap: anywhere; }
+.msc-row p { margin: 0; max-width: 88%; padding: 10px 13px; border-radius: 12px; background: #e9eee8; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.msc-service-link { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; padding: 10px 0; font-weight: 600; color: inherit; text-underline-offset: 4px; }
+.msc-fact-note { display: block; margin-top: 4px; }
 .msc-row-user { justify-content: flex-end; }
 .msc-row-user p { background: #184f4c; color: #fff; }
 .msc-clarify { flex-direction: column; align-items: stretch; gap: 8px; }

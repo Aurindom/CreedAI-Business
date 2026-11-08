@@ -42,7 +42,7 @@ export function readSimpleSurface(protocol, surfaceType, componentName) {
   return component
 }
 
-export default function A2UISurface({ protocol, onSelect, busy, ruledOut, onPrint }) {
+export default function A2UISurface({ protocol, onSelect, busy, ruledOut, onPrint, serviceUrls }) {
   if (readQuestionSurface(protocol)) return <A2UIQuestion protocol={protocol} onSelect={onSelect} busy={busy} />
   const text = readSimpleSurface(protocol, 'text', 'PennyText')
   if (text) return <div className="msc-row"><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{text.text}</p></div>
@@ -54,6 +54,7 @@ export default function A2UISurface({ protocol, onSelect, busy, ruledOut, onPrin
     problemTitle={result.problemTitle}
     taskPurpose={result.taskPurpose}
     statuses={result.statuses}
+    serviceUrls={serviceUrls}
     ruledOut={ruledOut}
     onPrint={() => onPrint({ recommendation: result.recommendation, problemTitle: result.problemTitle, statuses: result.statuses })}
   />

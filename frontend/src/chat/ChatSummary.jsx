@@ -1,6 +1,6 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
-import { costText, HEADLINES, ROUTE_LABELS, safeUrl, statusLabel } from './ChatResult'
+import { costText, HEADLINES, ROUTE_LABELS, safeUrl, serviceUrl, statusLabel } from './ChatResult'
 import { vendorQuestions } from './vendorQuestions'
 
 function SummaryOption({ option, status }) {
@@ -8,10 +8,11 @@ function SummaryOption({ option, status }) {
     <div className="msc-print-option">
       <h3>{option.tool_name}</h3>
       <p>{ROUTE_LABELS[option.route] || 'An option to consider'} · {costText(option)} · {statusLabel(status)}</p>
+      {serviceUrl(option) && <p>Service: {serviceUrl(option)}</p>}
       <ul>
         {option.facts.map((fact) => {
           const url = safeUrl(fact.source_url)
-          return <li key={fact.label}>{fact.label}: {fact.known ? fact.value : 'Unknown'}{url ? ` (${url}${fact.checked ? `, checked ${fact.checked}` : ''})` : ''}</li>
+          return <li key={fact.label}>{fact.label}: {fact.known ? fact.value : 'Confirm with the service'}{(url || (!fact.known && serviceUrl(option))) ? ` (${url || serviceUrl(option)}${fact.checked ? `, checked ${fact.checked}` : ''})` : ''}</li>
         })}
       </ul>
     </div>

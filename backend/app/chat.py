@@ -665,6 +665,30 @@ def observe_validation(reply):
                                          'validation_reason': reply.reason or 'ok'})
 
 
+def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks):
+    """Always pair validated task answers with cards, including direct selections."""
+    tasks = [card.id for card in catalog.problem_cards
+             if reply.status == 'validated' and 'stack' not in reply.claim_ids
+             and f'{card.id}:decision' in reply.claim_ids]
+    for task in tasks:
+        if task in shown_tasks:
+            continue
+        result = run_action(catalog, 'recommend_tools', {'problem_id': task}, profile, memory)
+        if result.data.get('error') or guard.leaks(json.dumps(result.events, default=str)):
+            yield from reply_events(FALLBACK, 'fallback')
+            return
+        shown_tasks.append(task)
+        memory.active_task_ids = list(shown_tasks)
+        yield _memory_event(memory)
+        yield from result.events
+    for event in reply_events(reply.text, reply.status):
+        if tasks:
+            # Full evidence stays on the wire for compatibility. The card UI
+            # already presents this information and must not repeat the audit prose.
+            event['presentation'] = 'recommendation_evidence'
+        yield event
+
+
 async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     blocked = chat_guard.check_request(body)
     if blocked:
@@ -770,7 +794,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             memory.pending_task_ids = [pending_task] if validated.status == 'validated' and pending_task and any(card.id == pending_task for card in catalog.problem_cards) else []
             memory.pending_question = 'task' if memory.pending_task_ids else None
             yield _memory_event(memory)
-            for event in reply_events(validated.text, validated.status):
+            for event in catalog_reply_events(catalog, body.profile, memory, validated, guard, resolved_tasks):
                 yield event
             yield {'type': 'done'}
             return
@@ -780,7 +804,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             observe_validation(validated)
             if chat_guard.reason(validated.text):
                 validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
-            for event in reply_events(validated.text, validated.status):
+            for event in catalog_reply_events(catalog, body.profile, memory, validated, guard, resolved_tasks):
                 yield event
             yield {"type": "done"}
             return
@@ -801,7 +825,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                 # answer when the planner repeats an explicitly answered question.
                 validated = validate_answer(default_answer(package), package, guard)
                 observe_validation(validated)
-                for event in reply_events(validated.text, validated.status):
+                for event in catalog_reply_events(catalog, body.profile, memory, validated, guard, resolved_tasks):
                     event['selection_origin'] = 'backend_known_context'
                     yield event
                 yield {'type': 'done'}
@@ -814,7 +838,7 @@ async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
                     memory.pending_question = None
                     memory.pending_task_ids = []
                     yield _memory_event(memory)
-                    for event in reply_events(validated.text, validated.status):
+                    for event in catalog_reply_events(catalog, body.profile, memory, validated, guard, resolved_tasks):
                         event['selection_origin'] = 'backend_known_context'
                         yield event
                     yield {'type': 'done'}

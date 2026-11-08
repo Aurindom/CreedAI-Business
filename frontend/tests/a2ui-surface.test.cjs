@@ -83,3 +83,21 @@ test('A2UI shows a concise task-specific tool shortlist with expandable detail',
   assert.equal(document.querySelector('.msc-option details').open, false)
   await React.act(async () => root.unmount())
 })
+
+test('missing prices and facts offer the actual service link without unknown labels', async () => {
+  const option = { tool_id: 'service', tool_name: 'Example service', service_url: 'https://example.com/', route: 'separate_tool', added_monthly_usd: null, cost_note: 'The billing period is not published.', fit_note: 'Check the required workflow.', facts: [{ label: 'Privacy', known: false, value: 'Unknown', note: 'Ask about retention.' }] }
+  const root = await render(protocol('recommendation', 'PennyRecommendation', { recommendation: { outcome: 'verify_with_vendor', message: 'Check the plan before buying.', options: [option], check_first: [], set_aside: [] }, problemTitle: 'Calls go unanswered', statuses: {} }))
+  assert.doesNotMatch(document.querySelector('.msc-result').textContent, /unknown/i)
+  assert.match(document.querySelector('.msc-cost').textContent, /Check current pricing/)
+  assert.equal(document.querySelector('.msc-service-link').href, 'https://example.com/')
+  assert.equal(document.querySelector('.msc-facts a').href, 'https://example.com/')
+  assert.match(document.querySelector('.msc-facts').textContent, /Ask about retention/)
+  await React.act(async () => root.unmount())
+})
+
+test('cached cards recover the service link from the catalog and reject unsafe URLs', async () => {
+  const option = { tool_id: 'cached', tool_name: 'Cached service', service_url: 'javascript:alert(1)', added_monthly_usd: null, facts: [] }
+  const root = await render(protocol('recommendation', 'PennyRecommendation', { recommendation: { outcome: 'verify_with_vendor', message: 'Check the plan.', options: [option], check_first: [], set_aside: [] }, problemTitle: 'Bookings', statuses: {} }), { serviceUrls: { cached: 'https://example.com/service' } })
+  assert.equal(document.querySelector('.msc-service-link').href, 'https://example.com/service')
+  await React.act(async () => root.unmount())
+})
