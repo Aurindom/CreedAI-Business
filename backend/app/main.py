@@ -13,10 +13,10 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
 
-from . import access, adoption, auth, db, discovery, web
+from . import access, adoption, auth, db, discovery, web, schemas
 from .agent import bindings
 from .capacity import Capacity
-from .chat import router as chat_router
+from .chat import ChatMemory, ChatRequest, router as chat_router
 from .chat_history import router as chat_history_router
 from .favourites import router as favourites_router
 from .comparison import AssignmentError, compare
@@ -97,9 +97,14 @@ app = FastAPI(title="Main Street AI", lifespan=lifespan)
 
 @app.exception_handler(RequestValidationError)
 async def _log_rejected_fields(request: Request, exc: RequestValidationError):
-    """Say which fields a rejected request got wrong (names only, never their content), then answer as usual."""
-    fields = sorted({'.'.join(str(part) for part in error.get('loc', ())) for error in exc.errors()})
-    logging.getLogger('app.requests').warning('Rejected %s %s: invalid %s', request.method, request.url.path, ', '.join(fields))
+    """Only schema field names are diagnostic data; dict keys and URL values can be private."""
+    models = [value for value in vars(schemas).values() if isinstance(value, type) and issubclass(value, BaseModel)]
+    models += [ChatRequest, ChatMemory, RecommendRequest, StackRequest, CompareRequest, PlanRequest, TaskRequest]
+    allowed = {'body', 'query', 'path', 'header', 'cookie'} | {name for model in models for name in model.model_fields}
+    fields = sorted({'.'.join(str(part) if isinstance(part, int) or part in allowed else '<key>'
+                             for part in error.get('loc', ())[:8]) for error in exc.errors()})[:20]
+    route = getattr(request.scope.get('route'), 'path', '<unmatched>')
+    logging.getLogger('app.requests').warning('Rejected %s %s: invalid %s', request.method, route, ', '.join(fields))
     return await request_validation_exception_handler(request, exc)
 web.install(app)
 app.include_router(chat_router)

@@ -314,8 +314,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
       if (!validation.allowed) { setInputError(validation.message); finish(run); return }
     } catch (error) {
       if (error?.status === 422 && Array.isArray(error.detail)) {
-        // Field names only, to find what the backend rejected. Never the owner's text.
-        console.warn('Penny: the backend rejected these fields:', error.detail.map((item) => (item.loc || []).join('.')).join(', '))
+        // Dynamic dictionary keys in error locations may themselves contain private data.
+        console.warn('Penny: request validation failed; rejected field count:', error.detail.length)
       }
       setInputError(checkFailureMessage(error))
       finish(run)
