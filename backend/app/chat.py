@@ -41,7 +41,7 @@ from .agent.prompts import SYSTEM_PROMPT as GROUNDED_PROMPT
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
 from .penny_conversation import ConversationReply, validate_conversation, reply_choices
 from .penny_grounding import (ActionContextError, action_package, filtered_context, question, request_package, qualify_package,
-                              plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, is_generic_request,
+                              plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, is_generic_request, ambiguous_choices,
                               recommendation_catalog, recommendation_package, alternatives_note)
 
 logger = logging.getLogger(__name__)
@@ -1435,6 +1435,19 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
         yield dict(TOOL_FAILED, code=tool_code)
         yield {"type": "done"}
         return
+    if routing_invalid:
+        # A refused routing for an ambiguous message ("Not that one, I mean scheduling") gets a question with
+        # the matching tasks as buttons, instead of a dead-end "could not validate". Server-authored; no model call.
+        choices = ambiguous_choices(catalog, body.message, memory.trade or profile.trade)
+        asked = run_action(catalog, 'ask_owner', {'question_id': 'task', 'problem_ids': choices}, profile, memory) if choices else None
+        if asked is not None and not asked.data.get('error'):
+            memory.pending_question = 'task'
+            memory.pending_task_ids = asked.data.get('shown_task_ids', choices)
+            yield _memory_event(memory)
+            for event in asked.events:
+                yield event
+            yield {"type": "done"}
+            return
     # Selection reduces copied binding/citation fields; old grounded JSON stays compatible.
     conversational = False
     if routing_invalid:

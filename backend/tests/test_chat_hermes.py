@@ -586,3 +586,49 @@ def test_routing_reason_never_echoes_error_text():
     assert chat.routing_reason(ValueError('anything the model said')) == 'invalid_valueerror'
     assert chat.routing_reason(json.JSONDecodeError('x', 'model text', 0)) == 'output_not_json'
     assert chat.routing_reason(ValueError('routing_already_fixed')) == 'routing_already_fixed'
+
+
+SCHEDULING = {'appointment_booking': 'Booking appointments takes too long', 'job_scheduling': 'Scheduling jobs is a mess',
+              'staff_scheduling': 'Building the staff schedule takes too long'}
+
+
+def _refused_scheduling_routing(package):
+    # What live Hermes sent: both scheduling tasks, quoting the OLD message, which the backend must refuse.
+    raw = {'claim_ids': [], 'followup_id': None, 'conversation_intent': None, 'reply_id': None,
+           'routes': [{'problem_id': 'job_scheduling', 'task_text': 'My books are behind'},
+                      {'problem_id': 'staff_scheduling', 'task_text': 'My books are behind'}],
+           'trade': None, 'trade_text': None}
+    return answer(package, tools=(), output=json.dumps(raw))
+
+
+@pytest.mark.parametrize('message', ['Not that one, I mean scheduling', "I don't need help with reviews, just scheduling"])
+def test_refused_routing_for_ambiguous_scheduling_asks_which_kind(client, hermes, message):
+    hermes(FakeHermes(_refused_scheduling_routing))
+    events = frames(client.post('/api/chat', json={**BODY, 'profile': {}, 'message': message,
+                                                   'memory': {'active_task_ids': ['bookkeeping']},
+                                                   'history': [{'role': 'user', 'text': 'My books are behind'}]}))
+    asked = [e for e in events if e['type'] == 'clarify']
+    assert asked and asked[0]['question'] == 'What would you like help with?'
+    assert set(asked[0]['choices'][:-1]) == set(SCHEDULING.values())
+    assert not any('could not validate' in e['text'] for e in texts(events))
+    memory = [e['memory'] for e in events if e['type'] == 'memory'][-1]
+    assert memory['pending_question'] == 'task' and set(memory['pending_task_ids']) == set(SCHEDULING)
+
+
+def test_ambiguous_question_puts_the_owners_business_first(client, hermes):
+    hermes(FakeHermes(_refused_scheduling_routing))
+    events = frames(client.post('/api/chat', json={**BODY, 'profile': {'trade': 'bakery'}, 'message': 'Not that one, I mean scheduling',
+                                                   'memory': {'trade': 'bakery', 'active_task_ids': ['bookkeeping']},
+                                                   'history': [{'role': 'user', 'text': 'My books are behind'}]}))
+    asked = [e for e in events if e['type'] == 'clarify']
+    assert asked and asked[0]['choices'][0] == SCHEDULING['staff_scheduling']
+
+
+def test_refused_routing_for_a_clear_message_still_falls_back(client, hermes):
+    # Only ambiguity gets a question; anything else keeps Aurin's closed fallback.
+    raw = {'claim_ids': [], 'followup_id': None, 'routes': [{'problem_id': 'bookkeeping', 'task_text': 'made up owner text'}],
+           'trade': None, 'trade_text': None}
+    hermes(FakeHermes(lambda p: answer(p, tools=(), output=json.dumps(raw))))
+    events = frames(client.post('/api/chat', json={**BODY, 'message': 'hello'}))
+    assert not [e for e in events if e['type'] == 'clarify']
+    assert not any(e.get('validation') == 'validated' for e in texts(events))

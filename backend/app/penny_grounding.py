@@ -32,6 +32,18 @@ def is_generic_request(text):
     return bool(words) and all(word in _GENERIC_WORDS for word in words) and any(word in _GENERIC_CORE for word in words)
 
 
+def ambiguous_choices(catalog, message, trade=None):
+    """The 2-3 catalog tasks an ambiguous message points at ("scheduling": appointments, jobs or staff),
+    those that fit the owner's business first. None when the message is not ambiguous."""
+    match = resolve_task(catalog, message)
+    ids = [card.id for card in match.choices] if match.status == 'ambiguous' else []
+    if trade:
+        trade = catalog.resolve_trade(trade) or trade
+        fits = {card.id for card in catalog.problem_cards if trade in card.trades or 'all' in card.trades}
+        ids = sorted(ids, key=lambda pid: pid not in fits)
+    return ids[:3] if len(ids) >= 2 else None
+
+
 def suggested_task_ids(catalog, trade, limit=3):
     """Tasks to offer when the owner hasn't named one: ones for their business first, then common ones.
 
