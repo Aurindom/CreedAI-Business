@@ -6,9 +6,13 @@ Files: `deploy/Dockerfile`, `deploy/compose.prod.yml`, `deploy/Caddyfile`,
 DNS and Supabase settings are done by hand.
 
 Tested: offline `docker compose config`, a local image build and an offline smoke
-run (see the release notes for the exact result). Not tested: a real VM, a real
-domain with TLS, real Supabase production settings, a paid model call through this
-compose file.
+run with dummy secrets and the gateway pointed at a dead upstream (no model call
+possible). In that run browsing stayed up, a malformed CHAT_MAX_INFLIGHT fell back
+to 3, the app ran as non-root, and `/api/chat/ready` went 503 once the gateway
+tripped on the failed upstream call. That trip holds until reconciled by hand (see
+`docs/PRODUCTION_BUDGET.md`), so a provider outage mid-call needs an operator.
+Not tested: a real VM, a real domain with TLS, real Supabase production settings,
+a paid model call through this compose file.
 
 ## Shape
 
