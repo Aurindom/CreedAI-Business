@@ -12,10 +12,14 @@ The merge adds bounded concurrent Penny chats, a distinct busy response, product
 - The signed-in Creed dashboard was accessible and displayed seven existing Auth users. No account was created, deleted, or changed during inspection.
 - No paid model calls were made. Existing local model spend cap remains $1.
 
-## Pending real-user evidence
+## Completed real two-account check
 
-Two confirmed QA accounts and their passwords have not been provided or selected. Therefore live password login, two-account isolation, logout/re-login recovery, and cross-account private data access have not been certified by the new checker in this session. The dashboard user list does not establish that two-account isolation passes.
+On 2026-11-08, after the owner changed the second QA account, `backend/scripts/check_two_accounts.py` completed against application commit `6c3ff31`: **26 of 26 checks passed**, `complete: true`, with **zero paid model calls**. Both accounts were authenticated and verified by real Supabase. Earlier failure on an unconfirmed second account is superseded by this successful run.
 
-An ignored `sandbox/two-account/.env` template is prepared with the existing public Supabase configuration and an isolated Redis database number, with account credential fields empty. Credentials must remain outside Git and chat. Once two QA users are configured, run `backend/scripts/check_two_accounts.py` and retain its redacted JSON report. It uses real Supabase and Redis with a disposable local app database and a fake model runtime.
+The passing checks cover distinct verified subjects, guest restrictions, forged and revoked token rejection, app-side expiry validation with an advanced test clock, account-scoped plan creation/list/read/refresh, account-scoped history even with identical conversation IDs, logout isolation, stopping an in-progress response on logout, and restoration of the owner's history and plans after signing back in. Model payload checks found no account identifiers, tokens, or emails.
+
+The checker used real Supabase and Redis, an isolated app database, and a fake Hermes/model runtime. The expiration check advanced the app clock; it did not wait for a real token to expire. Recovery was exercised promptly after logout; it does not establish the full 30-day retention duration. Browser account switching remains covered by frontend tests, and favourites were not included in this live checker matrix.
+
+The ignored redacted report is `sandbox/two-account/result.json`. Account passwords, provider tokens and local configuration remain outside Git and chat.
 
 SMTP delivery, confirmation links, production redirects, and a deployed staging host remain separate checks. This merge does not push or deploy changes.
