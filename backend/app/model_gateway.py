@@ -228,12 +228,28 @@ def _pinned(body: dict[str, Any]) -> dict[str, Any]:
                         "allow_fallbacks": False, "require_parameters": True}
     if any(message.get('role') == 'system' and 'penny_hermes_selection_v1' in str(message.get('content', ''))
            for message in body.get('messages', []) if isinstance(message, dict)):
+        from .penny_conversation import reply_choices
+        excerpts = []
+        for message in body.get('messages', []):
+            content = message.get('content', '') if isinstance(message, dict) else ''
+            if isinstance(content, str) and '\nrouting_excerpts: ' in content:
+                try:
+                    candidates = json.loads(content.split('\nrouting_excerpts: ', 1)[1].split('\n', 1)[0])
+                    excerpts = [value for value in candidates if isinstance(value, str) and 1 <= len(value) <= 500][:24]
+                except (ValueError, TypeError):
+                    pass
+        task_text_schema = {'type': 'string', **({'enum': excerpts} if excerpts else {})}
         body['response_format'] = {'type': 'json_schema', 'json_schema': {
             'name': 'penny_selection', 'strict': True, 'schema': {
                 'type': 'object', 'additionalProperties': False,
                 'properties': {'claim_ids': {'type': 'array', 'items': {'type': 'string'}},
-                               'followup_id': {'anyOf': [{'type': 'string'}, {'type': 'null'}]}},
-                'required': ['claim_ids', 'followup_id']}}}
+                               'followup_id': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
+                               'conversation_intent': {'anyOf': [{'type': 'string', 'enum': ['greeting', 'acknowledgement', 'repair', 'help', 'scope']}, {'type': 'null'}]},
+                               'reply_id': {'anyOf': [{'type': 'string', 'enum': list(reply_choices())}, {'type': 'null'}]},
+                               'routes': {'anyOf': [{'type': 'array', 'maxItems': 3, 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'problem_id': {'type': 'string'}, 'task_text': task_text_schema}, 'required': ['problem_id', 'task_text']}}, {'type': 'null'}]},
+                               'trade': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
+                               'trade_text': {'anyOf': [{'type': 'string'}, {'type': 'null'}]}},
+                'required': ['claim_ids', 'followup_id', 'conversation_intent', 'reply_id', 'routes', 'trade', 'trade_text']}}}
     if body.get("stream"):
         body["stream_options"] = {"include_usage": True}
     else:

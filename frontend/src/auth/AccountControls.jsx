@@ -21,7 +21,7 @@ export default function AccountControls({ auth }) {
         : await auth.client.auth.signInWithPassword({ email: email.trim(), password })
       setPassword('')
       if (result.error) setMessage(result.error.message)
-      else if (create && !result.data.session) setMessage('Check your email to confirm your account, then sign in.')
+      else if (create && !result.data.session) setMessage('Check your inbox or spam folder for confirmation. If you already have an account, sign in.')
       else { setOpen(false); setMessage('') }
     } catch { setMessage('Could not reach account sign in. Please try again.') }
     finally { setBusy(false) }
@@ -52,16 +52,14 @@ export default function AccountControls({ auth }) {
 
   return <div className="owner-account">
     {auth.error && <p role="status">{auth.error}</p>}
-    <button type="button" className="owner-account-trigger" onClick={() => setOpen((current) => !current)} disabled={!auth.client || !auth.ready} aria-expanded={open} aria-label={auth.user ? 'Your account' : auth.configured ? 'Sign in to save Penny chat' : 'Account setup pending'} title={!auth.configured ? 'Account setup pending' : undefined}>{auth.user ? 'Account' : auth.configured && (!auth.ready || auth.client) ? 'Sign in' : 'Account'}</button>
+    <button type="button" className="owner-account-trigger" onClick={() => setOpen((current) => !current)} disabled={!auth.client || !auth.ready} aria-expanded={open} aria-label={auth.user ? 'Your account' : auth.configured ? 'Sign in' : 'Account setup pending'} title={!auth.configured ? 'Account setup pending' : undefined}>{auth.user ? 'Account' : auth.configured && (!auth.ready || auth.client) ? 'Sign in' : 'Account'}</button>
     {open && <div className="owner-account-popover">
       {auth.user ? <>
         <div className="owner-account-label">YOUR ACCOUNT</div>
         <p className="owner-account-email">{auth.user.email || 'Signed in'}</p>
-        <p className="owner-account-hint">Penny chat can be restored for five minutes after sign out.</p>
         <button type="button" onClick={signOut} disabled={busy}>{busy ? 'Finishing…' : 'Sign out'}</button>
       </> : <>
-        <div className="owner-account-label">SAVE YOUR PENNY CHAT</div>
-        <p className="owner-account-hint">Sign in to return to your conversation for five minutes after signing out.</p>
+        <div className="owner-account-label">YOUR ACCOUNT</div>
         <form onSubmit={submit} className="owner-account-form">
           <h3>{create ? 'Create your account' : 'Welcome back'}</h3>
           <label>Email<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>

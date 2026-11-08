@@ -81,6 +81,8 @@ def _valid_recommendation_surface(item: dict[str, Any]) -> bool:
         return False
     if not isinstance(component.get("problemTitle"), str) or len(component["problemTitle"]) > 200:
         return False
+    if "taskPurpose" in component and (not isinstance(component["taskPurpose"], str) or len(component["taskPurpose"]) > 200):
+        return False
     try:
         recommendation = Recommendation.model_validate(component.get("recommendation"))
     except ValidationError:

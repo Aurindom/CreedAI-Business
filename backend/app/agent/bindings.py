@@ -20,7 +20,7 @@ from .outcomes import Outcome, action_outcome
 
 RECEIPT_SECONDS = 120
 
-PUBLIC_ACTIONS = frozenset({"recommend_tools", "compare_tools", "get_tool_details", "update_memory", "ask_owner", "submit_answer"})
+PUBLIC_ACTIONS = frozenset({"recommend_tools", "compare_tools", "get_tool_details", "update_memory", "ask_owner", "submit_answer", "respond_conversationally"})
 PRIVATE_ACTIONS = frozenset({"save_plan"})
 RESERVED_ARGUMENTS = frozenset({"user_id", "owner", "owner_hash", "owner_id", "business_id", "session_id", "account", "account_id", "run_id", "receipt"})
 

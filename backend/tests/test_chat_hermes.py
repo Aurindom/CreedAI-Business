@@ -408,3 +408,62 @@ def test_a_clarification_needs_no_lookup_and_is_still_grounded(client, hermes):
     assert texts(events) and all(e['validation'] == 'validated' for e in texts(events))
     assert 'Before answering, call get_tool_details' not in fake.instructions
     assert rows() == []
+
+
+@pytest.mark.parametrize('intent,identifier', [('greeting', 'greeting.0'), ('acknowledgement', 'acknowledgement.0')])
+def test_hermes_social_intent_uses_server_text_without_old_task(client, hermes, intent, identifier):
+    output = json.dumps({'claim_ids': [], 'followup_id': None, 'conversation_intent': intent, 'reply_id': identifier})
+    fake = hermes(FakeHermes(lambda p: answer(p, tools=(), output=output)))
+    events = frames(client.post('/api/chat', json={**BODY, 'message': 'hello' if intent == 'greeting' else 'thank you',
+        'memory': {'active_task_ids': ['bookkeeping']}}))
+    assert not fake.operations
+    assert texts(events) and all(e.get('validation') == 'validated' for e in texts(events))
+    assert all(e.get('response_mode') == 'conversation' for e in texts(events))
+    assert not any(e.get('surface') == 'recommendation' for e in events)
+
+
+def test_hermes_cannot_skip_required_reads_with_social_reply(client, hermes):
+    output = json.dumps({'claim_ids': [], 'followup_id': None, 'conversation_intent': 'greeting', 'reply_id': 'greeting.0'})
+    hermes(FakeHermes(lambda p: answer(p, tools=(), output=output)))
+    events = frames(client.post('/api/chat', json=BODY))
+    assert not any(e.get('validation') == 'validated' for e in texts(events))
+
+
+def test_hermes_semantic_routing_rebuilds_evidence_and_requires_new_reads(client, hermes):
+    outputs = []
+    def script(package):
+        outputs.append(package)
+        if len(outputs) == 1:
+            raw = {'claim_ids': [], 'followup_id': None, 'conversation_intent': None, 'reply_id': None,
+                   'routes': [{'problem_id': 'missed_calls', 'task_text': 'People hang up before we can speak'}],
+                   'trade': None, 'trade_text': None}
+            return answer(package, tools=(), output=json.dumps(raw))
+        return answer(package)
+    fake = hermes(FakeHermes(script))
+    events = frames(client.post('/api/chat', json={**BODY, 'message': 'People hang up before we can speak'}))
+    assert len(outputs) == 2
+    assert outputs[0].package_id != outputs[1].package_id
+    assert any(e['type'] == 'recommendation' and e['problem_id'] == 'missed_calls' for e in events)
+    assert all(row[2] == 'succeeded' for row in rows())
+    assert any(e.get('validation') == 'validated' for e in texts(events))
+
+
+@pytest.mark.parametrize('routes', [
+    [{'problem_id': 'bookkeeping', 'task_text': 'made up owner text'}],
+    [{'problem_id': 'not-a-task', 'task_text': 'hello'}],
+])
+def test_hermes_unbound_routing_never_becomes_a_validated_answer(client, hermes, routes):
+    raw = {'claim_ids': [], 'followup_id': None, 'routes': routes, 'trade': None, 'trade_text': None}
+    fake = hermes(FakeHermes(lambda p: answer(p, tools=(), output=json.dumps(raw))))
+    events = frames(client.post('/api/chat', json={**BODY, 'message': 'hello'}))
+    assert len([r for r in fake.requests if r[1] == '/v1/runs']) == 1
+    assert not any(e.get('validation') == 'validated' for e in texts(events))
+
+
+def test_routing_cannot_override_explicit_business_with_history(client):
+    from app import hermes_routing
+    body = chat.ChatRequest(**{**BODY, 'profile': {'trade': 'restaurant'}, 'message': 'I run a restaurant. Please help with bookkeeping.'})
+    with pytest.raises(ValueError):
+        hermes_routing.apply({'routes': [{'problem_id': 'bookkeeping', 'task_text': 'bookkeeping'}],
+                              'trade': 'hvac', 'trade_text': 'hvac'}, client.app.state.catalog,
+                             body.profile, body.memory, body)

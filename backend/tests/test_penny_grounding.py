@@ -136,7 +136,7 @@ def test_injected_protected_value_is_blocked_not_just_refused(client, monkeypatc
 
 def test_questions_are_server_authored(client, monkeypatch):
     script(monkeypatch, calls(('ask_owner', {'question_id': 'budget'})))
-    events = send(client)
+    events = send(client, message='Help me get started')
     event = next(event for event in events if event['type'] == 'clarify')
     assert event['question'] == 'What can you add to your monthly software bill?'
     assert '$0 added' in event['choices']
@@ -205,7 +205,9 @@ def test_catalog_instructions_never_become_approved_answer_text(client, monkeypa
 def test_model_cannot_change_the_owners_requested_task(client, monkeypatch):
     seen = validated_script(monkeypatch, calls(('recommend_tools', {'problem_id': 'missed_calls'})))
     events = send(client, message='I need help with bookkeeping', profile={'trade': 'hvac'})
-    assert not any(event.get('surface') == 'recommendation' for event in events)
+    cards = [event for event in events if event.get('surface') == 'recommendation']
+    assert len(cards) == 1
+    assert cards[0]['messages'][1]['updateComponents']['components'][0]['recommendation']['problem_id'] == 'bookkeeping'
     package = package_from(seen[-1])
     assert any(claim.id == 'bookkeeping:decision' for claim in package.claims)
     assert all(not claim.id.startswith('missed_calls:') for claim in package.claims)
@@ -219,6 +221,12 @@ def test_submit_answer_tool_validates_before_a2ui_output(client, monkeypatch):
     events = send(client)
     assert text(events) != FALLBACK
     assert all(event['validation'] == 'validated' for event in events if event['type'] == 'message_delta')
+    cards = [event for event in events if event.get('surface') == 'recommendation']
+    assert len(cards) == 1
+    rec = cards[0]['messages'][1]['updateComponents']['components'][0]['recommendation']
+    for option in rec['options'] + rec['check_first']:
+        assert option['service_url'] == str(client.app.state.catalog.tool(option['tool_id']).url)
+    assert all(event.get('presentation') == 'recommendation_evidence' for event in events if event.get('validation') == 'validated')
 
 
 def test_submission_cannot_be_mixed_with_catalog_actions(client, monkeypatch):

@@ -12,7 +12,8 @@ class PennySelection(Strict):
     followup_id: str | None = None
 
 
-SELECTION_PROMPT = """Finish only by calling submit_answer with claim_ids and optional followup_id.
+SELECTION_PROMPT = """For a factual catalog answer, finish by calling submit_answer with claim_ids and optional followup_id.
+For greetings and other conversation management, use respond_conversationally instead.
 Select claim IDs from the latest evidence_package, or initial_evidence_package.
 Choose a few relevant optional statements, or claim_ids=[] for the backend default.
 The backend always includes required context, uncertainty and its winner evidence.

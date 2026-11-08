@@ -21,6 +21,7 @@ export function readRecommendationSurface(protocol) {
   if (![...recommendation.options, ...recommendation.check_first].every((option) =>
     option && typeof option.tool_id === 'string' && Array.isArray(option.facts))) return null
   if (typeof component.problemTitle !== 'string' || component.problemTitle.length > 200) return null
+  if (component.taskPurpose !== undefined && (typeof component.taskPurpose !== 'string' || component.taskPurpose.length > 200)) return null
   if (!component.statuses || typeof component.statuses !== 'object' || Array.isArray(component.statuses)) return null
   return component
 }
@@ -41,7 +42,7 @@ export function readSimpleSurface(protocol, surfaceType, componentName) {
   return component
 }
 
-export default function A2UISurface({ protocol, onSelect, busy, ruledOut, onPrint }) {
+export default function A2UISurface({ protocol, onSelect, busy, ruledOut, onPrint, serviceUrls }) {
   if (readQuestionSurface(protocol)) return <A2UIQuestion protocol={protocol} onSelect={onSelect} busy={busy} />
   const text = readSimpleSurface(protocol, 'text', 'PennyText')
   if (text) return <div className="msc-row"><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{text.text}</p></div>
@@ -50,7 +51,10 @@ export default function A2UISurface({ protocol, onSelect, busy, ruledOut, onPrin
   const result = readRecommendationSurface(protocol)
   if (result) return <ChatResult
     recommendation={result.recommendation}
+    problemTitle={result.problemTitle}
+    taskPurpose={result.taskPurpose}
     statuses={result.statuses}
+    serviceUrls={serviceUrls}
     ruledOut={ruledOut}
     onPrint={() => onPrint({ recommendation: result.recommendation, problemTitle: result.problemTitle, statuses: result.statuses })}
   />

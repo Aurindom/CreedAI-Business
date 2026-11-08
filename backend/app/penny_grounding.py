@@ -1,11 +1,14 @@
 """Trusted answer packages for Penny; never use owner/history numbers as facts."""
 from .agent.evidence import Claim, Source, _finish, _safe, build_evidence, build_request_evidence
-from .tasks import resolve_task
+from .tasks import affirmative_excerpt, owner_excerpts, resolve_task
 import re
 
 
 class ActionContextError(ValueError):
     pass
+
+
+TASK_QUESTION = 'What would you like help with?'
 
 
 def plan_already_unknown(body):
@@ -31,9 +34,22 @@ def filtered_context(catalog, profile, memory):
 
 
 def task_ids(catalog, body):
-    # Current words win; only revisit user turns for a short contextual follow-up.
+    # History supplies a pending answer's context, never an arbitrary short turn.
+    normalized = body.message.casefold().strip(' .!?')
+    known = {card.id for card in catalog.problem_cards}
+    pending = pending_tasks(catalog, body)
+    if normalized in {'yes', 'yes please', 'please do', 'sure', 'go ahead'} and len(pending) == 1:
+        return pending
+    if re.fullmatch(r'(?:please )?show (?:me )?(?:the )?(?:tools|options|recommendations) for that(?: now)?', normalized):
+        active = [pid for pid in body.memory.active_task_ids if pid in known]
+        if len(active) == 1:
+            return active
     texts = [body.message]
-    if len(body.message.split()) <= 6:
+    previous = next((item.text for item in reversed(body.history) if item.role == 'assistant'), '')
+    answering = body.memory.pending_question in ('business', 'software', 'budget', 'plan')
+    answering = answering or any(question(catalog, key)['question'].casefold() in previous.casefold()
+                                 for key in ('business', 'software', 'budget', 'plan'))
+    if answering or plan_already_unknown(body):
         texts += [item.text for item in reversed(body.history) if item.role == 'user']
     for text in texts:
         match = resolve_task(catalog, text)
@@ -41,7 +57,75 @@ def task_ids(catalog, body):
             return [match.problem_id]
         if match.status == 'ambiguous':
             return []
+    if body.memory.pending_question in ('business', 'software', 'budget', 'plan'):
+        known = {card.id for card in catalog.problem_cards}
+        return [pid for pid in body.memory.active_task_ids if pid in known]
     return []
+
+
+def selected_task_ids(catalog, body, arguments):
+    """Bind semantic choices to owner evidence, distinguishing separate needs from ambiguity."""
+    selected = str(arguments.get('problem_id', ''))
+    catalog.problem(selected)
+    if selected in task_ids(catalog, body):
+        return [selected]
+    excerpt = arguments.get('task_text')
+    if not isinstance(excerpt, str) or not 1 <= len(excerpt) <= 500:
+        raise ActionContextError('Task needs an exact owner excerpt')
+    current = resolve_task(catalog, body.message)
+    choices = [card.id for card in current.choices]
+    excerpt_match = resolve_task(catalog, excerpt)
+    specific_excerpt = excerpt_match.status == 'matched' and excerpt_match.problem_id == selected
+    separate_need = (excerpt_match.status == 'unsupported' and excerpt in owner_excerpts(body.message)
+                     and excerpt.strip() != body.message.strip())
+    if (current.status == 'matched' and not separate_need) or (current.status == 'ambiguous' and choices != [selected]
+                                      and not (selected in choices and specific_excerpt)):
+        raise ActionContextError('Do not override the current task or its ambiguity')
+    pending = pending_tasks(catalog, body)
+    if (current.status == 'unsupported' and pending == [selected]
+            and affirmative_excerpt(body.message, excerpt)):
+        return [selected]
+    if len(excerpt) < 3:
+        raise ActionContextError('A new task needs a meaningful owner excerpt')
+    if current.status == 'unsupported' and len(pending) > 1 and selected in pending:
+        if excerpt.casefold().strip() != catalog.problem(selected).title.casefold().strip():
+            raise ActionContextError('Choose which pending task before recommending one')
+    sources = [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')]
+    for source in sources:
+        if not affirmative_excerpt(source, excerpt):
+            continue
+        match = resolve_task(catalog, source)
+        if (match.status == 'unsupported' or (match.status == 'matched' and match.problem_id == selected)
+                or (source == body.message and separate_need)
+                or (match.status == 'ambiguous' and ([card.id for card in match.choices] == [selected]
+                    or (selected in [card.id for card in match.choices] and specific_excerpt)))):
+            return [selected]
+    raise ActionContextError('Task excerpt must come from an affirmative owner request')
+
+
+def pending_tasks(catalog, body):
+    known = {card.id for card in catalog.problem_cards}
+    pending = [pid for pid in body.memory.pending_task_ids if pid in known]
+    if pending:
+        return pending
+    previous = next((item.text for item in reversed(body.history) if item.role == 'assistant'), '')
+    return [card.id for card in catalog.problem_cards if f'Explore: {card.title}' in previous]
+
+
+def question_repeats(catalog, profile, body, key):
+    if key in ('task', 'business', 'software', 'budget') and task_ids(catalog, body):
+        return True
+    if key == 'business' and profile.trade:
+        return True
+    if key == 'software' and profile.owned:
+        return True
+    if key == 'budget' and profile.budget_monthly_usd is not None:
+        return True
+    try:
+        prompt = (TASK_QUESTION if key == 'task' else question(catalog, key)['question']).casefold()
+    except ValueError:
+        return False
+    return any(prompt in item.text.casefold() for item in body.history if item.role == 'assistant')
 
 
 def request_package(catalog, profile, body):
@@ -110,9 +194,7 @@ def details_package(tools):
 
 def action_package(catalog, profile, body, name, arguments):
     if name == 'recommend_tools':
-        if str(arguments.get('problem_id')) not in task_ids(catalog, body):
-            raise ActionContextError('Task choice needs clarification')
-        return build_evidence(catalog, profile, [str(arguments['problem_id'])])
+        return build_evidence(catalog, profile, selected_task_ids(catalog, body, arguments))
     if name == 'get_tool_details':
         return details_package([catalog.tool(str(arguments['tool_id']))])
     if name == 'compare_tools':
@@ -126,7 +208,7 @@ def action_package(catalog, profile, body, name, arguments):
     return request_package(catalog, profile, body)
 
 
-def question(catalog, key):
+def question(catalog, key, problem_ids=None):
     if key == 'business':
         return {'question': 'What kind of business do you run?',
                 'choices': [trade.name for trade in catalog.trades[:3]] + ['Skip these questions']}
@@ -140,6 +222,14 @@ def question(catalog, key):
         return {'question': 'Which subscription plan do you currently have?',
                 'choices': ['I will use the plan picker', 'I do not know']}
     if key == 'task':
-        return {'question': 'What would you like help with?',
-                'choices': [card.title for card in catalog.problem_cards[:3]] + ['Browse other tasks']}
+        if (not isinstance(problem_ids, list) or not 2 <= len(problem_ids) <= 3
+                or not all(isinstance(pid, str) for pid in problem_ids)
+                or len(set(problem_ids)) != len(problem_ids)):
+            raise ValueError('Choose two or three distinct catalog tasks')
+        try:
+            cards = [catalog.problem(pid) for pid in problem_ids]
+        except KeyError:
+            raise ValueError('Choose known catalog tasks') from None
+        return {'question': TASK_QUESTION,
+                'choices': [card.title for card in cards] + ['Browse other tasks']}
     raise ValueError('Choose a supported question')

@@ -6,7 +6,7 @@ const Module = require('node:module')
 const { JSDOM } = require('jsdom')
 const { buildSync } = require('esbuild')
 
-let dom, root, React, act, ChatPanel, validation, requests
+let dom, root, React, act, ChatPanel, validation, requests, liveEvents
 const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '../../backend/data/catalog.json'), 'utf8'))
 
 before(() => {
@@ -25,11 +25,13 @@ before(() => {
 
 beforeEach(async () => {
   requests = []
+  liveEvents = null
   validation = { allowed: true, message: null }
   window.sessionStorage.clear()
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url, body: options.body ? JSON.parse(options.body) : null })
-    if (url === '/api/chat/status') return Response.json({ available: false })
+    if (url === '/api/chat/status') return Response.json({ available: Boolean(liveEvents) })
+    if (url === '/api/chat' && liveEvents) return new Response([...liveEvents, { type: 'done' }].map(event => 'data: ' + JSON.stringify(event) + '\n\n').join(''))
     if (url === '/api/chat/validate') {
       if (validation instanceof Error) throw validation
       return Response.json(validation)
@@ -69,6 +71,43 @@ test('owner can inspect what Penny will not do in the open chat', async () => {
   assert.match(boundaries.textContent, /buy or connect tools/)
   assert.match(boundaries.textContent, /phone numbers and email addresses/)
   assert.match(boundaries.textContent, /catalog evidence/)
+})
+
+test('a real chat event sequence displays cards once and hides repeated evidence without hiding failures', async () => {
+  const surfaceId = 'penny-recommendation-stream-test'
+  const component = { id: 'root', component: 'PennyRecommendation', problemTitle: 'Calls go unanswered', statuses: {}, recommendation: { outcome: 'verify_with_vendor', message: 'Check the plan before buying.', options: [{ tool_id: 'example', tool_name: 'Example service', service_url: 'https://example.com/', added_monthly_usd: null, facts: [] }], check_first: [], set_aside: [] } }
+  liveEvents = [
+    { type: 'a2ui', surface: 'recommendation', message: component.recommendation.message, messages: [
+      { version: 'v0.9', createSurface: { surfaceId, catalogId: 'https://mainstreet.ai/catalogs/penny/v1' } },
+      { version: 'v0.9', updateComponents: { surfaceId, components: [component] } },
+    ] },
+    { type: 'message_delta', text: 'A long duplicated audit paragraph.', validation: 'validated', presentation: 'recommendation_evidence' },
+    { type: 'message_delta', text: 'This reply could not be validated.', validation: 'fallback' },
+  ]
+  await submit('I am missing calls')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+  assert.equal(document.querySelectorAll('.msc-result').length, 1)
+  assert.doesNotMatch(document.querySelector('.msc-log').textContent, /duplicated audit paragraph/)
+  assert.match(document.querySelector('.msc-log').textContent, /could not be validated/)
+  assert.equal(document.querySelector('.msc-service-link').href, 'https://example.com/')
+  let printCalls = 0
+  window.print = () => {
+    printCalls += 1
+    assert.match(document.querySelector('.msc-print').textContent, /Example service/)
+  }
+  await act(async () => document.querySelector('.msc-print-button').click())
+  assert.equal(printCalls, 1)
+  assert.equal(document.querySelector('.msc-summary-overlay').getAttribute('role'), 'dialog')
+  assert.match(document.querySelector('.msc-summary-controls').textContent, /Print menu/)
+  await act(async () => [...document.querySelectorAll('.msc-summary-controls button')].find(button => button.textContent === 'Close summary').click())
+  assert.equal(document.querySelector('.msc-summary-overlay'), null)
+  assert.equal(document.querySelector('.msc-panel').hidden, false)
+  window.print = () => { throw new Error('Printing blocked by this browser') }
+  await act(async () => document.querySelector('.msc-print-button').click())
+  assert.ok(document.querySelector('.msc-summary-overlay'))
+  await act(async () => document.querySelector('.msc-summary-overlay').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  assert.equal(document.querySelector('.msc-summary-overlay'), null)
+  assert.equal(document.querySelector('.msc-panel').hidden, false)
 })
 
 test('blocked email message stays out of history and is editable', async () => {

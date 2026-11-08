@@ -147,7 +147,8 @@ def test_context_keeps_constraints_and_recent_turns():
         {'role': role, 'text': f'turn {i}'} for i, role in enumerate(['user', 'assistant'] * 5 + ['user'])]
     built = json.loads(context.build(body_with(history), profile, memory, LeakGuard([])))
     assert built['constraints'] == {'trade': 'hvac', 'owned_tools': ['ledger'], 'excluded_tools': ['voice'],
-                                    'budget_monthly_usd': 40, 'plan_unknown': False}
+                                    'budget_monthly_usd': 40, 'plan_unknown': False, 'active_task_ids': [],
+                                    'pending_question': None, 'pending_task_ids': []}
     turns = built['earlier_turns']
     assert len(turns) <= context.MAX_TURNS and turns[0]['role'] == 'user' and turns[-1]['text'] == 'turn 10'
 

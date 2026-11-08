@@ -163,6 +163,7 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
     return Option(
         tool_id=tool.id,
         tool_name=tool.name,
+        service_url=tool.url,
         status=("pending_review" if tool.origin == "discovered" and tool.auto_review
                 and (not tool.auto_review.eligible or tool.auto_review.capability != capability) else tool.status),
         route=route,

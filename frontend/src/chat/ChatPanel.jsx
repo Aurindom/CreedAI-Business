@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { api } from '../api'
 import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult, { safeUrl } from './ChatResult'
-import { clearSession, historyFor, loadSession, newConversationId, saveSession } from './chatSession'
+import { clearSession, historyFor, loadSession, newConversationId, saveSession, visibleMessages } from './chatSession'
 import { queueHistory } from './historyCache'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
@@ -42,7 +43,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
   const [resumed, setResumed] = useState(() => Boolean(restored?.messages.length))
   const [hydratedFor, setHydratedFor] = useState(null)
   const [historyReady, setHistoryReady] = useState(false)
-  const [names, setNames] = useState({ tools: {}, trades: {} })
+  const [names, setNames] = useState({ tools: {}, trades: {}, urls: {} })
   const [live, setLive] = useState(null)
   const [speaking, setSpeaking] = useState(false)
   const [input, setInput] = useState('')
@@ -71,6 +72,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
       .then((data) => setNames({
         tools: Object.fromEntries(data.tools.map((tool) => [tool.id, tool.name])),
         trades: Object.fromEntries(data.trades.map((trade) => [trade.id, trade.name])),
+        urls: Object.fromEntries(data.tools.map((tool) => [tool.id, tool.url])),
       }))
       .catch(() => {})
     return () => { clearTimeout(speakTimer.current); abortRef.current?.abort(); runRef.current += 1 }
@@ -144,20 +146,12 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
     }
   }, [busy])
 
-  useEffect(() => {
-    if (!printData) return undefined
-    const clear = () => {
-      document.body.classList.remove('msc-printing')
-      setPrintData(null)
-    }
-    document.body.classList.add('msc-printing')
-    window.addEventListener('afterprint', clear, { once: true })
-    window.print()
-    return () => {
-      window.removeEventListener('afterprint', clear)
-      document.body.classList.remove('msc-printing')
-    }
-  }, [printData])
+  function printSummary(data) {
+    // Keep printing in the click's user activation, after the portal is committed.
+    // The visible preview remains available if this browser blocks native print.
+    flushSync(() => setPrintData(data))
+    try { window.print() } catch { /* The preview includes browser-menu guidance. */ }
+  }
 
   const avatarState = speaking ? 'speaking' : busy ? 'thinking' : input.trim() ? 'listening' : 'idle'
   useEffect(() => { onActivityChange(avatarState) }, [avatarState, onActivityChange])
@@ -246,6 +240,9 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
 
     function onEvent(event) {
       if (run !== runRef.current) return
+      if (receivedA2UIRecommendation && event.validation === 'validated' && event.presentation === 'recommendation_evidence') {
+        return
+      }
       if (event.type === 'status') setStatus(event.text)
       if (event.type === 'mode') setLive(event.live)
       if (event.type === 'memory') setMemory({ ...EMPTY_MEMORY, ...event.memory })
@@ -380,10 +377,10 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
 
           {resumed && <p className="msc-resume">Picked up where you left off.</p>}
 
-          {messages.map((message) => {
+          {visibleMessages(messages).map((message) => {
             if (message.kind === 'user') return <div className="msc-row msc-row-user" key={message.id}><p>{message.text}</p></div>
             if (message.kind === 'assistant') return <div className="msc-row" key={message.id}><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{message.text}</p></div>
-            if (message.kind === 'a2ui') return <React.Suspense key={message.id} fallback={<div className="msc-loading">Loading result…</div>}><A2UISurface protocol={message.protocol} onSelect={send} busy={busy} ruledOut={memory.ruled_out} onPrint={setPrintData} /></React.Suspense>
+            if (message.kind === 'a2ui') return <React.Suspense key={message.id} fallback={<div className="msc-loading">Loading result…</div>}><A2UISurface protocol={message.protocol} onSelect={send} busy={busy} ruledOut={memory.ruled_out} serviceUrls={names.urls} onPrint={printSummary} /></React.Suspense>
             if (message.kind === 'loading') return <div className="msc-loading" key={message.id}>Checking the catalog...</div>
             if (message.kind === 'clarify') {
               return (
@@ -416,9 +413,11 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
               <ChatResult
                 key={message.id}
                 recommendation={message.recommendation}
+                problemTitle={message.problemTitle}
                 statuses={message.statuses}
+                serviceUrls={names.urls}
                 ruledOut={memory.ruled_out}
-                onPrint={() => setPrintData(message)}
+                onPrint={() => printSummary(message)}
               />
             )
           })}
@@ -459,7 +458,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange }) {
           <p className="penny-composer-note">Catalog-backed guidance. Verify details before subscribing.</p>
         </form>
       </section>
-      <ChatSummary data={printData} />
+      <ChatSummary data={printData} serviceUrls={names.urls} onClose={() => setPrintData(null)} onPrint={() => printSummary(printData)} />
     </>
   )
 }

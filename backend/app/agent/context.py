@@ -39,6 +39,9 @@ def build(body: Any, profile: Any, memory: Any, guard: LeakGuard) -> str:
         "excluded_tools": list(memory.ruled_out),
         "budget_monthly_usd": profile.budget_monthly_usd,
         "plan_unknown": _plan_unknown(body),
+        "active_task_ids": list(getattr(memory, 'active_task_ids', [])),
+        "pending_question": getattr(memory, 'pending_question', None),
+        "pending_task_ids": list(getattr(memory, 'pending_task_ids', [])),
     }
     turns = [{"role": item.role, "text": item.text} for item in body.history if _usable(item.text, guard)]
     turns = turns[-MAX_TURNS:]

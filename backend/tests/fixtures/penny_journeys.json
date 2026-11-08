@@ -1,0 +1,10 @@
+[
+  {"id":"greeting_after_calls","message":"hello how are you?","memory":{"trade":"hvac","active_task_ids":["missed_calls"],"pending_question":"task","pending_task_ids":["missed_calls"]},"history":[{"role":"user","text":"I keep missing calls while on jobs"},{"role":"assistant","text":"Would you like to see options for answering calls?"}],"expected_tasks":[],"expected_mode":"conversation"},
+  {"id":"greeting_with_request","message":"Hello! Can you recommend tools to answer customer calls while we are on jobs?","profile":{"trade":"hvac"},"expected_tasks":["missed_calls"]},
+  {"id":"resource_shortage_and_stale_business","message":"i am running a local hvac business, as it is a small business i dont have enough manpower to attent the cutomer calls, so i missing out of lot of cutomers.","memory":{"trade":"bakery"},"expected_tasks":["missed_calls"],"expected_trade":"hvac"},
+  {"id":"confirmation","message":"yes","memory":{"trade":"hvac","pending_question":"task","pending_task_ids":["missed_calls"]},"history":[{"role":"user","text":"I miss customer calls while on jobs"},{"role":"assistant","text":"Explore: Calls go unanswered"}],"expected_tasks":["missed_calls"]},
+  {"id":"business_correction","message":"Actually I run a restaurant, not an HVAC business. Please recommend tools for appointment booking.","memory":{"trade":"hvac"},"expected_tasks":["appointment_booking"],"expected_trade":"restaurant"},
+  {"id":"two_distinct_needs","message":"My books are behind and calls go unanswered","profile":{"trade":"hvac"},"expected_tasks":["bookkeeping","missed_calls"]},
+  {"id":"negated_old_need","message":"I do not need help answering calls. I need help with bookkeeping.","profile":{"trade":"hvac"},"expected_tasks":["bookkeeping"]},
+  {"id":"explicit_resumption","message":"Please show the tools for that now","memory":{"trade":"hvac","active_task_ids":["missed_calls"]},"history":[{"role":"user","text":"People hang up before we can speak"},{"role":"assistant","text":"We can look at options for answering phone calls."}],"expected_tasks":["missed_calls"]}
+]
