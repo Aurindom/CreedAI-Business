@@ -211,6 +211,14 @@ def test_functional_review_phrase_is_not_misclassified_as_testimonial():
     assert 'Pricing plans' not in ' '.join(parser.text)
 
 
+def test_marketing_heading_and_title_cannot_replace_vendor_product_identity(catalog):
+    from app.discovery_worker.contract import Snapshot
+    from app.discovery_worker.extract import extract_page
+    html='<html><head><meta property="og:site_name" content="BillingOtter"><meta property="og:title" content="Get paid faster. Chase less."></head><body><h1>Get paid faster. Chase less.</h1><p>Our invoicing software helps small businesses.</p></body></html>'
+    result=extract_page(html,'https://billingotter.com/',Snapshot(catalog.model_dump(mode='json'),{}))
+    assert result.product=='BillingOtter'
+
+
 def test_operator_sweep_rejects_unauthenticated_and_is_idempotent(client,monkeypatch):
     monkeypatch.setenv('VERIFICATION_PIPELINE_ENABLED','true')
     monkeypatch.setenv('DISCOVERY_TOKEN','operator-'+'x'*32)

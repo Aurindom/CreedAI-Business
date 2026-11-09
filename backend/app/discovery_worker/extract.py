@@ -350,7 +350,8 @@ def extract_page(html: str, page_url: str, snapshot: Snapshot) -> Facts:
     og_title = clean(parser.meta.get("og:title", ""), 80)
     generic = heading.casefold() in GENERIC_HEADINGS
     marketing = bool(re.match(r'^(?:get |grow |turn |stop |start |never |take |make |meet |run |your |the easiest |the best )',heading,re.I))
-    facts.product = heading if heading and not generic and not marketing else (og_title if og_title.casefold() not in GENERIC_HEADINGS and len(og_title.split())<=8 else None) or facts.vendor
+    title_marketing=bool(re.match(r'^(?:get |grow |turn |stop |start |never |take |make |meet |run |your |the easiest |the best )',og_title,re.I))
+    facts.product = heading if heading and not generic and not marketing else (og_title if not title_marketing and og_title.casefold() not in GENERIC_HEADINGS and len(og_title.split())<=8 else None) or facts.vendor
     if parser.canonical:
         canon = urljoin(page_url, parser.canonical)
         if registrable_domain(urlsplit(canon).hostname or "") == domain:
