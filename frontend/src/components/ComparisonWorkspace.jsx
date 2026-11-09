@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { catalogStatus, catalogChecked } from '../catalogStatus'
 import { api } from '../api'
 import PrivatePlans from './PrivatePlans'
 
@@ -44,7 +45,7 @@ export default function ComparisonWorkspace({ tools, problems, profile, activePr
       {taskIds.length > 0 && <tr><td>Role in this selection</td>{tools.map((tool) => <td key={tool.id}>{compared[tool.id]?.role_note || (loading ? 'Checking...' : 'Choose valid tasks above')}</td>)}</tr>}
       {(result?.tasks || []).map((task) => <tr key={task.problem_id}><td>{task.title}</td>{tools.map((tool) => { const fit = compared[tool.id]?.tasks.find((item) => item.problem_id === task.problem_id); return <td key={tool.id}>{fit ? <><span className={`coverage-label coverage-${fit.coverage}`}>{fit.coverage === 'confirmed' ? 'Confirmed task fit' : fit.coverage === 'possible' ? 'Needs checking' : 'Set aside'}</span><p>{fit.reason}</p><strong>{money(fit.added_monthly_usd)}{fit.added_monthly_usd !== null ? ' / mo added' : ''}</strong><p>{fit.cost_note}</p></> : 'This tool does not list this task'}</td> })}</tr>)}
       {['Entry price', 'Setup', 'Privacy', 'Support'].map((label) => <tr key={label}><td>{label}</td>{tools.map((tool) => <td key={tool.id}>{renderFact(tool, label)}</td>)}</tr>)}
-      <tr><td>Catalog status</td>{tools.map((tool) => <td key={tool.id}><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span></td>)}</tr>
+      <tr><td>Catalog status</td>{tools.map((tool) => <td key={tool.id}><span className={`tool-status ${catalogChecked(tool) ? 'verified' : 'pending'}`}>{catalogStatus(tool)}</span></td>)}</tr>
     </tbody></table></div>}
     {!taskIds.length && tools.length > 0 && <p className="comparison-footnote">These are alternatives, not a combined subscription bill. Entry prices may differ from your plan or the price for a specific task.</p>}
     {result && <>

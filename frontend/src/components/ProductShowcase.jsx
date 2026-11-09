@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react'
+import { catalogStatus } from '../catalogStatus'
 import BusinessCarousel from './BusinessCarousel'
 
 const featured = [
@@ -106,7 +107,7 @@ export default function ProductShowcase({ part = 'hero', scene, onSceneChange, t
                 <h3>{product.tool?.name || product.category}</h3>
                 <p className="product-tagline">{product.label}</p>
                 <div className="product-art" aria-hidden="true"><span /><span /><span /></div>
-                <span className="product-review-label">{product.tool ? (product.tool.status === 'verified' ? 'Source checked' : 'Pending review') : 'Loading catalog'}</span>
+                <span className="product-review-label">{product.tool ? catalogStatus(product.tool) : 'Loading catalog'}</span>
                 <div className="product-card-bottom"><span>Explore the catalog</span><span aria-hidden="true">&#8599;</span></div>
               </article>
             ))}

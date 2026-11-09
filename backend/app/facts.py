@@ -1,7 +1,7 @@
 from .schemas import Fact, Tool, ToolFact
 
 NOT_CHECKED = "Not checked yet"
-UNKNOWN = "Unknown"
+UNKNOWN = "Confirm with the service"
 LEVEL_WORDS = {"low": "Low effort", "medium": "Some effort", "high": "High effort", "strong": "Strong", "partial": "Partial", "weak": "Weak"}
 
 

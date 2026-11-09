@@ -82,6 +82,21 @@ class Snapshot:
         self.capabilities = {c for cat in catalog["categories"] for c in cat["capabilities"]}
         self.facets = {f["id"]: f for f in catalog.get("facets", [])}
         self._phrases: dict[str, set[str]] = {c: {c.replace("_", " ")} for c in self.capabilities}
+        # Owner complaints and vendor feature names use different wording. These
+        # task aliases are shared across vendors; none grants feature entitlement.
+        vendor_terms = {
+            'phone_answering': ['ai receptionist','virtual receptionist','call answering','telephone answering'],
+            'lead_response': ['lead follow up','automated lead response','lead response'],
+            'review_requests': ['request reviews','review invitations','review generation'],
+            'review_replies': ['reply to reviews','respond to reviews','responding to reviews','review responses'],
+            'job_scheduling': ['field service scheduling','job scheduling','dispatch scheduling'],
+            'appointment_booking': ['online booking','appointment scheduling','schedule appointments'],
+            'staff_scheduling': ['employee scheduling','shift scheduling','staff scheduling'],
+            'website_chat': ['live chat','website chatbot','ai chatbot'],
+        }
+        for capability,phrases in vendor_terms.items():
+            if capability in self._phrases:
+                self._phrases[capability].update(phrases)
         for card in catalog["problem_cards"]:
             for phrase in card.get("phrases", []):
                 if len(phrase.split()) >= 2:

@@ -101,6 +101,9 @@ def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.executescript(SCHEMA)
+    from . import verification_store
+    verification_store.ensure(conn)
+    conn.execute('PRAGMA busy_timeout=10000')
     columns = {row[1] for row in conn.execute("PRAGMA table_info(tool)")}
     if "origin" not in columns:
         with conn:
@@ -244,6 +247,18 @@ def put_discovered(conn: sqlite3.Connection, tool: Tool) -> None:
 
 
 def read_catalog(conn: sqlite3.Connection) -> Catalog:
+    conn.execute('SAVEPOINT catalog_read')
+    try:
+        result = _read_catalog(conn)
+        conn.execute('RELEASE catalog_read')
+        return result
+    except BaseException:
+        conn.execute('ROLLBACK TO catalog_read')
+        conn.execute('RELEASE catalog_read')
+        raise
+
+
+def _read_catalog(conn: sqlite3.Connection) -> Catalog:
     aliases: dict[str, list[str]] = {}
     for trade_id, alias in conn.execute("SELECT trade_id, alias FROM trade_alias ORDER BY alias"):
         aliases.setdefault(trade_id, []).append(alias)
@@ -251,5 +266,7 @@ def read_catalog(conn: sqlite3.Connection) -> Catalog:
     categories = [Category(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM category ORDER BY position")]
     cards = [ProblemCard(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM problem_card ORDER BY id")]
     tools = [Tool(**{**json.loads(doc), "origin": origin}) for doc, origin in conn.execute("SELECT doc, origin FROM tool ORDER BY name")]
+    from .verification_store import apply_overlays
+    tools = apply_overlays(conn, tools)
     facets = [Facet(**json.loads(row[0])) for row in conn.execute("SELECT doc FROM facet ORDER BY position")]
     return Catalog(trades=trades, categories=categories, problem_cards=cards, tools=tools, facets=facets)

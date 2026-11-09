@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { catalogStatus, catalogChecked } from './catalogStatus'
 import { api, ownedProfile, planChoices, isSingleOffering, PLAN_UNKNOWN, PLAN_LABEL_MAX } from './api'
 import { resolveTrade } from './businessTypes'
 import ChatPanel from './chat/ChatPanel'
@@ -151,7 +152,7 @@ function DirectoryCard({ tool, trades, tradeId, selected, full, onCompare }) {
   const price = priceOf(tool)
   return (
     <article className="tool-card">
-      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.auto_review?.eligible ? 'Automatically checked' : tool.auto_review ? 'Evidence checked' : tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span><FavouriteButton toolId={tool.id} name={tool.name} /></div>
+      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${catalogChecked(tool) ? 'verified' : 'pending'}`}>{catalogStatus(tool)}</span><FavouriteButton toolId={tool.id} name={tool.name} /></div>
       <h3>{tool.name}</h3><p className="tool-summary">{tool.summary}</p>
       {tool.auto_review && <p className="tool-summary">{tool.auto_review.eligible ? `Checked for ${tool.auto_review.capability.replaceAll('_', ' ')}.` : tool.auto_review.notes.join(' ')}</p>}
       <div className={`fit-line fit-${audience.tone}`}>{audience.text}</div>

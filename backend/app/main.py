@@ -77,10 +77,13 @@ async def lifespan(app: FastAPI):
         bindings.ensure_schema(conn)
         app.state.catalog = db.read_catalog(conn)
         app.state.conn = conn
-        app.state.lock = threading.Lock()
+        app.state.lock = threading.RLock()
         app.state.history_lock = asyncio.Lock()
         app.state.capacity = Capacity(1)
         app.state.discovery_finder = None
+        from . import verification_store, verification_worker
+        if verification_worker.enabled():
+            verification_store.enqueue(conn, verification_store.source_tools(conn))
         from . import live_discovery
         if live_discovery.enabled():
             app.state.discovery_finder = live_discovery.make_finder(catalog, db_path.with_name('discovery.db'))
@@ -122,7 +125,45 @@ async def private_responses_are_not_cached(request: Request, call_next):
 
 
 def _catalog(request: Request) -> Catalog:
-    return request.app.state.catalog
+    with request.app.state.lock:
+        request.app.state.catalog = db.read_catalog(request.app.state.conn)
+        return request.app.state.catalog
+
+
+def _verification_operator(authorization: str | None = Header(default=None)):
+    token = os.environ.get('DISCOVERY_TOKEN', '')
+    if len(token) < 24:
+        raise HTTPException(503, 'Catalog operations are disabled')
+    given = authorization[7:] if authorization and authorization[:7].lower() == 'bearer ' else ''
+    if not hmac.compare_digest(given.encode(), token.encode()):
+        raise HTTPException(401, 'Operator authorization required')
+
+
+@app.get('/api/verification/status')
+def verification_status(request: Request):
+    from . import verification_store, verification_worker
+    with request.app.state.lock:
+        return {'enabled': verification_worker.enabled(), **verification_store.status(request.app.state.conn)}
+
+
+class VerificationSweep(BaseModel):
+    tool_id: str | None = Field(default=None, max_length=100)
+    force: bool = False
+
+
+@app.post('/api/verification/sweep', dependencies=[Depends(_verification_operator)])
+def verification_sweep(request: Request, body: VerificationSweep):
+    from . import verification_store, verification_worker
+    if not verification_worker.enabled():
+        raise HTTPException(503, 'Catalog verification is disabled')
+    with request.app.state.lock:
+        tools = verification_store.source_tools(request.app.state.conn)
+        if body.tool_id:
+            tools = [tool for tool in tools if tool.id == body.tool_id]
+            if not tools:
+                raise HTTPException(404, 'Tool not found')
+        count = verification_store.enqueue(request.app.state.conn, tools, force=body.force)
+    return {'queued': count}
 
 
 def _now() -> datetime:
@@ -331,6 +372,29 @@ def _discovery_allowed(request: Request, authorization: str | None = Header(defa
 
 @app.post("/api/discover")
 def discover_route(request: Request, body: discovery.DiscoveryRequest, finder: discovery.Finder = Depends(_discovery_allowed)) -> discovery.DiscoveryReport:
+    from . import verification_store, verification_worker
+    if not verification_worker.enabled():
+        return _discover_route(request,body,finder)
+    try:
+        discovery.check_request(_catalog(request),body)
+    except discovery.DiscoveryFailed as exc:
+        raise HTTPException(422,exc.message) from exc
+    with request.app.state.lock:
+        claim=verification_store.query_claim(request.app.state.conn,body)
+    if claim['state']=='cached':
+        return discovery.DiscoveryReport.model_validate(claim['doc'])
+    if claim['state']=='busy':
+        raise HTTPException(429,'This research task is already running',headers={'Retry-After':'30'})
+    report=None
+    try:
+        report=_discover_route(request,body,finder)
+        return report
+    finally:
+        with request.app.state.lock:
+            verification_store.query_finish(request.app.state.conn,claim,report)
+
+
+def _discover_route(request: Request, body: discovery.DiscoveryRequest, finder: discovery.Finder) -> discovery.DiscoveryReport:
     """Finds new candidate tools for one task. They are saved as pending and show up in /api/tools straight away.
 
     The slow search runs outside the write lock so browsing keeps working. Only one run happens at a time.
@@ -348,8 +412,11 @@ def discover_route(request: Request, body: discovery.DiscoveryRequest, finder: d
         return discovery.DiscoveryReport(run_id=uuid.uuid4().hex, status="failed", error=discovery.ErrorInfo(code=exc.code, message=exc.message))
     with request.app.state.lock:
         report = discovery.store(request.app.state.conn, _catalog(request), body, result, _now().date())
+        from . import verification_store, verification_worker
+        if verification_worker.enabled():
+            verification_store.enqueue(request.app.state.conn, verification_store.source_tools(request.app.state.conn))
         request.app.state.catalog = db.read_catalog(request.app.state.conn)
-    if callable(getattr(finder, 'review', None)) and os.environ.get('DISCOVERY_AUTO_VERIFY', '').lower() in ('1', 'true', 'yes'):
+    if not verification_worker.enabled() and callable(getattr(finder, 'review', None)) and os.environ.get('DISCOVERY_AUTO_VERIFY', '').lower() in ('1', 'true', 'yes'):
         from . import auto_verification
         for tool_id in (report.added + report.updated)[:3]:
             try:

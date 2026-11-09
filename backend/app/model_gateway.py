@@ -118,11 +118,11 @@ class Ledger:
     def _tx(self) -> "_Tx":
         return _Tx(self.path)
 
-    def recover(self) -> int:
+    def recover(self, stale_after_s: float = 0) -> int:
         """Rows still reserved at startup belong to a process that died mid-call. Their cost is unknown."""
         with self._tx() as conn:
             count = conn.execute("UPDATE attempt SET state = 'held', charged_usd = reserved_usd, reason = 'orphaned', "
-                                 "closed = ? WHERE state = 'reserved'", (time.time(),)).rowcount
+                                 "closed = ? WHERE state = 'reserved' AND created <= ?", (time.time(),time.time()-stale_after_s)).rowcount
             if count:
                 conn.execute("UPDATE gateway SET tripped = COALESCE(tripped, 'orphaned')")
         return count

@@ -1,0 +1,9 @@
+chromium-seccomp.json is the Playwright Chromium sandbox seccomp profile from:
+https://github.com/microsoft/playwright/blob/v1.64.1/utils/docker/seccomp_profile.json
+
+Playwright is Copyright (c) Microsoft Corporation.
+Licensed under the Apache License, Version 2.0.
+https://www.apache.org/licenses/LICENSE-2.0
+
+The profile is used with the non-root pwuser and Chromium's sandbox enabled.
+It is not permission to run the renderer with privileged host access.

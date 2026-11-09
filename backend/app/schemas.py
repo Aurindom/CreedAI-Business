@@ -1,5 +1,6 @@
 from datetime import date, datetime
 import re
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
@@ -56,9 +57,20 @@ class Capability(BaseModel):
     addon_from: Fact = UNKNOWN
     addon_offer: Fact = UNKNOWN
     facets: dict[str, Fact] = Field(default_factory=dict)
+    verified_plan_prices: Fact = UNKNOWN
+    verified_billing: Fact = UNKNOWN
 
     @model_validator(mode="after")
     def check_access(self) -> "Capability":
+        if self.verified_plan_prices.known:
+            prices=self.verified_plan_prices.value
+            if not isinstance(prices,dict) or not prices or any(
+                not isinstance(name,str) or not name.strip() or isinstance(value,bool)
+                or not isinstance(value,(int,float)) or not math.isfinite(value) or value<0
+                for name,value in prices.items()):
+                raise ValueError('verified capability prices must be finite nonnegative named plan prices')
+        if self.verified_billing.known and self.verified_billing.value!='monthly':
+            raise ValueError('verified capability billing must be monthly')
         if self.access.known and self.access.value not in ("included", "add_on"):
             raise ValueError(f"bad access value: {self.access.value}")
         if self.included_from.known and self.level != "included":
@@ -95,6 +107,9 @@ class Tool(BaseModel):
     origin: Origin = "catalog"
     summary: str
     auto_review: AutomaticReview | None = None
+    reviews: dict[str, AutomaticReview] = Field(default_factory=dict)
+    verification_state: str | None = None
+    plan_hierarchy_confirmed: bool | None = None
     entry_monthly_usd: Fact = UNKNOWN
     entry_plan: Fact = UNKNOWN
     entry_billing: Fact = UNKNOWN
@@ -129,7 +144,7 @@ class Tool(BaseModel):
             for name, price in prices.items():
                 if str(name).casefold() not in tiers:
                     raise ValueError(f"{self.id}: priced plan {name} is not in plan_tiers")
-                if isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0:
+                if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price) or price < 0:
                     raise ValueError(f"{self.id}: bad price for plan {name}: {price}")
         return self
 
@@ -159,7 +174,7 @@ class Tool(BaseModel):
         return "made_for" if trade in self.trades else None
 
     def plan_rank(self, plan: str | None) -> int | None:
-        if not plan or not self.plan_tiers.known:
+        if not plan or not self.plan_tiers.known or self.plan_hierarchy_confirmed is False:
             return None
         names = [str(p).casefold() for p in self.plan_tiers.value]
         wanted = plan.strip().casefold()

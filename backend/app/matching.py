@@ -119,6 +119,12 @@ def _monthly_cost(tool: Tool, capability: str, route: Route, plan: str | None = 
 
 def _new_buyer_cost(tool: Tool, cap: Capability | None, addon: float | None) -> tuple[float | None, str, bool]:
     """A new buyer pays for the plan the feature needs, so the cheapest plan's price is never borrowed for a higher tier."""
+    if cap and cap.verified_plan_prices.known and cap.included_from.known:
+        prices=cap.verified_plan_prices.value
+        needed=str(cap.included_from.value)
+        price=next((value for name,value in prices.items() if _same(name,needed)),None)
+        if price is not None and cap.verified_billing.known and cap.verified_billing.value=='monthly':
+            return float(price), f'{needed} plan, verified monthly billing before optional fees', False
     if not tool.entry_monthly_usd.known and not tool.plan_prices.known:
         return None, tool.entry_monthly_usd.note or "Price not published. Verify with the vendor", False
     if cap is None or cap.level == "unknown":
@@ -164,7 +170,7 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
         tool_id=tool.id,
         tool_name=tool.name,
         service_url=tool.url,
-        status=("pending_review" if tool.origin == "discovered" and tool.auto_review
+        status=(("verified" if tool.reviews.get(capability) and tool.reviews[capability].eligible else "pending_review") if tool.reviews else "pending_review" if tool.origin == "discovered" and tool.auto_review
                 and (not tool.auto_review.eligible or tool.auto_review.capability != capability) else tool.status),
         route=route,
         fit=fit,
@@ -263,7 +269,8 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
         return result("no_match", None, "Nothing in the catalog fits this yet.")
     top = options[0]
     if top.status != "verified":
-        review = catalog.tool(top.tool_id).auto_review
+        source_tool = catalog.tool(top.tool_id)
+        review = source_tool.reviews.get(problem.capability) or source_tool.auto_review
         if review:
             if review.capability != problem.capability:
                 return result("verify_with_vendor", None, f"{top.tool_name} has not been automatically checked for this task. Confirm its plan and feature support.")

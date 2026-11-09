@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS public_operation (
 
 def ensure(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    if 'expected_doc' not in {row[1] for row in conn.execute('PRAGMA table_info(public_operation)')}:
+        conn.execute('ALTER TABLE public_operation ADD COLUMN expected_doc TEXT')
 
 
 def _now() -> datetime:
@@ -77,6 +79,12 @@ def public_details(tool: Tool) -> dict[str, Any]:
         "support": _fact(tool.support_stability),
         "connects_to": _fact(tool.connects_to),
         "capabilities": [c.capability for c in tool.capabilities],
+        "capability_evidence": {c.capability:{
+            'access':_fact(c.access), 'included_from':_fact(c.included_from),
+            'verified_plan_prices':_fact(c.verified_plan_prices),
+            'verified_billing':_fact(c.verified_billing),
+            'source_checked':bool(tool.reviews.get(c.capability) and tool.reviews[c.capability].eligible),
+        } for c in tool.capabilities},
     }
 
 
@@ -140,8 +148,9 @@ def register(conn: sqlite3.Connection, lock: threading.Lock | None, catalog: Cat
         with conn:
             conn.executemany(
                 "INSERT INTO public_operation (label, run_key, action, tool_id, arguments_hash, expected_hash, "
-                "expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
-                [(op.label, run_key, ACTION, op.tool_id, arguments_hash(op.tool_id), op.expected_hash, expires)
+                "expires_at, state, expected_doc) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+                [(op.label, run_key, ACTION, op.tool_id, arguments_hash(op.tool_id), op.expected_hash, expires,
+                  json.dumps(public_details(catalog.tool(op.tool_id)),sort_keys=True))
                  for op in operations])
     return run_key, operations
 
@@ -157,12 +166,12 @@ def execute(conn: sqlite3.Connection, catalog: Catalog, label: Any, tool_id: Any
     ensure(conn)
     conn.execute("BEGIN IMMEDIATE")
     try:
-        row = conn.execute("SELECT action, arguments_hash, expires_at, state FROM public_operation WHERE label = ?",
+        row = conn.execute("SELECT action, arguments_hash, expires_at, state, expected_doc, expected_hash FROM public_operation WHERE label = ?",
                            (label,)).fetchone()
         if row is None:
             conn.execute("ROLLBACK")
             return {"success": False, "error": {"code": "unknown_operation"}}
-        action, args_hash, expires_at, state = row
+        action, args_hash, expires_at, state, expected_doc, expected_hash = row
         if state != "pending" or action != ACTION:
             conn.execute("ROLLBACK")
             return {"success": False, "error": {"code": "operation_used"}}
@@ -186,7 +195,11 @@ def execute(conn: sqlite3.Connection, catalog: Catalog, label: Any, tool_id: Any
     if tool is None:
         _finish(conn, label, "failed", None, "unknown_tool")
         return {"success": False, "error": {"code": "unknown_tool"}}
-    details = public_details(tool)
+    details = json.loads(expected_doc) if expected_doc else public_details(tool)
+    if (not isinstance(details,dict) or details.get('id')!=tool_id
+            or result_hash(details)!=expected_hash):
+        _finish(conn,label,'failed',None,'snapshot_mismatch')
+        return {'success':False,'error':{'code':'snapshot_mismatch'}}
     _finish(conn, label, "succeeded", result_hash(details), None)
     return {"success": True, "tool": details}
 

@@ -14,7 +14,7 @@ fi
 export PENNY_IMAGE="penny-app:$release"
 docker compose -f compose.prod.yml config --quiet
 # Includes a non-root import/readability gate. A bad image never replaces services.
-docker compose -f compose.prod.yml build app
+docker compose -f compose.prod.yml build app render
 docker compose -f compose.prod.yml up -d
 # An existing Hermes process can retain stale MCP registration when dependencies
 # are replaced. Refresh it only after actions and gateway are healthy.

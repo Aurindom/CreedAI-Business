@@ -17,7 +17,7 @@ def test_unknown_facts_stay_visible_as_unknown():
 def test_researched_unknown_says_why():
     hidden = Fact(status="unknown", note="Sales contact only.")
     price = by_label(tool("t", entry_monthly_usd=hidden))["Entry price"]
-    assert price.value == "Unknown" and price.note == "Sales contact only."
+    assert price.value == "Confirm with the service" and price.note == "Sales contact only."
     assert price.state == "unresolved"
 
 

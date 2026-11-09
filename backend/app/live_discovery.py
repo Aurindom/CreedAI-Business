@@ -27,13 +27,15 @@ class OpenRouterSearch:
     def __init__(self, state: Path, names: list[str]):
         from .model_gateway import Ledger
         self.ledger = Ledger(state)
-        self.ledger.recover()
+        # App and background verifier share this ledger; a fresh reservation
+        # belongs to a live process and must not be mistaken for an orphan.
+        self.ledger.recover(stale_after_s=120)
         self.names = names
         self.engine = os.environ.get('DISCOVERY_WEB_ENGINE', 'native').strip().lower()
         if self.engine not in ('exa', 'native'):
             raise ValueError('invalid_discovery_web_engine')
         self.source_id = 'openrouter-' + self.engine + '-live'
-        self.max_requests = min(24, max(1, int(os.environ.get('DISCOVERY_MAX_REQUESTS', '4'))))
+        self.max_requests = min(256, max(1, int(os.environ.get('DISCOVERY_MAX_REQUESTS', '4'))))
         self.cap_usd = min(2.0, max(0.0, float(os.environ.get('DISCOVERY_SPEND_CAP_USD', '1'))))
 
     def search(self, query, context):

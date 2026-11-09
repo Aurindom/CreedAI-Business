@@ -1,7 +1,7 @@
 """Who owns a web address. Discovery and the catalog seed use the same rule to spot the same product twice."""
 
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qsl, urlencode
 
 from .schemas import Tool
 
@@ -41,3 +41,12 @@ def slug(text: str) -> str:
 def identity(tool: Tool) -> tuple[str, str]:
     """Same owner domain and same product name means the same product, whatever id each side gave it."""
     return registrable_domain(urlsplit(str(tool.url)).hostname or ""), slug(tool.name)
+
+
+def canonical_product_url(url: str) -> str:
+    """Preserve product paths and meaningful query keys; discard marketing tracking only."""
+    parsed=urlsplit(str(url))
+    host=(parsed.hostname or '').lower().removeprefix('www.').rstrip('.')
+    query=urlencode(sorted((k,v) for k,v in parse_qsl(parsed.query,keep_blank_values=True)
+                           if not k.lower().startswith('utm_') and k.lower() not in ('gclid','fbclid','ref')))
+    return host+(parsed.path.rstrip('/') or '/')+('?' + query if query else '')

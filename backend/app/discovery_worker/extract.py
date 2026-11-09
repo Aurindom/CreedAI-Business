@@ -84,13 +84,13 @@ class _Parser(HTMLParser):
             return
         if self._skip:
             return
+        if self._in_a is not None:
+            self._a_text.append(data)
         if self._side_stack:
             self._side_buf.append(data)
             return
         if self._in_h1 and self.h1:
             self.h1[-1] += data
-        if self._in_a is not None:
-            self._a_text.append(data)
         self.text.append(data)
 
 
@@ -236,7 +236,12 @@ def classify_mention(lowered: str, start: int, end: int) -> str:
         return "coming_soon"
     if COMPARE.search(sentence):
         return "comparison"
-    if REVIEWISH.search(sentence):
+    # A feature called "review replies" is product functionality, not itself a
+    # customer testimonial. Keep all opinion/quotation markers outside the
+    # actual task phrase; they must still block borrowed customer claims.
+    review_context=lowered[left:start]+' feature '+lowered[end:right]
+    review_context=re.sub(r'\breview (?:replies|requests|management)\b|\b(?:reply|respond)(?:ing)? to (?:customer |online )?reviews\b',' feature ',review_context)
+    if REVIEWISH.search(review_context):
         return "review"
     return "positive"
 
@@ -344,7 +349,8 @@ def extract_page(html: str, page_url: str, snapshot: Snapshot) -> Facts:
     heading = next((clean(h, 80) for h in parser.h1 if clean(h, 80)), "")
     og_title = clean(parser.meta.get("og:title", ""), 80)
     generic = heading.casefold() in GENERIC_HEADINGS
-    facts.product = heading if heading and not generic else (og_title if og_title.casefold() not in GENERIC_HEADINGS else None) or None
+    marketing = bool(re.match(r'^(?:get |grow |turn |stop |start |never |take |make |meet |run |your |the easiest |the best )',heading,re.I))
+    facts.product = heading if heading and not generic and not marketing else (og_title if og_title.casefold() not in GENERIC_HEADINGS and len(og_title.split())<=8 else None) or facts.vendor
     if parser.canonical:
         canon = urljoin(page_url, parser.canonical)
         if registrable_domain(urlsplit(canon).hostname or "") == domain:

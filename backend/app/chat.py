@@ -1584,7 +1584,11 @@ async def chat(request: Request, body: ChatRequest, principal: auth.Principal = 
         chat_guard.audit("rate_limit", "limiter")
         raise HTTPException(status_code=429, detail="daily chat limit reached")
 
-    catalog: Catalog = request.app.state.catalog
+    # This immutable turn snapshot matches its registered MCP execution receipts.
+    with request.app.state.lock:
+        from . import db, verification_worker
+        catalog: Catalog = (db.read_catalog(request.app.state.conn) if verification_worker.enabled()
+                            else request.app.state.catalog).model_copy(deep=True)
 
     async def stream() -> AsyncIterator[str]:
         try:

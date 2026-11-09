@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { catalogStatus, catalogChecked } from '../catalogStatus'
 import { isSingleOffering, planChoices, PLAN_LABEL_MAX, PLAN_UNKNOWN } from '../api'
 
 export default function QuickCompare({ tools, baseline, selected, plans, onBaseline, onPlan, onToggle, onBack }) {
@@ -17,7 +18,7 @@ export default function QuickCompare({ tools, baseline, selected, plans, onBasel
     <div className="quick-shortlist" aria-live="polite"><span>{selected.length} / 3 selected</span>{selected.map((id) => <button type="button" key={id} onClick={() => onToggle(id)} aria-label={`Remove ${tools.find((tool) => tool.id === id)?.name} from comparison`}>{tools.find((tool) => tool.id === id)?.name}{id === baseline ? ' (current)' : ''}<span aria-hidden="true">&#215;</span></button>)}{full && <small>Remove a tool to add another.</small>}</div>
     <div className="quick-tool-list">{alternatives.map((tool) => {
       const added = selected.includes(tool.id)
-      return <article className={`quick-tool${added ? ' quick-tool-added' : ''}`} key={tool.id}><span className="tool-avatar" aria-hidden="true">{tool.name.slice(0, 1)}</span><div className="quick-tool-copy"><h3>{tool.name}</h3><p>{tool.summary}</p><span className={`tool-status ${tool.status === 'verified' ? 'verified' : 'pending'}`}>{tool.status === 'verified' ? 'Source checked' : 'Pending review'}</span></div><button type="button" aria-pressed={added} disabled={!added && full} onClick={() => onToggle(tool.id)}>{added ? 'Remove' : 'Compare +'}</button></article>
+      return <article className={`quick-tool${added ? ' quick-tool-added' : ''}`} key={tool.id}><span className="tool-avatar" aria-hidden="true">{tool.name.slice(0, 1)}</span><div className="quick-tool-copy"><h3>{tool.name}</h3><p>{tool.summary}</p><span className={`tool-status ${catalogChecked(tool) ? 'verified' : 'pending'}`}>{catalogStatus(tool)}</span></div><button type="button" aria-pressed={added} disabled={!added && full} onClick={() => onToggle(tool.id)}>{added ? 'Remove' : 'Compare +'}</button></article>
     })}</div>
     {!alternatives.length && <p className="quick-no-results" role="status">No catalog tools match that search. Try another name or task.</p>}
     <a className="quick-results-link" href="#compare">See side-by-side comparison <span aria-hidden="true">&#8595;</span></a>

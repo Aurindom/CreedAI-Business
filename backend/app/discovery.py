@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from . import db
 from .capacity import Claim
-from .domains import identity, registrable_domain, slug
+from .domains import identity, registrable_domain, slug, canonical_product_url
 from .schemas import Capability, Catalog, Fact, Tool
 
 CONTRACT_VERSION = "1.1.0"
@@ -375,6 +375,20 @@ def to_tool(catalog: Catalog, request: DiscoveryRequest, candidate: Candidate, c
 
 def store(conn: sqlite3.Connection, catalog: Catalog, request: DiscoveryRequest, result: FinderResult, today: date,
           allow_reserved: bool = False) -> DiscoveryReport:
+    from .verification_worker import enabled
+    if not enabled():
+        return _store(conn,catalog,request,result,today,allow_reserved)
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        # Only the short import holds a database lease; web calls are already finished.
+        report=_store(conn,db.read_catalog(conn),request,result,today,allow_reserved,atomic=True)
+        conn.commit()
+        return report
+    except BaseException:
+        conn.rollback();raise
+
+
+def _store(conn, catalog, request, result, today, allow_reserved=False, atomic=False):
     """Saves new candidates as pending tools. A candidate that matches a reviewed catalog tool is reported, not stored."""
     report = DiscoveryReport(run_id=result.run_id[:64] or uuid.uuid4().hex, status=result.status, error=result.error)
     if result.status == "failed":
@@ -382,6 +396,7 @@ def store(conn: sqlite3.Connection, catalog: Catalog, request: DiscoveryRequest,
     catalog_ids = {t.id for t in catalog.tools if t.origin == "catalog"}
     reviewed = {identity(t): t.id for t in catalog.tools if t.origin == "catalog"}
     discovered = {t.id for t in catalog.tools if t.origin == "discovered"}
+    urls={canonical_product_url(t.url):t for t in catalog.tools}
     seen: set[str] = set()
     for candidate in result.candidates:
         try:
@@ -393,15 +408,28 @@ def store(conn: sqlite3.Connection, catalog: Catalog, request: DiscoveryRequest,
         if isinstance(made, str):
             report.excluded.append(Skipped(candidate_id=candidate.candidate_id, reason=made))
             continue
+        same_url=urls.get(canonical_product_url(made.url)) if atomic else None
         twin = reviewed.get(identity(made)) or (made.id if made.id in catalog_ids else None)
+        if same_url and same_url.origin=='catalog':
+            twin=same_url.id
         if twin:
             report.duplicates.append(Skipped(candidate_id=candidate.candidate_id, tool_id=twin, reason="already in the reviewed catalog"))
             continue
+        existing=next((t for t in catalog.tools if t.id==made.id or identity(t)==identity(made)),None)
+        existing=existing or same_url
+        if atomic and existing and existing.origin=='discovered':
+            # A new headline or redirected homepage must not create another product.
+            known={cap.capability for cap in existing.capabilities}
+            made=existing.model_copy(update={'capabilities':[*existing.capabilities,*[cap for cap in made.capabilities if cap.capability not in known]]})
         if made.id in seen:
             report.duplicates.append(Skipped(candidate_id=candidate.candidate_id, tool_id=made.id, reason="listed twice in this run"))
             continue
         seen.add(made.id)
-        db.add_discovered_tool(conn, made)
+        if atomic:
+            db.put_discovered(conn,made)
+            urls[canonical_product_url(made.url)]=made
+        else:
+            db.add_discovered_tool(conn, made)
         (report.updated if made.id in discovered else report.added).append(made.id)
     return report
 

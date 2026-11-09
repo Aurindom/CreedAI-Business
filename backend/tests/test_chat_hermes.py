@@ -230,7 +230,7 @@ def test_a_label_from_another_run_cannot_satisfy_this_run(client, hermes):
     assert not texts(events) and error_code(events) == 'tool_missing'
 
 
-def test_a_result_read_from_changed_data_is_refused(client, hermes):
+def test_background_update_cannot_mix_new_data_into_registered_turn(client, hermes):
     def change_then_execute(tool_id, label):
         with sqlite3.connect(db_path()) as conn:
             doc = json.loads(conn.execute('SELECT doc FROM tool WHERE id = ?', (tool_id,)).fetchone()[0])
@@ -239,7 +239,8 @@ def test_a_result_read_from_changed_data_is_refused(client, hermes):
         return public_mcp.lookup(db_path(), tool_id, label)
     hermes(FakeHermes(answer, call=change_then_execute))
     events = frames(client.post('/api/chat', json=BODY))
-    assert not texts(events) and error_code(events) == 'tool_result_mismatch'
+    assert texts(events) and not error_code(events)
+    assert 'changed after the run was registered' not in json.dumps(events)
 
 
 def test_a_tampered_stored_result_is_refused(client, hermes):

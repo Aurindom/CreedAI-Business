@@ -38,7 +38,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
       secrets: [frontend_auth]
-    env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env"]
+    env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env", "${PENNY_SECRETS:-/srv/penny/secrets}/verification.env"]
     environment:
       CHAT_RUNTIME: hermes
       CHAT_MAX_INFLIGHT: ${CHAT_MAX_INFLIGHT:-3}
@@ -72,6 +72,65 @@ services:
       <<: *tcp-check
     depends_on:
       app: {condition: service_healthy}
+
+  verification:
+    <<: *app-image
+    env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env", "${PENNY_SECRETS:-/srv/penny/secrets}/verification.env", "${PENNY_SECRETS:-/srv/penny/secrets}/render.env"]
+    environment:
+      APP_DB_PATH: /state/app.db
+      RENDER_API_URL: http://render:8081
+    command: [python, -m, app.verification_worker]
+    volumes: ["${PENNY_DATA:-/srv/penny}/state:/state"]
+    networks: [egress, render_api]
+    mem_limit: 384m
+    stop_grace_period: 150s
+    cpus: 0.75
+    depends_on:
+      app: {condition: service_healthy}
+      render: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import os,sqlite3,time; c=sqlite3.connect(os.environ['APP_DB_PATH']); r=c.execute(\"SELECT updated FROM verification_schedule WHERE name='worker'\").fetchone(); assert r and r[0]>time.time()-240"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+
+  render:
+    image: ${PENNY_RENDER_IMAGE:-penny-render:1.64.1}
+    build:
+      context: ..
+      dockerfile: deploy/Render.Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=268435456,mode=1777"]
+    shm_size: 128m
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true", "seccomp=./chromium-seccomp.json"]
+    env_file: ["${PENNY_SECRETS:-/srv/penny/secrets}/render.env"]
+    networks: [render_api, render_back]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health',timeout=4)"]
+      <<: *tcp-check
+    depends_on:
+      render-proxy: {condition: service_healthy}
+
+  render-proxy:
+    <<: *app-image
+    env_file: ["${PENNY_SECRETS:-/srv/penny/secrets}/render.env"]
+    command: [python, -m, app.render_proxy]
+    networks: [render_back, egress]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, python, -c, "import socket; socket.create_connection(('127.0.0.1',3128),4).close()"]
+      <<: *tcp-check
 
   gateway:
     <<: *app-image
@@ -128,6 +187,10 @@ networks:
       config: [{subnet: 172.30.10.0/24}]
   egress: {}
   private:
+    internal: true
+  render_api:
+    internal: true
+  render_back:
     internal: true
 
 secrets:

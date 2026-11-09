@@ -606,7 +606,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
           </div>
         </header>
 
-        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence, which means facts we have checked, and tells you when something is unknown.</p></details>
+        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence, which means facts we have checked, and tells you which details need confirmation.</p></details>
         {live === false && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
         {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
