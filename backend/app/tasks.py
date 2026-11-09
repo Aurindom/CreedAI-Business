@@ -120,6 +120,44 @@ def _add(cards: list[ProblemCard], new: list[ProblemCard]) -> None:
             cards.append(card)
 
 
+_PART_BREAK = re.compile(r",|\band\b", re.IGNORECASE)
+# "went to a bar", "met at the restaurant": a place visited, not the owner's business.
+_VISITED = re.compile(r"\b(?:to|at|from|near|in|into|by|outside)\s+(?:(?:a|an|the|this|that|some)\s+)?$", re.IGNORECASE)
+
+
+def _label_pattern(label: str) -> re.Pattern[str]:
+    words = r'[\s_-]+'.join(re.escape(word) for word in re.split(r'[\s_-]+', label.strip()) if word)
+    return re.compile(r'(?<!\w)' + words + r'(?:e?s)?(?!\w)', re.IGNORECASE)
+
+
+def _names_label(part: str, label: str) -> bool:
+    return any(not _VISITED.search(part[:hit.start()]) for hit in _label_pattern(label).finditer(part))
+
+
+def stated_trade(catalog: Catalog, text: str) -> str | None:
+    """The one catalog business type the owner names, or None.
+
+    Labels come only from the catalog (id, name, aliases), so new business types need no code.
+    A miss only costs the old second Hermes run, while a wrong guess sticks because Hermes
+    can't replace it unless the real business is named. So anything unclear returns None:
+    negation, a place visited, a word inside a task phrase, or two different businesses.
+    """
+    found: set[str] = set()
+    for clause in _CLAUSE_BREAK.split(_owner_text(text)):
+        if not clause or not clause.strip():
+            continue
+        task_words = set().union(*(w for card in catalog.problem_cards for w in _phrase_hits(card, _words(clause))))
+        named = [(part, {trade.id for trade in catalog.trades
+                         if any(_names_label(part, label) and not _words(label) <= task_words
+                                for label in [trade.id, trade.name, *trade.aliases])})
+                 for part in _PART_BREAK.split(clause)]
+        # "I don't have a bakery and restaurant": the negation reaches past "and".
+        if any(ids and _negated(part) for part, ids in named):
+            continue
+        found.update(*(ids for part, ids in named if not _negated(part)))
+    return next(iter(found)) if len(found) == 1 else None
+
+
 def resolve_task(catalog: Catalog, text: str) -> TaskMatch:
     """Maps plain words to a known problem card using only the catalog's phrases.
 

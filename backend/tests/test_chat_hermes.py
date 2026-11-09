@@ -668,3 +668,30 @@ def test_refused_routing_for_a_clear_message_still_falls_back(client, hermes):
     events = frames(client.post('/api/chat', json={**BODY, 'message': 'hello'}))
     assert not [e for e in events if e['type'] == 'clarify']
     assert not any(e.get('validation') == 'validated' for e in texts(events))
+
+
+def test_business_named_in_the_first_message_needs_one_run(client, hermes):
+    # Live, 2026-11-08: "I run a restaurant..." with no business set took 19.3s, because Hermes
+    # routed to restaurant and the whole turn ran a second time just to pick up the business.
+    message = 'I run a restaurant and scheduling staff takes me hours every week'
+    packages = []
+    def script(package):
+        packages.append(package)
+        raw = {'claim_ids': list(package.default_claim_ids), 'followup_id': None, 'conversation_intent': None,
+               'reply_id': None, 'routes': [{'problem_id': 'staff_scheduling', 'task_text': message}],
+               'trade': 'restaurant', 'trade_text': 'I run a restaurant'}
+        return answer(package, output=json.dumps(raw))
+    hermes(FakeHermes(script))
+    events = frames(client.post('/api/chat', json={'conversation_id': 'one-run', 'message': message}))
+    assert len(packages) == 1
+    assert any(e['type'] == 'memory' and e['memory']['trade'] == 'restaurant' for e in events)
+
+
+def test_a_business_already_set_is_not_replaced_before_the_run(client, hermes):
+    packages = []
+    def script(package):
+        packages.append(package)
+        return answer(package)
+    hermes(FakeHermes(script))
+    events = frames(client.post('/api/chat', json={**BODY, 'message': 'I run a restaurant, which bookkeeping tool fits?'}))
+    assert not any(e['type'] == 'memory' and e['memory'].get('trade') == 'restaurant' for e in events)

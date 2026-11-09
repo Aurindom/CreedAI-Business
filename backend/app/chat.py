@@ -25,7 +25,7 @@ from .schemas import MAX_QUESTION_CHOICES
 from . import auth
 from .matching import recommend
 from .ownership import stated_ownership
-from .tasks import owner_excerpts
+from .tasks import owner_excerpts, stated_trade
 from .schemas import BusinessProfile, Catalog, Fact, OwnedSoftware, Tool
 from .agent.grounding import default_answer, validate_answer, FALLBACK
 from .agent.guard import LeakGuard
@@ -883,6 +883,11 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     if learned_ownership:
         memory.ruled_out = [tool_id for tool_id in memory.ruled_out if tool_id not in memory.owned]
         memory = _clean_memory(catalog, memory)
+    # A business named in this message is set before the first run. Otherwise Hermes routes
+    # to it and the whole turn runs a second time just to pick up the business type.
+    learned_trade = None if memory.trade or body.profile.trade else stated_trade(catalog, body.message)
+    if learned_trade:
+        memory.trade = learned_trade
     body.memory = memory
     if not memory.pending_task_ids:
         memory.pending_task_ids = pending_tasks(catalog, body)[:3]
@@ -906,6 +911,8 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             yield event
         return
     if runtime() == "hermes":
+        if learned_trade:
+            yield _memory_event(memory)
         async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory,
                                      recommendation_arguments=alternatives):
             yield event
@@ -929,7 +936,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     yield {"type": "status", "text": "Arkadio is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
-    if learned_ownership:
+    if learned_ownership or learned_trade:
         yield _memory_event(memory)
 
     for _ in range(MAX_ROUNDS):

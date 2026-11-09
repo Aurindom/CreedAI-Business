@@ -1,6 +1,7 @@
 import pytest
 
-from app.tasks import resolve_task
+from app.schemas import Trade
+from app.tasks import resolve_task, stated_trade
 
 
 @pytest.fixture
@@ -118,3 +119,33 @@ def test_real_catalog_does_not_guess_on_mixed_sentences(client):
 def test_real_catalog_matches_a_need_next_to_a_turned_down_one(client):
     match = client.post("/api/tasks/resolve", json={"text": "I do not need help answering calls. I need help with bookkeeping."}).json()
     assert match["status"] == "matched" and match["problem_id"] == "bookkeeping"
+
+
+@pytest.mark.parametrize("text, trade", [
+    ("I run a restaurant and staff scheduling is a mess", "restaurant"),
+    ("We're a small bakery, our phone never stops ringing", "bakery"),
+    ("I'm a mechanic and customers can never reach us", "auto"),
+    ("Restaurant owner here. Not a bakery though.", "restaurant"),
+    ("I run a food truck", "food_truck"),
+])
+def test_stated_trade_reads_the_business_from_catalog_labels(client, text, trade):
+    assert stated_trade(client.app.state.catalog, text) == trade
+
+
+@pytest.mark.parametrize("text", [
+    "I don't run a restaurant, I need help with invoices",
+    "I don't have a bakery and restaurant",
+    "I own a coffee shop and a bakery",
+    "we went to a bar after work, my books are behind",
+    "I need help with my books",
+])
+def test_stated_trade_leaves_unclear_messages_to_arkadio(client, text):
+    assert stated_trade(client.app.state.catalog, text) is None
+
+
+def test_stated_trade_has_no_business_list_of_its_own(client):
+    catalog = client.app.state.catalog.model_copy(deep=True)
+    assert stated_trade(catalog, "I run a pottery studio") is None
+    catalog.trades.append(Trade(id="pottery", name="Pottery studio", aliases=["Ceramics workshop"]))
+    assert stated_trade(catalog, "I run a pottery studio") == "pottery"
+    assert stated_trade(catalog, "we are a small ceramics workshop") == "pottery"
