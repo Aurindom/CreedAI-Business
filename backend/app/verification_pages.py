@@ -16,7 +16,7 @@ from .pricing_blocks import blocks_from_html,qualified_plan
 
 class Pages(dict):
     def __init__(self):
-        super().__init__();self.blocks=[];self.outcomes=[]
+        super().__init__();self.blocks=[];self.outcomes=[];self.billing={}
 
 
 def cache_connection():
@@ -89,7 +89,7 @@ def fetch(tool,cancel=None,capability=None,catalog=None):
                 # useful pricing structure; don't spend a browser on cache hits.
                 parser=_Parser()
                 if doc:parser.feed(doc['html']);parser.close()
-                text=' '.join(parser.text)
+                text=' '.join(' '.join(parser.text).split())
                 useful=doc and any(qualified_plan(block,phrases) for block in blocks_from_html(doc['html'],doc['url']))
                 if (not doc or len(text)<300 or not useful) and rendered<2 and os.environ.get('RENDER_API_URL'):
                     rendered+=1
@@ -102,8 +102,10 @@ def fetch(tool,cancel=None,capability=None,catalog=None):
                     if doc:doc['render_attempted']=True
                 if doc and registrable_domain(urlsplit(doc['url']).hostname or '')==domain:
                     persist(conn,url,doc,doc['mode'],now)
-            elif (doc.get('mode')=='static' and not doc.get('render_attempted') and rendered<2
-                    and os.environ.get('RENDER_API_URL') and not any(qualified_plan(block,phrases) for block in blocks_from_html(doc['html'],doc['url']))):
+            elif (rendered<2 and os.environ.get('RENDER_API_URL') and (
+                    (doc.get('mode')=='static' and not doc.get('render_attempted')
+                     and not any(qualified_plan(block,phrases) for block in blocks_from_html(doc['html'],doc['url'])))
+                    or (doc.get('mode')=='rendered' and doc.get('render_policy')!=2 and doc.get('render_attempted_policy')!=2))):
                 rendered+=1
                 try:
                     rendered_doc=render(url)
@@ -112,17 +114,20 @@ def fetch(tool,cancel=None,capability=None,catalog=None):
                 except Exception as exc:
                     result.outcomes.append({'url':url,'code':'render_'+type(exc).__name__.lower()})
                 doc['render_attempted']=True
+                doc['render_attempted_policy']=2
                 persist(conn,url,doc,doc['mode'],now)
             if not doc:continue
             if registrable_domain(urlsplit(doc['url']).hostname or '')!=domain:continue
             parser=_Parser();parser.feed(doc['html']);parser.close()
-            text=' '.join(parser.text)
+            text=' '.join(' '.join(parser.text).split())
             if len(text)<1500 and any(marker in text.lower() for marker in (*BLOCK_MARKERS,'enable javascript and cookies','performing security verification')):
                 result.outcomes.append({'url':doc['url'],'code':'vendor_access_blocked'})
                 continue
             if len(text)>=80:
                 result[urldefrag(doc['url'])[0]]=text[:26000]
-                result.blocks.extend(blocks_from_html(doc['html'],doc['url']))
+                blocks=blocks_from_html(doc['html'],doc['url'])
+                result.blocks.extend(blocks)
+                if blocks:result.billing[urldefrag(doc['url'])[0]]=blocks[0].get('billing_selection')
                 result.outcomes.append({'url':doc['url'],'code':'read_'+doc.get('mode','static')})
             def link_priority(item):
                 label=item[1].lower()

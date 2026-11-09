@@ -89,8 +89,8 @@ class Snapshot:
             'lead_response': ['lead follow up','automated lead response','lead response'],
             'review_requests': ['request reviews','review invitations','review generation'],
             'review_replies': ['reply to reviews','respond to reviews','responding to reviews','review responses'],
-            'job_scheduling': ['field service scheduling','job scheduling','dispatch scheduling'],
-            'appointment_booking': ['online booking','appointment scheduling','schedule appointments'],
+            'job_scheduling': ['field service scheduling','job scheduling','dispatch scheduling','appointment scheduling','client self-scheduling','online booking'],
+            'appointment_booking': ['online booking','appointment scheduling','schedule appointments','client self-scheduling'],
             'staff_scheduling': ['employee scheduling','shift scheduling','staff scheduling'],
             'website_chat': ['live chat','website chatbot','ai chatbot'],
         }

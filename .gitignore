@@ -24,3 +24,5 @@ deploy/secrets/
 /docs/
 /TEAM_HANDOFF.md
 /TEAMMATES handoff.md
+infra/*.parameters.local.json
+infra/azure-vm.json

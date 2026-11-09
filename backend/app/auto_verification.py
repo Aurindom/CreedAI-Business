@@ -83,6 +83,7 @@ def evaluate(tool: Tool, capability: str, catalog: Catalog, pages: dict[str, str
     extracted = Extraction.model_validate(raw)
     blocks = getattr(pages, 'blocks', [])
     source_outcomes = getattr(pages, 'outcomes', [])
+    billing_modes = getattr(pages, 'billing', {})
     domain = registrable_domain(urlsplit(str(tool.url)).hostname or '')
     pages = {urldefrag(url)[0]: text for url, text in pages.items()
              if urlsplit(url).scheme == 'https' and registrable_domain(urlsplit(url).hostname or '') == domain}
@@ -117,6 +118,8 @@ def evaluate(tool: Tool, capability: str, catalog: Catalog, pages: dict[str, str
     broad_fit = (not fit_negated and fit.value and quoted(fit, pages) and bool(re.search(
         r'\b(small businesses|businesses of all sizes|any business|every business|all industries|across industries)\b',
         fit.quote, re.I)))
+    if tool.applicability=='restricted' and not re.search(r'\b(all industries|across industries)\b',fit.quote or '',re.I):
+        broad_fit=False
     # Industry-specific tools must prove their declared industries; they must
     # never be relabelled cross-industry simply to satisfy verification.
     trade_names = {trade.id:[trade.name,*trade.aliases,trade.id.replace('_',' ')] for trade in catalog.trades}
@@ -130,6 +133,7 @@ def evaluate(tool: Tool, capability: str, catalog: Catalog, pages: dict[str, str
                and normalized(plan.name) in normalized(plan.quote) and positive_feature(plan.quote, phrases))
     amount = plan.price_usd_monthly
     price_ok = bool(plan_ok and amount is not None and plan.billing == 'flat_monthly'
+                    and billing_modes.get(plan.url) not in ('annual','unselected')
                     and not re.search(r'\b(setup fee|onboarding fee|mandatory fee|required add-on)\b', ' '.join(pages.values()), re.I)
                     and not re.search(r'\b(annually|annual|per user|per seat|per location|per contact|per email|per minute|per call|per conversation|per credit|per message|per transaction|per request|per token|overage|usage.based)\b', plan.quote, re.I)
                     and ((amount == 0 and re.search(r'\bfree (?:plan|tier)\b|\b(?:plan|tier|subscription) (?:is )?free\b', plan.quote, re.I) and not re.search(r'\btrial\b', plan.quote, re.I))
@@ -144,7 +148,7 @@ def evaluate(tool: Tool, capability: str, catalog: Catalog, pages: dict[str, str
     structural = min(qualified,key=lambda p:p['price_usd_monthly']) if qualified and not re.search(
         r'\b(setup fee|onboarding fee|mandatory fee|required add-on)\b', ' '.join(pages.values()), re.I) else None
     if structural:
-        plan = Plan(**{k:v for k,v in structural.items() if k!='block_id'} | {'quote':structural['quote'][:1800]})
+        plan = Plan(**{k:v for k,v in structural.items() if k in Plan.model_fields} | {'quote':structural['quote'][:1800]})
         amount=plan.price_usd_monthly
         plan_ok=price_ok=True
         supported=True
@@ -171,7 +175,9 @@ def evaluate(tool: Tool, capability: str, catalog: Catalog, pages: dict[str, str
                           'plan': {'url': plan.url, 'quote': plan.quote, 'name': plan.name}})}
     if structural:
         updates['auto_review'].evidence['plan']['block_id']=structural['block_id']
-        updates['auto_review'].evidence['plan']['basis']='same_pricing_block'
+        updates['auto_review'].evidence['plan']['basis']=structural['basis']
+        updates['auto_review'].evidence['plan']['price_block_id']=structural['price_block_id']
+        updates['auto_review'].evidence['plan']['currency_quote']=structural['currency_quote']
     if not eligible and (feature_negated or price_changed):
         updates['auto_review'].notes.append('Vendor evidence conflicts with earlier facts. Confirm current feature and plan details.')
     updates['auto_review'].evidence['source_fetches']={row['url']:row['code'] for row in source_outcomes}

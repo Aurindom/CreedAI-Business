@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "belgiumcentral" },
+    "namePrefix": { "value": "penny-new-environment" },
+    "vmSize": { "value": "Standard_B2als_v2" },
+    "adminUsername": { "value": "azureuser" },
+    "sshPublicKey": { "value": "REPLACE_WITH_SSH_PUBLIC_KEY_ONLY" },
+    "sshSourceCidr": { "value": "203.0.113.10/32" },
+    "dnsLabel": { "value": "REPLACE_WITH_UNIQUE_DNS_LABEL" }
+  }
+}

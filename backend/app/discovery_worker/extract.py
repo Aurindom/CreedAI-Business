@@ -12,6 +12,7 @@ GENERIC_HEADINGS = {"pricing", "plans", "plans and pricing", "plans & pricing", 
 BLOCK_MARKERS = ("access denied", "verify you are human", "captcha", "are you a robot", "unusual traffic")
 SIDE_TAGS = {"nav": "navigation", "footer": "navigation", "aside": "navigation", "menu": "navigation", "blockquote": "review"}
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+VOID_TAGS = {'area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'}
 
 
 class _Parser(HTMLParser):
@@ -33,9 +34,15 @@ class _Parser(HTMLParser):
         self._in_h1 = False
         self._in_a: str | None = None
         self._a_text: list[str] = []
+        self._visibility: list[tuple[str,bool]] = []
 
     def handle_starttag(self, tag, attrs):
         a = {k: (v or "") for k, v in attrs}
+        hidden=bool((self._visibility and self._visibility[-1][1]) or 'hidden' in a or 'inert' in a
+                    or a.get('aria-hidden','').lower()=='true'
+                    or re.search(r'display\s*:\s*none|visibility\s*:\s*hidden|(?:^|;)\s*opacity\s*:\s*0(?:[;\s]|$)',a.get('style',''),re.I))
+        if tag not in VOID_TAGS:self._visibility.append((tag,hidden))
+        if hidden:return
         if tag == "script":
             self.scripts += 1
         side_kind = SIDE_TAGS.get(tag)
@@ -63,6 +70,12 @@ class _Parser(HTMLParser):
             self._a_text = []
 
     def handle_endtag(self, tag):
+        hidden=bool(self._visibility and self._visibility[-1][1])
+        for index in range(len(self._visibility)-1,-1,-1):
+            if self._visibility[index][0]==tag:
+                del self._visibility[index:]
+                break
+        if hidden:return
         if self._side_stack and self._side_stack[-1][0] == tag:
             _, kind = self._side_stack.pop()
             if not self._side_stack and self._side_buf:
@@ -79,6 +92,7 @@ class _Parser(HTMLParser):
             self._in_a = None
 
     def handle_data(self, data):
+        if self._visibility and self._visibility[-1][1]:return
         if self._in_title:
             self.title += data
             return

@@ -75,7 +75,7 @@ async def render(body:RenderRequest,authorization:str|None=Header(default=None))
             # One explicit monthly billing control, never a signup/purchase action.
             import re
             for role in ('tab','radio','button'):
-                monthly=page.get_by_role(role,name=re.compile(r'^monthly(?: billing)?$',re.I))
+                monthly=page.get_by_role(role,name=re.compile(r'^(?:(?:pay|bill|billed)\s+)?monthly(?:\s+(?:billing|plans?))?$',re.I))
                 if await monthly.count()==1 and await monthly.is_visible():
                     await monthly.click(timeout=1500,no_wait_after=True)
                     await page.wait_for_timeout(400)
@@ -88,13 +88,13 @@ async def render(body:RenderRequest,authorization:str|None=Header(default=None))
                 const clone=document.documentElement.cloneNode(true);
                 const original=[document.documentElement,...document.documentElement.querySelectorAll('*')];
                 const copied=[clone,...clone.querySelectorAll('*')];
-                original.forEach((el,i)=>{ const s=getComputedStyle(el); if(copied[i] && (s.display==='none'||s.visibility==='hidden'))copied[i].setAttribute('hidden',''); });
+                original.forEach((el,i)=>{ const s=getComputedStyle(el); if(copied[i] && (s.display==='none'||s.visibility==='hidden'||s.contentVisibility==='hidden'||s.opacity==='0'||el.getAttribute('aria-hidden')==='true'))copied[i].setAttribute('hidden',''); });
                 clone.querySelectorAll('script,style,noscript,template,video,audio,iframe').forEach(el=>el.remove());
                 return clone.outerHTML;
             }''')
             if len(html)>750000:raise ValueError('render_document_too_large')
             if not valid_url(page.url):raise ValueError('invalid_final_url')
-            return {'version':1,'url':page.url,'html':html,'requests':requests,'allowed_requests':allowed_requests,'mode':'rendered'}
+            return {'version':1,'render_policy':2,'url':page.url,'html':html,'requests':requests,'allowed_requests':allowed_requests,'mode':'rendered'}
     except HTTPException:raise
     except Exception:
         raise HTTPException(503,'Rendered evidence is unavailable; retain pending verification') from None

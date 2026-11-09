@@ -194,6 +194,57 @@ def test_hidden_parent_pricing_not_used():
     assert not blocks_from_html('<div hidden><section class="pricing"><h3>Core</h3>USD 1 monthly includes bookkeeping</section></div>',URL)
 
 
+def test_hidden_prices_do_not_enter_text_or_leak_out_of_nested_and_void_tags():
+    from app.discovery_worker.extract import _Parser
+    parser=_Parser();parser.feed('<div hidden><span>USD 1 monthly</span><img src="x"></div><p>USD 20 monthly</p><div aria-hidden="true">USD 3</div><div style="opacity:0">USD 4</div><input hidden><p>Visible bookkeeping</p>')
+    text=' '.join(parser.text)
+    assert 'USD 20 monthly' in text and 'Visible bookkeeping' in text
+    assert 'USD 1 monthly' not in text and 'USD 3' not in text and 'USD 4' not in text
+
+
+def test_named_plan_join_uses_explicit_page_currency_and_selected_monthly_billing():
+    html='''<p>All prices are in USD.</p><button role="radio" aria-checked="true">Pay monthly</button>
+      <div class="pricing-plan"><div class="plan-title">Core</div><p>$20 / month</p><span hidden>$12 / month</span><button>Start free trial</button></div>
+      <div class="pricing-plan"><div class="plan-title">Pro</div><p>$80 / month</p></div>
+      <table><tr><th>Feature</th><th>Core</th><th>Pro</th></tr><tr><td>Bookkeeping</td><td>Included</td><td>No</td></tr></table>'''
+    blocks=blocks_from_html(html,URL)
+    accepted=[qualified_plan(block,['bookkeeping']) for block in blocks]
+    accepted=[plan for plan in accepted if plan]
+    assert len(accepted)==1 and accepted[0]['name']=='Core' and accepted[0]['price_usd_monthly']==20
+    assert accepted[0]['basis']=='named_plan_join' and accepted[0]['currency_quote']=='All prices are in USD'
+    annual=html.replace('>Pay monthly<','>Pay annually<')
+    assert not any(qualified_plan(block,['bookkeeping']) for block in blocks_from_html(annual,URL))
+    no_currency=html.replace('All prices are in USD.','Choose a plan.')
+    assert not any(qualified_plan(block,['bookkeeping']) for block in blocks_from_html(no_currency,URL))
+
+
+def test_conflicting_same_named_plan_prices_never_join():
+    html='''<div class="pricing"><h3>Core</h3>USD 10 per month</div><div class="pricing"><h3>Core</h3>USD 20 per month</div>
+    <table><tr><th>Feature</th><th>Core</th></tr><tr><td>Bookkeeping</td><td>Included</td></tr></table>'''
+    assert not any(block['kind']=='pricing_plan_join' for block in blocks_from_html(html,URL))
+
+
+def test_old_rendered_cache_gets_one_policy_refresh_and_hides_annual_prices(monkeypatch):
+    from app import verification_pages
+    old='<button role="radio" aria-checked="true">Pay annually</button><div class="pricing"><h3>Core</h3>USD 12 / month includes bookkeeping</div>'
+    new='<p>Our software platform serves small businesses across industries.</p><button role="radio" aria-checked="true">Pay monthly</button><div class="pricing"><h3>Core</h3>USD 20 / month includes bookkeeping<span hidden>USD 12 / month annual price</span></div>'
+    cached={'url':URL,'html':old,'mode':'rendered'};calls=[]
+    monkeypatch.setenv('RENDER_API_URL','http://internal-renderer')
+    monkeypatch.setattr(verification_pages,'cache_connection',lambda:None)
+    monkeypatch.setattr(verification_pages,'cached',lambda *args:cached.copy())
+    def render(url):
+        calls.append(url)
+        return {'version':1,'render_policy':2,'url':url,'html':new}
+    def persist(conn,url,doc,mode,now):cached.clear();cached.update(doc)
+    monkeypatch.setattr(verification_pages,'render',render)
+    monkeypatch.setattr(verification_pages,'persist',persist)
+    first=verification_pages.fetch(source(),capability='bookkeeping')
+    assert 'USD 12' not in first[URL] and first.billing[URL]=='monthly'
+    assert any((p:=qualified_plan(block,['bookkeeping'])) and p['price_usd_monthly']==20 for block in first.blocks)
+    verification_pages.fetch(source(),capability='bookkeeping')
+    assert calls==[URL]
+
+
 def test_structural_pricing_promotes_exact_scope_and_retains_block_receipt(catalog):
     pages=Pages();pages[URL]='Software for small businesses. Includes bookkeeping.'
     pages.blocks=blocks_from_html('<div class="pricing"><h3>Core</h3>USD 12 monthly. Includes bookkeeping.</div>',URL)
