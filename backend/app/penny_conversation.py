@@ -39,24 +39,28 @@ def app_help_reply(catalog, message, *, social=False):
     of every product for those businesses.
     """
     text = re.sub(r'\s+', ' ', message.casefold()).strip(' .!?')
+    business = r'(?:business(?:es)?|industr(?:y|ies)|compan(?:y|ies)|sectors?)'
+    subject = r'(?:you|this(?: (?:app|assistant|platform|website|service))?)'
+    action = r'(?:help|support|serve|assist|work with)'
     business_question = re.fullmatch(
-        r'(?:what|which)(?: kinds? of| types? of)? (?:businesses|business|industries) (?:can|do) you (?:help|work|support)(?: me)?(?: with| for)?', text)
+        rf'(?:what|which)(?: kinds? of| types? of)? {business} (?:can|could|do|does) {subject} {action}(?: me| us)?(?: with| for)?', text)
+    business_question = business_question or re.fullmatch(
+        rf'(?:please )?(?:(?:can|could|would) you )?(?:please )?(?:list|show|name)(?: me| us)? (?:the )?(?:types? of |kinds? of )?{business}(?: (?:that )?you {action})?', text)
     if business_question:
         names = ', '.join(trade.name for trade in catalog.trades)
         return ('You can explore business software for these business types: ' + names +
-                '. I help with everyday work such as scheduling, customer calls and bookkeeping. '
-                'Which kind of business do you run?')
-    if text in {'what can you do', 'what can you help me with', 'how can you help me',
-                'how does this work', 'what is this website', 'what is creed ai'}:
+                '. Which kind of business do you run?')
+    if (re.fullmatch(rf'(?:what|how) (?:can|could|do|does) {subject} (?:do|help|assist|work)(?: me| us)?(?: with)?', text)
+            or re.fullmatch(r'what is this (?:app|assistant|platform|website|service)(?: for)?', text)):
+        categories = ', '.join(category.name for category in catalog.categories)
         return ('I help you explore business software, compare options and plan your next steps. '
-                'Tell me your type of business and one task you want to make easier, '
-                'such as handling calls, scheduling or bookkeeping.')
+                f'You can browse {categories}. Tell me your type of business and one task you want to make easier.')
     if social:
-        if text in {'hello', 'hi', 'hey', 'hello arkadio', 'hi arkadio'}:
+        if re.fullmatch(r'(?:hello|hi|hey)(?: there| again)?', text):
             return APPROVED_REPLIES['greeting'][0]
-        if text in {'how are you', 'how are you doing'}:
+        if re.fullmatch(r'how (?:are|r) (?:you|u)(?: doing)?', text):
             return APPROVED_REPLIES['greeting'][2]
-        if text in {'thanks', 'thank you', 'thanks a lot'}:
+        if re.fullmatch(r'(?:thanks|thank you)(?: a lot| very much| so much)?', text):
             return APPROVED_REPLIES['acknowledgement'][0]
     return None
 
@@ -65,8 +69,6 @@ def business_intake(catalog, message):
     text = re.sub(r'\s+', ' ', message.casefold()).strip(' .!?')
     text = re.sub(r'^(?:help(?: me)? (?:with )?|i (?:run|own|have) (?:a |an )?)', '', text)
     text = re.sub(r' (?:issues|problems|business)$', '', text)
-    if text == 'clinical':
-        text = 'medical'
     return catalog.resolve_trade(text)
 
 

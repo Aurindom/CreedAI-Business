@@ -90,10 +90,10 @@ for attempt in $(seq 1 30); do
     if [[ "$reserved" == 0 ]]; then gateway_idle=true; break; fi
     sleep 1
 done
-if [[ "$gateway_idle" == true ]]; then
+if [[ "$gateway_idle" == true && "${PENNY_SKIP_GATEWAY_UPDATE:-0}" != 1 ]]; then
     "${compose[@]}" up -d --no-deps gateway
     wait_ready app
-else
+elif [[ "$gateway_idle" != true ]]; then
     echo 'Gateway upgrade deferred: a provider request is active; app remains live.' >&2
 fi
 # Let in-flight requests drain on the temporary upstream before removing it.

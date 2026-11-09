@@ -38,7 +38,8 @@
     },
     {
       "id": "medical",
-      "name": "Clinic or vet"
+      "name": "Clinic or vet",
+      "aliases": ["Clinic", "Clinical", "Medical", "Medical clinic", "Veterinary clinic", "Vet"]
     },
     {
       "id": "pet_care",

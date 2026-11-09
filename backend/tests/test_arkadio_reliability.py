@@ -35,6 +35,45 @@ def test_clinical_issues_is_business_intake_not_an_unbounded_model_request():
     assert business_intake(catalog,'clinical symptoms and treatment') is None
 
 
+def test_every_catalog_business_and_unambiguous_alias_uses_the_same_intake():
+    from pathlib import Path
+    catalog=db.load_catalog_file(Path(__file__).parents[1]/'data/catalog.json')
+    checked=0
+    for trade in catalog.trades:
+        for label in [trade.id,trade.name,*trade.aliases]:
+            if catalog.resolve_trade(label)!=trade.id:
+                continue  # Ambiguous shared aliases are intentionally not forced.
+            for template in ['Help me with {} issues','I own a {}','{} problems']:
+                assert business_intake(catalog,template.format(label))==trade.id
+                checked+=1
+    assert checked>100
+
+
+@pytest.mark.parametrize('message',[
+    'Which companies does this assistant work with?',
+    'Could you list the industries you support?',
+    'Show me the sectors you serve',
+    'What kinds of businesses could you assist us with?',
+])
+def test_unseen_business_scope_wording_uses_catalog_data(catalog,client,message):
+    reply=app_help_reply(catalog,message)
+    assert reply and all(trade.name in reply for trade in catalog.trades)
+    response=client.post('/api/chat',json={'conversation_id':'scope-paraphrase','message':message})
+    assert response.status_code==200
+    events=frames(response)
+    assert texts(events) and all(e['response_mode']=='app_help' for e in texts(events))
+
+
+def test_help_content_tracks_new_catalog_metadata_without_new_response_cases(catalog):
+    from app.schemas import Trade,Category
+    changed=catalog.model_copy(update={
+        'trades':[Trade(id='new_industry',name='New industry')],
+        'categories':[Category(id='new_work',name='New business workflow',capabilities=[])],
+    })
+    assert 'New industry' in app_help_reply(changed,'Which companies do you support?')
+    assert 'New business workflow' in app_help_reply(changed,'How could this assistant help us?')
+
+
 @pytest.mark.parametrize('execute', [True,False])
 def test_catalog_mode_requires_actual_executor_receipt(client, hermes, monkeypatch, execute):
     monkeypatch.setenv('CHAT_CATALOG_FAST_PATH','true')
