@@ -13,7 +13,7 @@ old_app="$("${compose[@]}" ps -q app)"
 [[ -n "$old_app" ]]
 stage_dir="$(mktemp -d)"
 override="$stage_dir/candidate.yml"
-printf 'services:\n  app-candidate:\n    extends:\n      service: app\n' > "$override"
+printf 'services:\n  app-candidate:\n    extends:\n      file: %s/compose.prod.yml\n      service: app\n' "$PWD" > "$override"
 next=(docker compose -f compose.prod.yml -f "$override")
 candidate_live=false
 cleanup() {
