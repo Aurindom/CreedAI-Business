@@ -37,7 +37,7 @@ async function render(surface, props = {}) {
   return root
 }
 
-test('A2UI renders Penny text as escaped text', async () => {
+test('A2UI renders Arkadio text as escaped text', async () => {
   const root = await render(protocol('text', 'PennyText', { text: '<script>alert(1)</script>' }))
   assert.match(document.querySelector('.msc-row').textContent, /<script>alert\(1\)<\/script>/)
   assert.equal(document.querySelector('script'), null)

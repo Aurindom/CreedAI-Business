@@ -8,7 +8,7 @@ function SummaryOption({ option, status, fallbackUrl, includeDetails }) {
   return (
     <div className="msc-print-option">
       <h3>{option.tool_name}</h3>
-      <p>{[ROUTE_LABELS[option.route] || 'An option to consider', costText(option), statusLabel(status)].filter(Boolean).join(' · ')}</p>
+      <p>{[ROUTE_LABELS[option.route] || 'An option to consider', costText(option), statusLabel(status)].filter(Boolean).join(', ')}</p>
       {costText(option) && option.cost_note && <p>{option.cost_note}</p>}
       {statusLabel(status) && option.fit_note && <p>{option.fit_note}</p>}
       {url && <p><a href={url} target="_blank" rel="noreferrer noopener">{url}</a></p>}
@@ -57,8 +57,8 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
         <div><button type="button" onClick={onPrint}>Print / Save PDF</button><button type="button" ref={closeRef} onClick={onClose}>Close summary</button></div>
       </div>
     <section className="msc-print">
-      <h1 id="penny-summary-title">Main Street AI summary</h1>
-      <p className="msc-print-meta">{problemTitle} · {new Date().toLocaleDateString()}</p>
+      <h1 id="penny-summary-title">Creed AI summary</h1>
+      <p className="msc-print-meta">{problemTitle}, {new Date().toLocaleDateString()}</p>
       <h2>{HEADLINES[recommendation.outcome] || 'Here is what I found'}</h2>
       <p>{recommendation.message}</p>
       {recommendation.tailoring_note && <p>{recommendation.tailoring_note}</p>}

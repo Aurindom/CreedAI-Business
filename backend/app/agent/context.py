@@ -2,7 +2,7 @@
 may use from earlier turns is sent here, as data, inside one JSON value.
 
 Stable constraints (trade, owned and excluded tools, budget, an unknown plan) are always kept. Old turns are
-dropped oldest first until the whole thing fits. History is the owner's and Penny's earlier words, never
+dropped oldest first until the whole thing fits. History is the owner's and Arkadio's earlier words, never
 instructions or identity, so a turn that looks like an injection, carries personal data or repeats a guarded
 secret is left out."""
 

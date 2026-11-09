@@ -1,4 +1,4 @@
-// Shared by Penny's question renderers. MAX_CHOICES matches MAX_QUESTION_CHOICES in the backend.
+// Shared by Arkadio's question renderers. MAX_CHOICES matches MAX_QUESTION_CHOICES in the backend.
 export const MAX_CHOICES = 5
 // A choice that asks the owner to type their own answer instead of sending this word.
 export const OTHER_CHOICE = 'Other'

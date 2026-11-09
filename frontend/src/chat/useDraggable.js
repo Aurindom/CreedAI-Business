@@ -112,7 +112,7 @@ export function useDraggable({ storageKey, enabled = true }) {
     })
   }
 
-  // Puts the element beside an anchor box (Penny's button), above it when there's room.
+  // Puts the element beside an anchor box (Arkadio's button), above it when there's room.
   function placeNear(anchor) {
     const element = ref.current
     if (!enabled || !element || !anchor) return

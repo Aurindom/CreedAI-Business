@@ -14,7 +14,7 @@ function PennyMemory({ memory, names, onRemove }) {
     <details className="msc-memory">
       <summary>
         <span>Business context</span>
-        <small>{items.map((item) => item.text).join(' · ')}</small>
+        <small>{items.map((item) => item.text).join(', ')}</small>
       </summary>
       <ul className="msc-memory-list">
         {items.map((item) => (
@@ -24,7 +24,7 @@ function PennyMemory({ memory, names, onRemove }) {
           </li>
         ))}
       </ul>
-      <p className="msc-memory-note">Tap × to remove anything. Penny forgets this when you close the tab.</p>
+      <p className="msc-memory-note">Tap × to remove anything. Arkadio forgets this when you close the tab.</p>
     </details>
   )
 }

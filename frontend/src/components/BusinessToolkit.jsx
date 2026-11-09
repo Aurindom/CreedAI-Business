@@ -37,7 +37,7 @@ export default function BusinessToolkit({ business, tradeId, tools, categories, 
         {groups.map((group, index) => <article className="business-toolkit-card" key={group.id}>
           <div className="business-toolkit-category"><span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><h4>{group.name}</h4></div>
           <ul>{group.tools.map(({ tool, purposes }) => <li key={tool.id}>
-            <div>{safeWebsite(tool.url) ? <a href={safeWebsite(tool.url)} target="_blank" rel="noopener noreferrer">{tool.name} <span aria-hidden="true">&#8599;</span></a> : <strong>{tool.name}</strong>}<p>{purposes.join(' · ')}</p><small>{tool.applicability === 'cross_industry' ? 'General-purpose' : `Lists ${business.toLowerCase()}`} · Checked for these tasks</small></div>
+            <div>{safeWebsite(tool.url) ? <a href={safeWebsite(tool.url)} target="_blank" rel="noopener noreferrer">{tool.name} <span aria-hidden="true">&#8599;</span></a> : <strong>{tool.name}</strong>}<p>{purposes.join(', ')}</p><small>{tool.applicability === 'cross_industry' ? 'General-purpose' : `Lists ${label}`}. Checked for these tasks</small></div>
             <FavouriteButton toolId={tool.id} name={tool.name} />
           </li>)}</ul>
           <button type="button" onClick={() => onCategory(group.id)}>Find tools for this work <span aria-hidden="true">&#8594;</span></button>

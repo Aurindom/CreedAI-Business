@@ -25,7 +25,7 @@ export function readQuestionSurface(protocol) {
 
 export default function A2UIQuestion({ protocol, onSelect, onOther, busy }) {
   const question = readQuestionSurface(protocol)
-  if (!question) return <div className="msc-error" role="alert">Penny could not show those choices. Please ask again.</div>
+  if (!question) return <div className="msc-error" role="alert">Arkadio could not show those choices. Please ask again.</div>
   return <div className="msc-row msc-clarify msc-a2ui-question">
     {question.progress && <span className="msc-progress">{question.progress}</span>}
     <div className="msc-clarify-question"><span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} /></span><p>{question.question}</p></div>

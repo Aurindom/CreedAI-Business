@@ -66,6 +66,9 @@ function dollars(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(amount)
 }
 
+const businessLabel = (name) => (name === name.toUpperCase() ? name : name.toLowerCase())
+const withArticle = (name) => `${/^[aeiou]/i.test(name) || /^HVAC$/i.test(name) ? 'an' : 'a'} ${businessLabel(name)}`
+
 const OWNED_PREVIEW = 10
 
 function stageAnchor(anchor) {
@@ -124,8 +127,8 @@ function ToolFactValue({ fact, toolName }) {
   if (!fact.known || fact.state !== 'known') return null
   return <span className={`fact-value fact-state-${fact.state}`}>
     {fact.value}
-    {fact.source_type === 'vendor' && fact.known && <span className="fact-source"> ? vendor says</span>}
-    {fact.note && <span className="fact-why">{fact.note}</span>}
+    {fact.source_type === 'vendor' && fact.known && <span className="fact-source"> (stated by the vendor)</span>}
+    {fact.note && fact.note !== fact.value && <span className="fact-why">{fact.note}</span>}
     {fact.checked && <small className="evidence-date">Checked {fact.checked}</small>}
     {safeWebsite(fact.source_url) && <a className="evidence-link" href={safeWebsite(fact.source_url)} target="_blank" rel="noopener noreferrer" aria-label={`View ${fact.label.toLowerCase()} source for ${toolName}`}>View source</a>}
   </span>
@@ -135,7 +138,7 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
-const SITE_TITLE = 'Main Street AI | Find tools that fit your business'
+const SITE_TITLE = 'Creed AI | Find tools that fit your business'
 
 function App() {
   const auth = useOwnerAuth()
@@ -416,7 +419,7 @@ function Marketplace({ auth }) {
   const exploreHeading = showDirectory ? 'Browse the directory' : multiProblem ? 'Your options' : 'What fits this task'
   const exploreLead = showDirectory
     ? `Every tool in ${activeCategory ? activeCategory.name : 'the catalog'}, with who it is built for.`
-    : multiProblem ? `For your ${selectedProblems.length} problems${tradeLabel ? ` at a ${tradeLabel.toLowerCase()}` : ''}.` : activeProblem ? `For “${activeProblem.title.toLowerCase()}”${tradeLabel ? ` at a ${tradeLabel.toLowerCase()}` : ''}.` : 'Choose a task above to see what fits.'
+    : multiProblem ? `For your ${selectedProblems.length} problems${tradeLabel ? ` at ${withArticle(tradeLabel)}` : ''}.` : activeProblem ? `For “${activeProblem.title.toLowerCase()}”${tradeLabel ? ` at ${withArticle(tradeLabel)}` : ''}.` : 'Choose a task above to see what fits.'
   const exploreCount = showDirectory
     ? plural(visibleDirectory.length, 'tool')
     : multiProblem ? plural(selectedProblems.length, 'problem') : recommendation ? plural(recommendation.options.length + recommendation.check_first.length, 'tool') + ' to look at' : 'No task chosen'
@@ -525,7 +528,7 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="section-block" id="challenge" hidden={quickCompare}>
-            <div className="section-heading"><div><div className="section-kicker">STEP 02: NAME THE PROBLEM</div><h2>What's slowing you down?</h2><p>{tradeId ? `We've put the most common problems for a ${tradeLabel.toLowerCase()} first. ` : ''}Pick one, or up to {MAX_PROBLEMS} at once.</p></div><div className="section-counter">02 / 04</div></div>
+            <div className="section-heading"><div><div className="section-kicker">STEP 02: NAME THE PROBLEM</div><h2>What's slowing you down?</h2><p>{tradeId ? `We've put the most common problems for ${withArticle(tradeLabel)} first. ` : ''}Pick one, or up to {MAX_PROBLEMS} at once.</p></div><div className="section-counter">02 / 04</div></div>
             <div className="category-tabs" role="tablist" aria-label="Filter by type of work">
               <button type="button" role="tab" aria-selected={category === ''} className={`tab ${category === '' ? 'tab-on' : ''}`} onClick={() => chooseCategory('')}>All</button>
               {categories.map((c) => (
@@ -550,7 +553,7 @@ function Marketplace({ auth }) {
               if (!tradeId) return <div className="problem-grid">{problems.map(card)}</div>
               return (
                 <>
-                  {forBusiness.length > 0 && <><h3 className="problem-group">Most common for a {tradeLabel.toLowerCase()}</h3><div className="problem-grid">{forBusiness.map(card)}</div></>}
+                  {forBusiness.length > 0 && <><h3 className="problem-group">Most common for {withArticle(tradeLabel)}</h3><div className="problem-grid">{forBusiness.map(card)}</div></>}
                   {everyone.length > 0 && <><h3 className="problem-group">Common for every business</h3><div className="problem-grid">{everyone.map(card)}</div></>}
                   {others.length > 0 && <>
                     <button type="button" className="problem-more" aria-expanded={showOtherProblems} onClick={() => setShowOtherProblems((value) => !value)}>
@@ -564,7 +567,7 @@ function Marketplace({ auth }) {
             <div className={`problem-selection${selectedProblems.length ? ' has-picks' : ''}`} role="region" aria-label="Your selected problems">
               <p aria-live="polite">
                 {selectedProblems.length
-                  ? <><strong>{selectedProblems.length} of {MAX_PROBLEMS} selected:</strong> {selectedProblems.map((id) => allProblems.find((problem) => problem.id === id)?.title).filter(Boolean).join(' · ')}</>
+                  ? <><strong>{selectedProblems.length} of {MAX_PROBLEMS} selected:</strong> {selectedProblems.map((id) => allProblems.find((problem) => problem.id === id)?.title).filter(Boolean).join(', ')}</>
                   : 'Nothing selected yet. Tap a problem above.'}
               </p>
               {problemNotice && <p className="problem-notice" role="alert">{problemNotice}</p>}
@@ -588,7 +591,7 @@ function Marketplace({ auth }) {
           <section className="section-block" id="explore" hidden={quickCompare}>
             <div className="section-heading"><div><div className="section-kicker">STEP 03: YOUR OPTIONS</div><h2>{exploreHeading}</h2><p>{exploreLead}</p></div><div className="section-counter">03 / 04</div></div>
             <div className="explore-toolbar">
-              <div aria-live="polite"><strong>{directoryLoading && showDirectory ? 'Loading tools…' : exploreCount}</strong><span>{tradeLabel ? ` · ${tradeLabel}` : ' · Any business'}</span></div>
+              <div aria-live="polite"><strong>{directoryLoading && showDirectory ? 'Loading tools…' : exploreCount}</strong><span>{tradeLabel ? ` for ${tradeLabel}` : ' for any business'}</span></div>
               <button type="button" onClick={() => { setShowDirectory(value => !value); setDirectoryQuery('') }}>{showDirectory ? 'Back to my options' : 'Browse directory'} <ArrowIcon size={15} /></button>
             </div>
             <div className="directory-search" role="search" aria-label="Find tools in the directory"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.7" /><path d="m16 16 5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg><label className="sr-only" htmlFor="directory-search">Search tools</label><input id="directory-search" type="search" value={directoryQuery} maxLength={100} onChange={event => { setDirectoryQuery(event.target.value); setShowDirectory(true) }} placeholder="Find a tool by name or what it does" /><span className="search-hint">YOUR NEXT GOOD FIND</span></div>
@@ -648,7 +651,7 @@ function Marketplace({ auth }) {
           </section>
 
           <section className="next-panel" hidden={quickCompare}><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Confirm task assignments and save a private adoption plan for your next steps.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>
-          <footer><span>Main Street AI · A clearer way to choose AI</span><span>Prototype catalog checked 2026-11-07</span></footer>
+          <footer><span>Creed AI: a clearer way to choose AI</span><span>Catalog checked November 7, 2026</span></footer>
         </div>
       </main>
       <ComparisonTray tools={comparison} onRemove={toggleCompare} onClear={() => { setSelectedTools([]); setBaseline('') }} onView={() => stageAnchor('compare')} />

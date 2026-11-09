@@ -363,7 +363,7 @@ def test_full_inflight_cap_refuses_before_any_reservation_and_frees_its_slot(cli
 def test_prior_turns_and_constraints_reach_hermes_as_data(client, hermes):
     fake = hermes(FakeHermes(answer))
     body = dict(BODY, history=[
-        {'role': 'assistant', 'text': 'Hi, I am Penny.'},
+        {'role': 'assistant', 'text': 'Hi, I am Arkadio.'},
         {'role': 'user', 'text': 'We run three vans and I hate paperwork.'},
         {'role': 'assistant', 'text': 'Got it, three vans.'},
     ])

@@ -102,11 +102,11 @@ export default function BusinessCarousel({ paused = false, onChooseBusiness, onC
           <img className="business-photo" src={index === active || index === (active + 1) % businesses.length || index === (active - 1 + businesses.length) % businesses.length ? `/images/${business.image}.jpg` : undefined} alt={business.alt} loading="eager" fetchPriority={index === 0 ? 'high' : 'auto'} />
           <div className="business-shade" />
           <div className="business-slide-content">
-            <p className="business-kicker"><span /> {business.eyebrow}</p>
+            <p className="business-kicker">{business.eyebrow}</p>
             <h1>{business.title}<br /><em>{business.accent}</em></h1>
             <p className="business-story">{business.copy}</p>
             <button className="business-start" type="button" onClick={() => onChooseBusiness(business.type)}>Find tools for my business <span aria-hidden="true">&#8599;</span></button>
-            <button className="business-ask-penny" type="button" onClick={onAskPenny}>Ask Penny <span aria-hidden="true">&#8599;</span></button>
+            <button className="business-ask-penny" type="button" onClick={onAskPenny}>Ask Arkadio <span aria-hidden="true">&#8599;</span></button>
             <button className="business-explore business-compare-shortcut" type="button" onClick={onCompare}>Already pay for a tool? Compare it <span aria-hidden="true">&#8599;</span></button>
           </div>
           <div className="business-day" role="group" aria-label={`Common problems for a ${business.type.toLowerCase()}`}><span className="day-label">What's slowing you down?</span>{business.challenges.map((challenge) => CHALLENGE_PROBLEMS[challenge]

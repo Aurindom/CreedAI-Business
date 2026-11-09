@@ -62,7 +62,7 @@ export function buildSkill(draft) {
     '## Notes from the business',
     draft.knowledge.trim(),
     '',
-    '_Draft made with Main Street AI. Review it before anyone relies on it._',
+    '_Draft made with Creed AI. Review it before anyone relies on it._',
     '',
   ].join('\n')
 }

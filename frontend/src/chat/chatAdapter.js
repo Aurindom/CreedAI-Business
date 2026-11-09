@@ -1,6 +1,6 @@
 import { api } from '../api.js'
 
-const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
+const UNAVAILABLE = 'Arkadio is unavailable right now. You can still browse and compare tools on this page.'
 export const EMPTY_MEMORY = { trade: null, owned: [], ruled_out: [], plans: {}, budget_monthly_usd: null, background_done: false, active_task_ids: [], pending_question: null, pending_task_ids: [] }
 let catalog = null
 
@@ -84,7 +84,7 @@ export function createChatAdapter({ fetcher = (...args) => fetch(...args) } = {}
       })
     } catch {
       onEvent({ type: 'mode', live: false })
-      onEvent({ type: 'error', code: 'agent_unavailable', message: 'Penny could not finish that reply. Please retry, or browse and compare tools on this page.', retryable: true })
+      onEvent({ type: 'error', code: 'agent_unavailable', message: 'Arkadio could not finish that reply. Please retry, or browse and compare tools on this page.', retryable: true })
       onEvent({ type: 'done' })
     }
   }

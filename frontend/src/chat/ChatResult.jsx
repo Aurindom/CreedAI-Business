@@ -53,9 +53,9 @@ function FactRow({ fact }) {
       <span className="msc-fact-label">{fact.label}</span>
       <span>
         {fact.value}
-        {fact.inferred && <span className="msc-estimate"> (estimate)</span>}
+        {fact.inferred && !String(fact.value).includes('(estimate)') && <span className="msc-estimate"> (estimate)</span>}
         {fact.note && <span className="msc-fact-note">{fact.note}</span>}
-        {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
+        {url && <>. <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
       </span>
     </li>
   )
@@ -74,7 +74,7 @@ function OptionCard({ option, status, ruledOut, taskPurpose, fallbackUrl }) {
         <FavouriteButton toolId={option.tool_id} name={option.tool_name} />
       </div>
       <p className="msc-route">{ROUTE_LABELS[option.route] || 'An option to consider'}</p>
-      {ruledOut && <p className="msc-ruled-out">You told Penny you don't want this one</p>}
+      {ruledOut && <p className="msc-ruled-out">You told Arkadio you don't want this one</p>}
       {cost && <p className="msc-cost">{cost}</p>}
       {cost && option.cost_note && <p className="msc-note">{option.cost_note}</p>}
       {label && option.fit_note && <p className="msc-note">{option.fit_note}</p>}

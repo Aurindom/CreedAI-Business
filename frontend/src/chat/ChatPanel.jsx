@@ -26,8 +26,8 @@ const ACTION_LABELS = {
 export function checkFailureMessage(error) {
   const status = error?.status
   const detail = typeof error?.detail === 'string' ? error.detail : ''
-  if (error?.offline) return "We could not check this message safely because Penny can't reach the server. Check your connection, then try again."
-  if (status === 401) return 'Your sign-in has expired. Sign in again to keep chatting with Penny.'
+  if (error?.offline) return "We could not check this message safely because Arkadio can't reach the server. Check your connection, then try again."
+  if (status === 401) return 'Your sign-in has expired. Sign in again to keep chatting with Arkadio.'
   if (status === 429) return "That's a lot of messages in a short time. Wait a minute, then try again."
   if (status === 503 && /account verification/i.test(detail)) return "We couldn't check your sign-in right now. Try again in a moment, or sign out to chat as a guest."
   if (status === 422) return "That message couldn't be sent. Start a new chat, then try again."
@@ -43,7 +43,7 @@ const STARTERS = [
 const MAX_LENGTH = 500
 const SLOW_AFTER_MS = 8000
 const SPEAKING_MS = 1400
-const UNAVAILABLE = 'Penny is unavailable right now. You can still browse and compare tools on this page.'
+const UNAVAILABLE = 'Arkadio is unavailable right now. You can still browse and compare tools on this page.'
 const A2UISurface = React.lazy(() => import('./A2UISurface'))
 import { OTHER_CHOICE, otherHint } from './choices'
 const WANTS_ASSISTANT = /\b(custom|own|build|make|create|draft)\b.*\b(assistant|helper|bot|chatbot)\b/i
@@ -140,7 +140,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     }).catch(() => {
       if (active) {
         setHydratedFor(userId)
-        setNotice('Could not restore your short chat history. Penny is still available, but this chat is not being saved.')
+        setNotice('Could not restore your short chat history. Arkadio is still available, but this chat is not being saved.')
       }
     })
     return () => { active = false }
@@ -150,7 +150,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     if (!auth?.configured) { saveSession({ conversationId, messages, memory }); return }
     if (userId && authToken && hydratedFor === userId && historyReady && !deletingHistory) {
       queueHistory(authToken, { conversationId, messages: messages.filter((item) => item.kind !== 'loading').slice(-40), memory }).catch(() => {
-        setNotice('Penny could not save this short chat history. Please try again before signing out.')
+        setNotice('Arkadio could not save this short chat history. Please try again before signing out.')
       })
     }
   }, [auth?.configured, userId, authToken, hydratedFor, historyReady, deletingHistory, conversationId, messages, memory])
@@ -315,7 +315,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     } catch (error) {
       if (error?.status === 422 && Array.isArray(error.detail)) {
         // Dynamic dictionary keys in error locations may themselves contain private data.
-        console.warn('Penny: request validation failed; rejected field count:', error.detail.length)
+        console.warn('Arkadio: request validation failed; rejected field count:', error.detail.length)
       }
       setInputError(checkFailureMessage(error))
       finish(run)
@@ -441,7 +441,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     }
   }
 
-  // The owner's details as Penny knows them, for comparing or saving outside the chat stream.
+  // The owner's details as Arkadio knows them, for comparing or saving outside the chat stream.
   function currentProfile() {
     const known = memoryRef.current
     const owned = [...(profile?.owned || [])]
@@ -585,13 +585,13 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
 
   return (
     <>
-      <section className="msc-panel" id="penny-chat-panel" role="dialog" aria-label="Chat with Penny" hidden={!open} ref={drag.ref} style={phone ? undefined : drag.style}>
+      <section className="msc-panel" id="penny-chat-panel" role="dialog" aria-label="Chat with Arkadio" hidden={!open} ref={drag.ref} style={phone ? undefined : drag.style}>
         <header className={`msc-header${phone ? '' : ' msc-drag-handle'}`} {...(phone ? {} : drag.handleProps)}>
           <div className="msc-identity">
             <span className="penny-panel-mark" data-state={avatarState} aria-hidden="true"><PennyAvatar size={36} state={avatarState} /><span /></span>
             <div className="penny-panel-heading">
-              <span className="penny-panel-eyebrow">MAIN STREET / ASSISTANT</span>
-              <h2>Penny</h2>
+              <span className="penny-panel-eyebrow">CREED AI / ASSISTANT</span>
+              <h2>Arkadio</h2>
               <span className={live ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : live ? 'Live AI' : 'Unavailable'}</span>
             </div>
           </div>
@@ -606,8 +606,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
           </div>
         </header>
 
-        <details className="penny-boundaries"><summary>What Penny will not do</summary><p>Penny will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. She uses catalog evidence, which means facts we have checked, and tells you which details need confirmation.</p></details>
-        {live === false && <p className="penny-unavailable-note" role="status">Penny is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
+        <details className="penny-boundaries"><summary>What Arkadio will not do</summary><p>Arkadio will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. It uses catalog evidence, which means facts we have checked, and tells you which details need confirmation.</p></details>
+        {live === false && <p className="penny-unavailable-note" role="status">Arkadio is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
         {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
 
@@ -687,7 +687,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
             <div className="msc-typing" role="status">
               <span className="penny-message-mark" aria-hidden="true"><PennyAvatar size={24} state="thinking" /></span>
               <span className="msc-dots" aria-hidden="true"><i /><i /><i /></span>
-              <small>{slow ? 'Still working. Thanks for waiting.' : status || 'Penny is typing'}</small>
+              <small>{slow ? 'Still working. Thanks for waiting.' : status || 'Arkadio is typing'}</small>
             </div>
           )}
         </div>
@@ -707,7 +707,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
               value={input}
               maxLength={MAX_LENGTH}
               placeholder={typingHint || "Type what is slowing you down..."}
-              aria-label="Tell Penny what's going on"
+              aria-label="Tell Arkadio what's going on"
               onChange={(event) => {
                 setInput(event.target.value)
                 setInputError('')
@@ -732,7 +732,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
             />
             <button type="submit" className="msc-send" disabled={busy}>{busy ? 'Working' : 'Send'}</button>
           </div>
-          <p className="penny-composer-note">Penny uses checked facts. Confirm prices with the company before you pay.</p>
+          <p className="penny-composer-note">Arkadio uses checked facts. Confirm prices with the company before you pay.</p>
         </form>
       </section>
       <ChatSummary data={printData} serviceUrls={names.urls} onClose={() => setPrintData(null)} onPrint={() => printSummary(printData)} />
@@ -825,26 +825,26 @@ function ChatPanelInner({ profile, auth, pageProblemIds }) {
   return (
     <div className="msc-root">
       {!open && launcherMode === 'hidden' && (
-        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('figure')} aria-label="Show Penny, your AI guide">
+        <button type="button" className="penny-show-tab" ref={launcher} onClick={() => changeLauncher('figure')} aria-label="Show Arkadio, your AI guide">
           <PennyAvatar size={28} />
-          <span>Penny</span>
+          <span>Arkadio</span>
         </button>
       )}
       {!open && launcherMode !== 'hidden' && (
         <div className={`msc-bubble${showFigure ? '' : ' msc-bubble-compact'}`} ref={bubble.ref} style={bubble.style} {...bubble.handleProps}>
           {showFigure ? (
-            <button type="button" className={`msc-launcher penny-character-launcher penny-is-${activity}`} data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Penny. Drag to move, or use arrow keys." title="Talk to Penny. Drag to move." aria-expanded={open} aria-controls="penny-chat-panel">
-              <span className="penny-speech"><strong>Hi, I'm Penny.</strong><span>{activity === 'thinking' ? 'Checking the catalog...' : activity === 'speaking' ? 'Your answer is coming in' : 'Ask me what is slowing you down.'}</span></span>
+            <button type="button" className={`msc-launcher penny-character-launcher penny-is-${activity}`} data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Arkadio. Drag to move, or use arrow keys." title="Talk to Arkadio. Drag to move." aria-expanded={open} aria-controls="penny-chat-panel">
+              <span className="penny-speech"><strong>Hi, I'm Arkadio.</strong><span>{activity === 'thinking' ? 'Checking the catalog...' : activity === 'speaking' ? 'Your answer is coming in' : 'Ask me what is slowing you down.'}</span></span>
               <span className="penny-character-stage"><span className="penny-stage-glow" aria-hidden="true" /><PennyAvatar size={130} variant="figure" state={activity} /></span>
-              <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Penny <span aria-hidden="true">&#8599;</span></span>
+              <span className="penny-nameplate"><span className="penny-presence" aria-hidden="true" />Talk to Arkadio <span aria-hidden="true">&#8599;</span></span>
             </button>
           ) : (
-            <button type="button" className="penny-compact-launcher" data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Penny, your AI guide. Drag to move, or use arrow keys." title="Talk to Penny" aria-expanded={open} aria-controls="penny-chat-panel">
+            <button type="button" className="penny-compact-launcher" data-drag-ok ref={launcher} onClick={openChat} onKeyDown={bubble.onKeyDown} aria-label="Talk to Arkadio, your AI guide. Drag to move, or use arrow keys." title="Talk to Arkadio" aria-expanded={open} aria-controls="penny-chat-panel">
               <PennyAvatar size={48} state={activity} />
-              <span className="penny-compact-label">Ask Penny</span>
+              <span className="penny-compact-label">Ask Arkadio</span>
             </button>
           )}
-          <button type="button" className="penny-hide" onClick={() => changeLauncher('hidden')} aria-label="Hide Penny" title="Hide Penny">×</button>
+          <button type="button" className="penny-hide" onClick={() => changeLauncher('hidden')} aria-label="Hide Arkadio" title="Hide Arkadio">×</button>
         </div>
       )}
       <Panel key={auth?.configured ? auth.user?.id || 'signed-out' : 'guest'} profile={profile} auth={auth} open={open} onClose={close} onActivityChange={setActivity} drag={chatWindow} phone={phone} handoff={handoff} />

@@ -1,7 +1,7 @@
 # Grounding quality evaluation, dataset version 2
 
 Final integrated-release note (2026-11-08): the 30 scenarios below passed as part
-of the 1,261-test backend gate. Current Penny/Hermes/MCP wiring and real Azure API
+of the 1,261-test backend gate. Current Arkadio/Hermes/MCP wiring and real Azure API
 evaluation evidence are in `docs/FINAL_MAIN_VALIDATION.md` and its sanitized JSON
 artifact. Historical statements below about unwired runtime/UI adapters describe
 the original patch, not the final main application. For the deployed application,

@@ -217,7 +217,7 @@
   .msc-print-option { break-inside: avoid; }
 }
 
-/* Penny's newer pieces in Giri's dark Main Street theme */
+/* Arkadio's newer pieces in Giri's dark Main Street theme */
 .msc-root .msc-dots { background: #241d30; border-color: var(--line, #2c2b39); }
 .msc-root .msc-dots i { background: var(--accent, #d8c8ff); }
 .msc-root .msc-typing { color: var(--muted, #b5afc2); }
@@ -240,7 +240,7 @@
 .msc-root .msc-cost { color: var(--text, #f4f1fa); }
 .msc-root .msc-move { color: var(--muted, #b5afc2); }
 
-/* Readable, easy-to-tap Penny for owners on phones or with reading glasses */
+/* Readable, easy-to-tap Arkadio for owners on phones or with reading glasses */
 .msc-root .msc-row p, .msc-root .msc-clarify-question p { font-size: 15px; line-height: 1.6; }
 .msc-root .msc-row-user p { font-size: 15px; }
 .msc-root .msc-choices button, .msc-root .msc-starters button { min-height: 44px; font-size: 14px; }
@@ -259,7 +259,7 @@
 .msc-root .msc-form textarea { font-size: 16px; }
 .msc-root .msc-typing small { font-size: 13px; }
 
-/* Small round launcher after the first visit, so Penny doesn't cover the page */
+/* Small round launcher after the first visit, so Arkadio doesn't cover the page */
 .msc-bubble.msc-bubble-compact { right: 20px; bottom: 20px; }
 .msc-bubble .penny-compact-launcher { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 6px 16px 6px 6px; border: 2px solid var(--accent, #d8c8ff); border-radius: 32px; background: #21182d; color: var(--text, #f4f1fa); font-size: 15px; font-weight: 600; box-shadow: 0 10px 28px #0007; cursor: grab; touch-action: none; }
 .msc-bubble .penny-compact-launcher:hover { background: #2c2139; }

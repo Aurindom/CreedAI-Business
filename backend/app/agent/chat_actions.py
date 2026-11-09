@@ -1,4 +1,4 @@
-"""Connects one Penny chat run to server-owned bindings, so every tool call is checked before it runs."""
+"""Connects one Arkadio chat run to server-owned bindings, so every tool call is checked before it runs."""
 
 from __future__ import annotations
 

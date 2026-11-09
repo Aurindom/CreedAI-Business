@@ -232,7 +232,7 @@ footer { color: var(--subtle); border-top: 1px solid var(--line); margin-top: 50
  .business-compare-shortcut { text-align: left; font-size: 11px; }
 }
 
-/* Penny shares the owner journey's palette; upstream chat code stays intact. */
+/* Arkadio shares the owner journey's palette; upstream chat code stays intact. */
 .msc-root { color: var(--text); }
 .msc-launcher { background: #d8c8ff; color: #211731; border: 1px solid #e8ddff; box-shadow: 0 12px 35px #0006; }
 .msc-launcher:hover { background: #eee3ff; }
@@ -271,7 +271,7 @@ footer { color: var(--subtle); border-top: 1px solid var(--line); margin-top: 50
 footer { padding-bottom: 100px; }
 @media (max-width: 640px) { .msc-launcher { min-height: 50px; font-size: 13px; } }
 
-/* Penny is a character in the page, with state driven by the chat. */
+/* Arkadio is a character in the page, with state driven by the chat. */
 .penny-character-launcher { background: transparent; border: 0; box-shadow: none; border-radius: 22px; min-height: 0; padding: 0; width: 180px; display: flex; flex-direction: column; gap: 0; right: 20px; bottom: 22px; color: var(--text); }
 .penny-character-launcher:hover { background: transparent; }
 .penny-speech { position: relative; display: flex; flex-direction: column; gap: 4px; text-align: left; width: 178px; padding: 12px 14px; border: 1px solid #6e547f; border-radius: 16px 16px 5px 16px; background: #21182df5; box-shadow: 0 10px 30px #0004; }
@@ -322,7 +322,7 @@ footer { padding-bottom: 100px; }
  .penny-figure *, .penny-character-launcher * { animation: none !important; transition: none !important; }
 }
 
-/* Compact floating Penny. */
+/* Compact floating Arkadio. */
 .penny-character-launcher { width: 124px; right: 18px; bottom: 18px; }
 .penny-character-stage { width: 104px; height: 112px; }
 .penny-character-stage .penny-figure { width: 86px; height: 125px; }
@@ -504,7 +504,7 @@ footer { padding-bottom: 100px; }
 .street-header .sidebar-label { display: block; padding: 0; color: #bda98d; font-size: 7px; letter-spacing: .22em; font-weight: 500; }
 .street-header .stage-list { gap: 8px; }
 .street-header .stage, .street-header .stage:first-child { position: relative; display: flex; align-items: center; gap: 10px; background: linear-gradient(145deg, #2b3432, #1b2424); border: 1px solid #59625b; border-radius: 5px; padding: 9px 12px; box-shadow: inset 0 0 0 2px #1b2424, inset 0 0 0 3px #aaa98a25, 0 4px 9px #0003; }
-.street-header .stage::before { content: ''; position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #a9b5a0; left: 4px; top: calc(50% - 1px); }
+.street-header .stage::before { content: none; }
 .street-header .stage-copy strong { color: #e8e8db; font-size: 10px; font-weight: 550; letter-spacing: .01em; }
 .street-nav-arrow { font-size: 12px; color: #c6ceb9; }
 .street-header .stage:hover, .street-header .stage:focus-visible { background: #34403b; border-color: #b2b89c; transform: translateY(-1px); }
@@ -562,7 +562,7 @@ footer { padding-bottom: 100px; }
 .saved-plan-view { border-top: 1px solid var(--line); margin-top: 25px; padding-top: 25px; }.saved-plan-view p { font-size: 12px; line-height: 1.8; color: var(--muted); }.saved-plan-heading { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; margin-bottom: 12px; }.saved-plan-heading h3 { margin: 0; }.saved-plan-view h4 { color: var(--text); font-size: 13px; font-weight: 550; }
 @media (max-width: 700px) { .comparison-task-picker, .comparison-assignments, .stack-summary, .private-plans { padding: 20px; }.task-assignment { grid-template-columns: 1fr; gap: 8px; }.private-plans-header { flex-direction: column; align-items: stretch; }.stack-total { flex-direction: column; gap: 10px; } }
 
-/* Penny's face replaces the chat monogram without changing its compact layout. */
+/* Arkadio's face replaces the chat monogram without changing its compact layout. */
 .penny-panel-mark { padding: 2px; }
 .penny-panel-mark .msc-avatar { display: block; }
 .penny-message-mark { background: transparent; border: 0; overflow: hidden; border-radius: 50%; }
@@ -629,3 +629,10 @@ footer { padding-bottom: 100px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; }.owner-path, .tool-card { transition: none; }.owner-path:hover, .tool-card:hover { transform: none; } }
 .fact-missing { color: var(--muted); }
+
+/* Creed AI header */
+.street-header, .sidebar.street-header { background: #0b0a10; border-bottom: 1px solid #efd1a280; box-shadow: 0 6px 24px #0008; }
+.street-header::before, .street-header::after, .street-header-scene { display: none; }
+.street-header .mainstreet-brand { background: none; }
+.street-header .stage, .street-header .stage:first-child { background: #ffffff12; border: 1px solid #ffffff2e; border-radius: 10px; box-shadow: none; }
+.street-header .stage:hover, .street-header .stage:focus-visible { background: #ffffff24; border-color: #efd1a2; }

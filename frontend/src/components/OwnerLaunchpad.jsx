@@ -27,7 +27,7 @@ export default function OwnerLaunchpad({ categories, onCategory, onFind, onCompa
     { kind: 'saved', label: 'FOR THE GOOD FINDS', title: 'Keep your favourites close.', copy: favouritesCount ? `${favouritesCount} saved ${favouritesCount === 1 ? 'tool is' : 'tools are'} ready when you are.` : 'Give the tools you like a home you can come back to.', action: 'Open favourites', onClick: onFavourites },
   ]
   return <section className="owner-launchpad" id="start" aria-labelledby="launchpad-title">
-    <div className="launchpad-heading"><div><p className="section-kicker">YOUR MAIN STREET TOOLKIT</p><h2 id="launchpad-title">More room for<br /><span>what you do best.</span></h2></div><p>No perfect starting point needed. Pick what brings you here today.</p></div>
+    <div className="launchpad-heading"><div><p className="section-kicker">YOUR CREED AI TOOLKIT</p><h2 id="launchpad-title">More room for<br /><span>what you do best.</span></h2></div><p>No perfect starting point needed. Pick what brings you here today.</p></div>
     <div className="owner-paths">{paths.map(path => <button key={path.kind} type="button" className={`owner-path path-${path.kind}`} onClick={path.onClick}>
       <div className="path-top"><span>{path.label}</span><PathArt kind={path.kind} /></div>
       <h3>{path.title}</h3><p>{path.copy}</p><span className="path-action">{path.action}<span className="path-arrow" aria-hidden="true">↗</span></span>

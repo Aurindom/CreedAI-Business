@@ -101,7 +101,7 @@ export default function ProductShowcase({ part = 'hero', scene, onSceneChange, t
           <div className="product-composition" aria-label="Featured tools from the catalog">
             {products.map((product, index) => (
               <article className={`showcase-product product-${index} theme-${product.theme}`} key={product.id}>
-                <div className="product-topline"><span>main street / discover</span><span aria-hidden="true">&#10022;</span></div>
+                <div className="product-topline"><span>creed ai / discover</span><span aria-hidden="true">&#10022;</span></div>
                 <div className="product-mark" aria-hidden="true">{product.mark}</div>
                 <p className="product-category">{product.category}</p>
                 <h3>{product.tool?.name || product.category}</h3>

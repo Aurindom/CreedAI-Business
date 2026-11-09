@@ -18,7 +18,7 @@ class ConversationReply(Strict):
 # The model chooses the conversational intent; the server owns the factual boundary.
 # Arbitrary prose cannot be made safe by a denylist of vendor names or verbs.
 APPROVED_REPLIES = {
-    'greeting': ("Hi! I'm Penny. How can I help today?", "I'm here. What would you like to discuss?",
+    'greeting': ("Hi! I'm Arkadio. How can I help today?", "I'm here. What would you like to discuss?",
                  "I'm doing well, thanks! How are you?", 'Hello! How can I help?', 'Hello!'),
     'acknowledgement': ("You're welcome!", 'Happy to help.'),
     'repair': ("You're right to flag that. Let's focus on the part you want to work through.",),

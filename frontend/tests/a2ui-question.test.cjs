@@ -27,7 +27,7 @@ compiled.paths = Module._nodeModulePaths(path.join(__dirname, '..'))
 compiled._compile(code, compiled.filename)
 const A2UIQuestion = compiled.exports.default
 
-test('Penny renders the approved A2UI follow-up with model choices as text', async () => {
+test('Arkadio renders the approved A2UI follow-up with model choices as text', async () => {
   const surfaceId = 'penny-question-test'
   const protocol = [
     { version: 'v0.9', createSurface: { surfaceId, catalogId: 'https://mainstreet.ai/catalogs/penny/v1' } },
@@ -60,7 +60,7 @@ test('A2UI treats model text as text, not executable markup', async () => {
   await React.act(async () => root.unmount())
 })
 
-test('A2UI refuses a component outside Penny catalog', async () => {
+test('A2UI refuses a component outside Arkadio catalog', async () => {
   const surfaceId = 'penny-question-unapproved'
   const protocol = [
     { version: 'v0.9', createSurface: { surfaceId, catalogId: 'https://mainstreet.ai/catalogs/penny/v1' } },

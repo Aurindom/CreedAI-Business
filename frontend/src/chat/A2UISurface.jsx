@@ -58,5 +58,5 @@ export default function A2UISurface({ protocol, onSelect, onOther, busy, ruledOu
     ruledOut={ruledOut}
     onPrint={() => onPrint({ recommendation: result.recommendation, problemTitle: result.problemTitle, statuses: result.statuses })}
   />
-  return <div className="msc-error" role="alert">Penny could not show this result. Please ask again.</div>
+  return <div className="msc-error" role="alert">Arkadio could not show this result. Please ask again.</div>
 }

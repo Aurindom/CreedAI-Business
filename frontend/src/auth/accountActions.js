@@ -61,7 +61,7 @@ export async function setNewPassword(client, password) {
   }
 }
 
-// Saves Penny's chat history, closes the server session, then ends the Supabase session in this browser.
+// Saves Arkadio's chat history, closes the server session, then ends the Supabase session in this browser.
 export async function signOut(auth) {
   let saved = true
   try { await flushHistory() } catch { saved = false }

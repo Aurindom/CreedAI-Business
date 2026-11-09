@@ -78,7 +78,7 @@ class OpenRouterSearch:
             if not isinstance(output, list):
                 # Discovery accepts one structured lead block inside search
                 # commentary. This parser is intentionally separate from the
-                # strict Penny factual-answer parser: only URLs/titles survive.
+                # strict Arkadio factual-answer parser: only URLs/titles survive.
                 blocks = re.findall(r'```(?:json)?\s*\n(.*?)\n```', message.get('content') or '', re.S)
                 if len(blocks) == 1:
                     try:

@@ -1,4 +1,4 @@
-"""Penny selects statements; the server owns package binding, citations and policy."""
+"""Arkadio selects statements; the server owns package binding, citations and policy."""
 import json
 
 from pydantic import Field, ValidationError

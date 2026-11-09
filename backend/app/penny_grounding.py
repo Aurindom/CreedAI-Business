@@ -1,4 +1,4 @@
-"""Trusted answer packages for Penny; never use owner/history numbers as facts."""
+"""Trusted answer packages for Arkadio; never use owner/history numbers as facts."""
 from .agent.evidence import Claim, Source, _finish, _safe, build_evidence, build_request_evidence
 from .tasks import affirmative_excerpt, owner_excerpts, resolve_task
 import re

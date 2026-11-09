@@ -34,7 +34,7 @@ const base = process.env.QA_FRONTEND_URL || 'http://127.0.0.1:5173'
       await page.locator('#explore .opt-card').first().waitFor()
       assert.equal(await page.locator('#explore .opt-did-you-mean').count(), 0)
       const before = recommendations.length
-      await page.locator('#explore').getByRole('button', { name: 'Ask Penny about these options', exact: true }).click()
+      await page.locator('#explore').getByRole('button', { name: 'Ask Arkadio about these options', exact: true }).click()
       await page.locator('.msc-log .msc-result').first().waitFor()
       assert.equal(await page.locator('.msc-starters').count(), 0)
       assert.equal(chats.length, 0, 'initial handoff uses catalog lookup, not a paid chat call')
@@ -56,12 +56,12 @@ const base = process.env.QA_FRONTEND_URL || 'http://127.0.0.1:5173'
       await pick('bookkeeping')
       await page.locator('.plan-summary').waitFor()
       const beforeMulti = recommendations.length
-      await page.getByRole('button', { name: 'Ask Penny about this plan', exact: true }).click()
+      await page.getByRole('button', { name: 'Ask Arkadio about this plan', exact: true }).click()
       await page.waitForFunction(() => document.querySelectorAll('.msc-log .msc-result').length === 3)
       assert.deepEqual(recommendations.slice(beforeMulti).map(request => request.problem_id).sort(), ['bookkeeping', 'missed_calls'])
       await page.getByRole('button', { name: 'Close chat', exact: true }).click()
       const beforeReopen = recommendations.length
-      await page.getByRole('button', { name: /^Talk to Penny/ }).click()
+      await page.getByRole('button', { name: /^Talk to Arkadio/ }).click()
       await page.waitForTimeout(200)
       assert.equal(recommendations.length, beforeReopen, 'reopening the same selection does not duplicate results')
       assert.equal(await page.locator('.msc-log .msc-result').count(), 3)

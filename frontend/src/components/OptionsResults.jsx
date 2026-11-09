@@ -23,6 +23,8 @@ const FIT_LABELS = {
   you_use_it: 'You already use it',
 }
 
+const aOr = (word) => (/^[aeiou]|^HVAC\b/i.test(word) ? 'an' : 'a')
+
 function money(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: amount % 1 ? 2 : 0 }).format(amount)
 }
@@ -86,8 +88,8 @@ function ToolCard({ option, tool, budgetProvided, compare, highlight }) {
                 <li key={fact.label}>
                   <span>{fact.label}</span>
                   <span>
-                    {fact.value}{fact.inferred ? ' (estimate)' : ''}
-                    {safeWebsite(fact.source_url) && <> · <a href={safeWebsite(fact.source_url)} target="_blank" rel="noopener noreferrer">Source{fact.checked ? `, checked ${fact.checked}` : ''}<span className="sr-only"> (opens in a new tab)</span></a></>}
+                    {fact.value}{fact.inferred && !String(fact.value).includes('(estimate)') ? ' (estimate)' : ''}
+                    {safeWebsite(fact.source_url) && <>. <a href={safeWebsite(fact.source_url)} target="_blank" rel="noopener noreferrer">Source{fact.checked ? `, checked ${fact.checked}` : ''}<span className="sr-only"> (opens in a new tab)</span></a></>}
                   </span>
                 </li>
               ))}
@@ -103,7 +105,7 @@ function ToolCard({ option, tool, budgetProvided, compare, highlight }) {
 function questionsFor(options, problemTitle, business) {
   return options.slice(0, 3).map((option) => {
     const list = []
-    if (option.fit === 'unconfirmed') list.push(`Does ${option.tool_name} handle "${problemTitle.toLowerCase()}" for a ${business}?`)
+    if (option.fit === 'unconfirmed') list.push(`Does ${option.tool_name} handle "${problemTitle.toLowerCase()}" for ${aOr(business)} ${business}?`)
     if (option.route === 'check_plan' || option.route === 'plan_upgrade') list.push(`Does my current ${option.tool_name} plan include this, or do I need to upgrade?`)
     if (option.added_monthly_usd === null) list.push(`What would ${option.tool_name} cost each month for a business my size, including fees?`)
     option.facts.filter((fact) => !fact.known).forEach((fact) => {
@@ -150,7 +152,7 @@ export default function OptionsResults({ recommendation, toolsById, activeProble
 
   const recommendedCount = (groups.best ? 1 : 0) + groups.others.length
   const browsing = recommendedCount === 0 && groups.owned.length === 0
-  const businessName = business ? business.toLowerCase() : 'business like yours'
+  const businessName = business ? (business === business.toUpperCase() ? business : business.toLowerCase()) : 'business like yours'
   const questions = questionsFor([...groups.owned, ...groups.more].map(({ option }) => option).filter((option) => option.fit === 'unconfirmed' || option.added_monthly_usd === null || option.route === 'check_plan'), activeProblem?.title || 'this task', businessName)
   const questionText = questions.map((group) => [group.name, ...group.list.map((item) => `- ${item}`)].join('\n')).join('\n\n')
 
@@ -197,7 +199,7 @@ export default function OptionsResults({ recommendation, toolsById, activeProble
       )}
 
       <div className="opt-help-actions">
-        <button type="button" className="opt-chip" onClick={() => onAskPenny({ problemIds: [activeProblem.id] })}>Ask Penny about these options</button>
+        <button type="button" className="opt-chip" onClick={() => onAskPenny({ problemIds: [activeProblem.id] })}>Ask Arkadio about these options</button>
         {groups.more.length > 1 && <button type="button" className="opt-chip" onClick={() => onCompareThese(groups.more.slice(0, 3).map(({ option }) => option.tool_id))}>Compare these {Math.min(3, groups.more.length)}</button>}
       </div>
 

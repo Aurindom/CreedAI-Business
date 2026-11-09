@@ -18,7 +18,7 @@
 
 .opt-group { margin: 0 0 4px; color: var(--accent, #d8c8ff); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .opt-group-note { margin: 0 0 10px; color: #cfc6dc; font-size: 15px; line-height: 1.5; }
-.opt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 8px; }
+.opt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; margin-top: 8px; }
 
 .opt-card { display: flex; flex-direction: column; padding: 20px; border: 1px solid #3a3146; border-radius: 20px; background: #15121c; color: var(--text, #f4f1fa); animation: opt-in .35s ease both; transition: border-color .2s ease, transform .2s ease; }
 .opt-card:hover { border-color: #6e547f; transform: translateY(-2px); }
@@ -36,7 +36,7 @@
 .opt-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 0 0 12px; }
 .opt-facts div { padding: 10px; border-radius: 12px; background: #1f1a29; }
 .opt-facts dt { margin-bottom: 4px; color: #b9afc8; font-size: 12px; }
-.opt-facts dd { margin: 0; color: var(--text, #f4f1fa); font-size: 14px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.opt-facts dd { margin: 0; color: var(--text, #f4f1fa); font-size: 14px; font-weight: 600; line-height: 1.35; overflow-wrap: break-word; }
 .opt-warn-text { color: #f0d09d !important; }
 .opt-why { margin: 0 0 12px; color: #f0d09d; font-size: 14px; line-height: 1.5; }
 .opt-why span { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 4px; border-radius: 50%; background: #3b2e1e; font-size: 12px; font-weight: 700; }
@@ -121,6 +121,6 @@
   .site-shell .problem-selection { bottom: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { .site-shell .problem-card[aria-pressed="true"] { animation: none; } }
-/* Leave room for Penny's corner button beside the sticky selection bar */
+/* Leave room for Arkadio's corner button beside the sticky selection bar */
 @media (min-width: 641px) { .site-shell .problem-selection { margin-right: 200px; } }
 @media (max-width: 640px) { .site-shell .problem-selection { padding-right: 84px; } }

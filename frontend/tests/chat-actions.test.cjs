@@ -66,7 +66,7 @@ async function submit(text) {
 
 const NOT_RUN = { type: 'action', action: 'save_plan', status: 'not_executed', code: 'action_not_executed', message: 'That step did not run. Nothing was changed for you.' }
 const UNCONFIRMED = { type: 'action', action: 'save_plan', status: 'unconfirmed', code: 'action_unconfirmed', message: 'We could not confirm that step finished. Please check before relying on it.' }
-const OUTAGE = { type: 'error', code: 'agent_unavailable', message: "Penny's AI is unavailable.", retryable: true }
+const OUTAGE = { type: 'error', code: 'agent_unavailable', message: "Arkadio's AI is unavailable.", retryable: true }
 
 test('a step that did not run is shown to the owner, not hidden behind the answer', async () => {
   replies.push([NOT_RUN, { type: 'message_delta', text: 'Here is what I found.' }, { type: 'done' }])

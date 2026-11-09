@@ -1,6 +1,6 @@
 """Vague requests get a question, not a guessed tool list.
 
-Reported: after the background questions Penny said "The catalog search did not work", and
+Reported: after the background questions Arkadio said "The catalog search did not work", and
 "i want an AI tool" jumped straight to website-chat tools for a bakery.
 """
 from app.penny_grounding import is_generic_request, suggested_task_ids

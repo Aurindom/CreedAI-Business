@@ -64,10 +64,10 @@ function assertNotRecorded(text) {
   assert.equal(document.querySelector('.msc-send').disabled, false)
 }
 
-test('owner can inspect what Penny will not do in the open chat', async () => {
+test('owner can inspect what Arkadio will not do in the open chat', async () => {
   const boundaries = document.querySelector('.penny-boundaries')
   assert.ok(boundaries && !document.querySelector('.msc-panel').hidden)
-  assert.match(boundaries.querySelector('summary').textContent, /Penny will not do/)
+  assert.match(boundaries.querySelector('summary').textContent, /Arkadio will not do/)
   assert.match(boundaries.textContent, /buy or connect tools/)
   assert.match(boundaries.textContent, /phone numbers and email addresses/)
   assert.match(boundaries.textContent, /catalog evidence/)

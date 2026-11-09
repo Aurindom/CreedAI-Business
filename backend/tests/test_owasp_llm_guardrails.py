@@ -1,4 +1,4 @@
-"""Penny against the OWASP Top 10 for LLM applications (2025). Offline: the model's moves are scripted, so
+"""Arkadio against the OWASP Top 10 for LLM applications (2025). Offline: the model's moves are scripted, so
 these tests cost nothing and run in CI. Each group names the OWASP item it covers.
 
 The core guarantee: whatever the model does, the owner only ever sees server-authored text

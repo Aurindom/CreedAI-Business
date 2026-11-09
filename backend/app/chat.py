@@ -1,4 +1,4 @@
-"""Penny's chat agent. The model explains; existing catalog code decides every fact and price."""
+"""Arkadio's chat agent. The model explains; existing catalog code decides every fact and price."""
 
 import asyncio
 import json
@@ -59,9 +59,9 @@ MAX_ROUNDS = 3
 MAX_OUTPUT_TOKENS = 800
 MODEL_TIMEOUT_SECONDS = 25
 MAX_TRACKED_CLIENTS = 5000
-NO_ANSWER = "Penny couldn't complete this reply. Please retry, or browse the tools on this page."
+NO_ANSWER = "Arkadio couldn't complete this reply. Please retry, or browse the tools on this page."
 
-PENNY = """You are Penny, the AI guide for Main Street AI. Help small business owners understand their current software, compare options, and choose a practical next step.
+PENNY = """You are Arkadio, the AI guide for Creed AI. Help small business owners understand their current software, compare options, and choose a practical next step.
 
 Every response must call a supplied tool. Choose the latest owner's intent first.
 For greetings, thanks, conversational feedback, app help or scope explanations,
@@ -674,11 +674,11 @@ def _closed(code: str) -> dict[str, Any]:
 
 
 def _busy() -> dict[str, Any]:
-    return {"type": "error", "code": "agent_busy", "message": "Penny is helping other people right now. Try again in a few seconds.", "retryable": True}
+    return {"type": "error", "code": "agent_busy", "message": "Arkadio is helping other people right now. Try again in a few seconds.", "retryable": True}
 
 
 def _unavailable() -> dict[str, Any]:
-    return {"type": "error", "code": "agent_unavailable", "message": "Penny's AI is unavailable right now. Browsing still works. Try again in a minute.", "retryable": True}
+    return {"type": "error", "code": "agent_unavailable", "message": "Arkadio's AI is unavailable right now. Browsing still works. Try again in a minute.", "retryable": True}
 
 
 class OpenRouterConversation:
@@ -767,7 +767,7 @@ def routing_reason(exc: Exception) -> str:
 
 
 def register_expected(gate: RunGate, body: ChatRequest) -> None:
-    """Writes the owner asked for are registered here, before dispatch, through gate.expect. Penny has no UI save
+    """Writes the owner asked for are registered here, before dispatch, through gate.expect. Arkadio has no UI save
     intent yet and save_plan is not offered, so a normal catalog turn registers nothing."""
 
 
@@ -816,7 +816,7 @@ async def _ask_what_they_need(gate, catalog, profile, memory, body) -> AsyncIter
     else:
         arguments = {'question_id': 'task', 'problem_ids': suggested_task_ids(catalog, trade, 3)}
     result = run_action(catalog, 'ask_owner', arguments, profile, memory)
-    yield {"type": "status", "text": "Penny is thinking",
+    yield {"type": "status", "text": "Arkadio is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
     ready, settled = _settle_run(gate)
@@ -926,7 +926,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         for excerpt in owner_excerpts(source, catalog)))[:24]
     errors = _provider_errors()
     resolved_tasks: list[str] = []
-    yield {"type": "status", "text": "Penny is thinking",
+    yield {"type": "status", "text": "Arkadio is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
     if learned_ownership:
@@ -973,7 +973,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
 
         if not billing_ok:
             yield {'type': 'error', 'code': 'usage_unverified',
-                   'message': 'Penny could not verify model usage. Browse or compare tools while we check it.',
+                   'message': 'Arkadio could not verify model usage. Browse or compare tools while we check it.',
                    'retryable': False}
             yield {'type': 'done'}
             return
@@ -1192,7 +1192,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
 
 
 TOOL_FAILED = {"type": "error", "code": "tool_unavailable",
-               "message": "Penny couldn't check the tool details just now. Browsing still works. Try again in a minute.",
+               "message": "Arkadio couldn't check the tool details just now. Browsing still works. Try again in a minute.",
                "retryable": True}
 STATUS_TEXT = {"mcp__marketplace__get_tool_details": "Checking tool details"}
 
@@ -1310,7 +1310,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             'the excluded tools out of this evidence. Keep routes, trade and trade_text null. '
             'Select the supplied alternatives:scope claim, including when there are no substitutes.'
             '\ninitial_evidence_package:')
-    yield {"type": "status", "text": "Penny is thinking",
+    yield {"type": "status", "text": "Arkadio is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
            'account_id': body._principal.user_id}
     async with hermes_runtime.client(config) as client:

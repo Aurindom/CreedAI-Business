@@ -1,4 +1,4 @@
-"""Account-scoped Penny history retained for 30 days. No credentials or chat text are logged."""
+"""Account-scoped Arkadio history retained for 30 days. No credentials or chat text are logged."""
 
 import hashlib
 import os

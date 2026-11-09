@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI):
         conn.close()
 
 
-app = FastAPI(title="Main Street AI", lifespan=lifespan)
+app = FastAPI(title="Creed AI", lifespan=lifespan)
 
 
 @app.exception_handler(RequestValidationError)

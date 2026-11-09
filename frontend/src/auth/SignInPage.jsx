@@ -63,7 +63,7 @@ export default function SignInPage({ auth, path }) {
   const heading = useRef(null)
   const first = useRef(true)
 
-  useEffect(() => { document.title = `${HEADINGS[mode][0]} | Main Street AI` }, [mode])
+  useEffect(() => { document.title = `${HEADINGS[mode][0]} | Creed AI` }, [mode])
   useEffect(() => {
     // Move focus to the new heading when the mode changes, so screen readers hear the new form.
     if (first.current) { first.current = false; return }
@@ -124,14 +124,14 @@ export default function SignInPage({ auth, path }) {
   } else if (auth.user && mode !== 'reset') {
     body = <>
       <p className="signin-note">You're signed in as <strong>{auth.user.email || 'your account'}</strong>.</p>
-      <button type="button" className="signin-primary" onClick={goBack}>Continue to Main Street AI</button>
+      <button type="button" className="signin-primary" onClick={goBack}>Continue to Creed AI</button>
       <button type="button" className="signin-link" onClick={leaveAccount} disabled={busy}>{busy ? 'Signing out…' : 'Sign out'}</button>
     </>
   } else if (done) {
     body = <>
       <p className="signin-success" role="status">{notice}</p>
       {mode === 'reset'
-        ? <button type="button" className="signin-primary" onClick={() => navigate('/')}>Continue to Main Street AI</button>
+        ? <button type="button" className="signin-primary" onClick={() => navigate('/')}>Continue to Creed AI</button>
         : <button type="button" className="signin-primary" onClick={() => switchTo('signin')}>Back to sign in</button>}
     </>
   } else {
@@ -191,7 +191,7 @@ export default function SignInPage({ auth, path }) {
           {body}
         </section>
       </main>
-      <footer className="signin-footer"><span>Main Street AI · A clearer way to choose AI</span></footer>
+      <footer className="signin-footer"><span>Creed AI: a clearer way to choose AI</span></footer>
     </div>
   )
 }

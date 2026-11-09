@@ -8,7 +8,7 @@ function Fact({ fact }) {
   return (
     <li>
       <span className="msc-fact-label">{fact.label}</span>
-      <span>{fact.value}{fact.inferred ? ' (estimate)' : ''}{url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}</span>
+      <span>{fact.value}{fact.inferred && !String(fact.value).includes('(estimate)') ? ' (estimate)' : ''}{url && <>. <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}</span>
     </li>
   )
 }
