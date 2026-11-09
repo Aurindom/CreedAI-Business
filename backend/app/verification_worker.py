@@ -88,6 +88,9 @@ def review_one(conn, search, cancel=None, reviewer=None):
             checked = (reviewer or auto_verification.review)(source, job['capability'], db.read_catalog(conn), search, cancel)
             outcome = 'verified' if checked.auto_review and checked.auto_review.eligible else 'partial'
             reason = 'evidence_confirmed' if outcome == 'verified' else 'incomplete_evidence'
+            if checked.auto_review and not checked.auto_review.eligible and any(
+                    value=='true' for value in checked.auto_review.evidence.get('conflicts',{}).values()):
+                reason='contradictory_evidence'
             if checked.auto_review and not checked.auto_review.checks.get('official_page_fetched', True):
                 outcome, reason = 'blocked', 'official_page_unavailable'
     except Exception as exc:

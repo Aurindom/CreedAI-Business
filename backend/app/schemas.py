@@ -165,6 +165,38 @@ class Tool(BaseModel):
     def capability(self, name: str) -> Capability | None:
         return next((c for c in self.capabilities if c.capability == name), None)
 
+    def scope_checked(self, capability: str, today: date | None = None) -> bool:
+        """A failed refresh cannot erase independent, still-current reviewed facts.
+
+        This fallback is for the operator-curated catalog only. Discovered
+        products require a positive automatic review. Conflicting vendor evidence
+        always closes the scope, including while the conflict is investigated.
+        """
+        review=self.reviews.get(capability)
+        if review and review.eligible:
+            return True
+        if review and any(value=='true' for value in review.evidence.get('conflicts',{}).values()):
+            return False
+        cap=self.capability(capability)
+        if self.origin!='catalog' or self.status!='verified' or cap is None:
+            return False
+        today=today or date.today()
+        facts=[cap.access]
+        if self.single_offering:
+            facts.extend([self.offering,self.entry_monthly_usd])
+        else:
+            needed=cap.included_from if cap.level=='included' else cap.addon_from
+            if not needed.known:return False
+            facts.extend([needed,self.plan_price(str(needed.value))])
+        if cap.level=='add_on':facts.append(cap.addon_monthly_usd)
+        if self.entry_billing.known:facts.append(self.entry_billing)
+        from .domains import registrable_domain
+        from urllib.parse import urlsplit
+        owner=registrable_domain(urlsplit(str(self.url)).hostname or '')
+        return all(fact.known and not fact.inferred and fact.checked and 0<=(today-fact.checked).days<=7
+                   and fact.source_type=='vendor' and fact.source_url and fact.source_url.scheme=='https'
+                   and registrable_domain(urlsplit(str(fact.source_url)).hostname or '')==owner for fact in facts)
+
     def fit(self, trade: str | None) -> Fit | None:
         """None means the vendor aims this tool at other kinds of business, so it is set aside."""
         if self.applicability == "cross_industry":

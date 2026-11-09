@@ -83,7 +83,7 @@ def public_details(tool: Tool) -> dict[str, Any]:
             'access':_fact(c.access), 'included_from':_fact(c.included_from),
             'verified_plan_prices':_fact(c.verified_plan_prices),
             'verified_billing':_fact(c.verified_billing),
-            'source_checked':bool(tool.reviews.get(c.capability) and tool.reviews[c.capability].eligible),
+            'source_checked':tool.scope_checked(c.capability),
         } for c in tool.capabilities},
     }
 

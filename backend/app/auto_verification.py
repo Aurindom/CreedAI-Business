@@ -156,17 +156,24 @@ def evaluate(tool: Tool, capability: str, catalog: Catalog, pages: dict[str, str
                 'business_fit_supported': 'Confirm this product suits your business.',
                 'plan_inclusion_supported': 'Confirm which subscription includes this feature.',
                 'monthly_price_supported': 'Check vendor pricing and billing terms.'}
-    eligible = all(checks.values())
+    previous_price=tool.plan_price(plan.name) if plan.name else Fact(status='unknown')
+    price_changed=bool(price_ok and previous_price.known and not previous_price.inferred
+                       and float(previous_price.value)!=amount)
+    conflicts={'feature_negated':'true' if feature_negated else 'false',
+               'price_changed':'true' if price_changed else 'false'}
+    eligible = all(checks.values()) and not feature_negated
     updates = {'status': 'verified' if eligible else 'pending_review',
                'summary': f'Official evidence automatically checked for {capability.replace("_", " ")}. See the remaining checks.',
                'auto_review': AutomaticReview(checked=date.today(), capability=capability, checks=checks,
                 notes=[text for key, text in messages.items() if not checks[key]], sources=list(pages), eligible=eligible,
-                evidence={'feature': {'url': feature.url, 'quote': feature.quote},
+                evidence={'conflicts':conflicts,'feature': {'url': feature.url, 'quote': feature.quote},
                           'business_fit': {'url': fit.url, 'quote': fit.quote},
                           'plan': {'url': plan.url, 'quote': plan.quote, 'name': plan.name}})}
     if structural:
         updates['auto_review'].evidence['plan']['block_id']=structural['block_id']
         updates['auto_review'].evidence['plan']['basis']='same_pricing_block'
+    if not eligible and (feature_negated or price_changed):
+        updates['auto_review'].notes.append('Vendor evidence conflicts with earlier facts. Confirm current feature and plan details.')
     updates['auto_review'].evidence['source_fetches']={row['url']:row['code'] for row in source_outcomes}
     if eligible:
         def fact(value, item, note=None):

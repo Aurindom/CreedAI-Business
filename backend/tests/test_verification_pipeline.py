@@ -86,6 +86,54 @@ def test_removed_capability_retires_its_job_without_changing_other_scopes(connec
     assert store.claim(connection,now=13)['capability']=='phone'
 
 
+def test_incomplete_refresh_retains_current_curated_facts_but_not_discovered_approval(catalog):
+    from app.matching import recommend
+    from app.schemas import BusinessProfile
+    tool=catalog.tool('ledger')
+    tool.reviews['bookkeeping']=AutomaticReview(checked=date.today(),capability='bookkeeping',eligible=False,
+        checks={'official_page_fetched':False},notes=['Vendor temporarily unavailable'],sources=[])
+    answer=recommend(catalog,BusinessProfile(trade='hvac'),catalog.problem('books'))
+    assert answer.winner_tool_id=='ledger'
+    tool.origin='discovered'
+    assert not tool.scope_checked('bookkeeping')
+
+
+def test_curated_fallback_expires_and_official_conflicts_override_it(catalog):
+    from datetime import timedelta
+    tool=catalog.tool('ledger')
+    tool.reviews['bookkeeping']=AutomaticReview(checked=date.today(),capability='bookkeeping',eligible=False,
+        checks={'plan':False},notes=['Incomplete'],sources=[])
+    assert tool.scope_checked('bookkeeping')
+    assert not tool.scope_checked('bookkeeping',today=date.today()+timedelta(days=8))
+    tool.reviews['bookkeeping'].evidence={'conflicts':{'price_changed':'true'}}
+    assert not tool.scope_checked('bookkeeping')
+
+
+def test_explicit_price_change_with_incomplete_fit_blocks_old_curated_price(catalog):
+    tool=catalog.tool('ledger')
+    text='Our bookkeeping software automates bookkeeping for accountants. Core includes bookkeeping for USD 12 per month, with monthly billing.'
+    raw={'feature':{'value':True,'url':URL,'quote':'Our bookkeeping software automates bookkeeping for accountants.'},
+         'business_fit':{'value':False,'url':None,'quote':''},
+         'plan':{'name':'Core','price_usd_monthly':12,'billing':'flat_monthly','included':True,'url':URL,
+                 'quote':'Core includes bookkeeping for USD 12 per month, with monthly billing.'}}
+    checked=auto_verification.evaluate(tool,'bookkeeping',catalog,{URL:text},raw)
+    assert not checked.auto_review.eligible and checked.auto_review.evidence['conflicts']['price_changed']=='true'
+    tool.reviews['bookkeeping']=checked.auto_review
+    assert not tool.scope_checked('bookkeeping')
+
+
+def test_real_catalog_plan_journey_survives_incomplete_automatic_refresh():
+    from pathlib import Path
+    from app.matching import recommend
+    from app.schemas import BusinessProfile
+    catalog=db.load_catalog_file(Path(__file__).parents[1]/'data/catalog.json')
+    for tool in catalog.tools:
+        tool.reviews={cap.capability:AutomaticReview(checked=date.today(),capability=cap.capability,eligible=False,
+            checks={'official_page_fetched':False},notes=['Source temporarily unavailable'],sources=[]) for cap in tool.capabilities}
+    result=recommend(catalog,BusinessProfile(trade='hvac'),catalog.problem('bookkeeping'))
+    assert result.winner_tool_id and result.options[0].added_monthly_usd is not None
+
+
 def test_partial_review_keeps_live_approved_scope_until_expiry(connection):
     tool=source();store.enqueue(connection,[tool],now=10);job=store.claim(connection,now=11)
     store.finish(connection,job,reviewed(tool),outcome='verified',now=12,refresh_s=100)

@@ -170,7 +170,7 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
         tool_id=tool.id,
         tool_name=tool.name,
         service_url=tool.url,
-        status=(("verified" if tool.reviews.get(capability) and tool.reviews[capability].eligible else "pending_review") if tool.reviews else "pending_review" if tool.origin == "discovered" and tool.auto_review
+        status=(("verified" if tool.scope_checked(capability) else "pending_review") if tool.reviews else "pending_review" if tool.origin == "discovered" and tool.auto_review
                 and (not tool.auto_review.eligible or tool.auto_review.capability != capability) else tool.status),
         route=route,
         fit=fit,
