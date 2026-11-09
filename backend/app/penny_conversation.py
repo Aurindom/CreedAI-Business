@@ -39,6 +39,7 @@ def app_help_reply(catalog, message, *, social=False):
     of every product for those businesses.
     """
     text = re.sub(r'\s+', ' ', message.casefold()).strip(' .!?')
+    text = re.sub(r'\s+(?:today|right now|at the moment)$', '', text)
     business = r'(?:business(?:es)?|industr(?:y|ies)|compan(?:y|ies)|sectors?)'
     subject = r'(?:you|this(?: (?:app|assistant|platform|website|service))?)'
     action = r'(?:help|support|serve|assist|work with)'
@@ -91,7 +92,7 @@ _UNFULFILLED_ACTION = re.compile(
 )
 
 
-def validate_conversation(raw, catalog, guard):
+def validate_conversation(raw, catalog, guard, message=None):
     wire = json.dumps(raw, default=str)
     if guard.leaks(wire):
         guard.tripped = True
@@ -109,4 +110,6 @@ def validate_conversation(raw, catalog, guard):
     if not text or _FACTUAL.search(text) or names_product or chat_guard.reason(text):
         return ValidatedReply(status='fallback', text=FALLBACK, reason='conversation_content_rejected')
     approved = APPROVED_REPLIES[reply.intent]
+    if message and reply.intent == 'greeting' and re.search(r'\b(?:business|businesses|shops?|industries|sectors|compare|options|tools|software|remember|cheapest|plans?)\b|\b(?:what|which|how)\b.*\b(?:help|assist|support|work|do)\b', message, re.I):
+        return ValidatedReply(status='fallback', text='Tell me your business task, and I can help you explore suitable software or compare options.', reason='conversation_intent_mismatch')
     return ValidatedReply(status='validated', text=text if text in approved else approved[0])

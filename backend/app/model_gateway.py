@@ -257,9 +257,23 @@ def _pinned(body: dict[str, Any]) -> dict[str, Any]:
                                'reply_id': {'anyOf': [{'type': 'string', 'enum': list(reply_choices())}, {'type': 'null'}]},
                                'routes': {'anyOf': [{'type': 'array', 'maxItems': 3, 'items': {'type': 'object', 'additionalProperties': False, 'properties': {'problem_id': {'type': 'string'}, 'task_text': task_text_schema}, 'required': ['problem_id', 'task_text']}}, {'type': 'null'}]},
                                'trade': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
-                               'trade_text': {'anyOf': [{'type': 'string'}, {'type': 'null'}]}},
-                'required': ['claim_ids', 'followup_id', 'conversation_intent', 'reply_id', 'routes', 'trade', 'trade_text']}}}
+                               'trade_text': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
+                               'business_text': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
+                               'action': {'anyOf': [{'type': 'null'}, {'type': 'object', 'additionalProperties': False,
+                                   'properties': {'kind': {'type': 'string', 'enum': ['compare', 'recall', 'clarify', 'help', 'scope']},
+                                                  'criterion': {'anyOf': [{'type': 'string', 'enum': ['price', 'plan', 'cost', 'fit']}, {'type': 'null'}]},
+                                                  'owner_text': {'type': 'string'}},
+                                   'required': ['kind', 'criterion', 'owner_text']}] }},
+                'required': ['claim_ids', 'followup_id', 'conversation_intent', 'reply_id', 'routes', 'trade', 'trade_text', 'business_text', 'action']}}}
         properties = body['response_format']['json_schema']['schema']['properties']
+        if not any(message.get('role') == 'system' and 'conversation_state_v2' in str(message.get('content', ''))
+                   for message in body.get('messages', []) if isinstance(message, dict)):
+            # Existing app instances keep their old contract during rolling
+            # deployment and rollback; new fields require an explicit version.
+            schema = body['response_format']['json_schema']['schema']
+            for field in ('business_text', 'action'):
+                properties.pop(field, None)
+                schema['required'].remove(field)
         properties['claim_ids']['maxItems'] = 10
         properties['claim_ids']['items']['maxLength'] = 160
         task_text_schema['maxLength'] = 500

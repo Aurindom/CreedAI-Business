@@ -28,7 +28,7 @@ class ValidatedReply(Strict):
     claim_ids: list[str] = Field(default_factory=list)
 
 
-FALLBACK = "I could not validate that answer. You can keep browsing and comparing tools, or try again."
+FALLBACK = "I couldn't confirm the tool details for that request. Tell me the task or name the options you want to compare, and I'll help you check them."
 BLOCKED = "That reply was blocked. You can keep browsing and comparing tools."
 
 

@@ -193,7 +193,7 @@ def test_buffered_runtime_never_streams_invalid_model_prose(package, valid):
     text = "".join(f.text for f in frames if f.type == "text")
     assert "secret dispatch" not in text and frames[-1].turn == "completed"
     assert observed[0].status == ("validated" if valid else "fallback")
-    assert ("Source:" in text) if valid else ("could not validate" in text)
+    assert ("Source:" in text) if valid else ("couldn't confirm the tool details" in text)
 
 
 @pytest.mark.parametrize("change", ["rename", "shuffle", "irrelevant"])

@@ -1,0 +1,91 @@
+const { test, before, beforeEach, afterEach, after } = require('node:test')
+const assert = require('node:assert/strict')
+const path = require('node:path')
+const fs = require('node:fs')
+const Module = require('node:module')
+const { JSDOM } = require('jsdom')
+const { buildSync } = require('esbuild')
+let dom, root, React, Panel, requests, guestEvents
+const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '../../backend/data/catalog.json'), 'utf8'))
+const owner = id => ({ configured: true, ready: true, user: id ? { id } : null, session: id ? { access_token: id + '-token' } : null })
+const snapshot = (id, text) => ({ conversationId: id, messages: [{ id: id + '-u', kind: 'user', text }], memory: { business_description: text, last_tool_ids: ['quickbooks_online'], active_task_ids: ['bookkeeping'] } })
+before(() => {
+  dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' })
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })
+  Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true })
+  React = require('react')
+  const compiled = new Module(path.join(__dirname, '../conversation-memory.cjs'), module)
+  compiled.filename = path.join(__dirname, '../conversation-memory.cjs')
+  compiled.paths = Module._nodeModulePaths(path.join(__dirname, '..'))
+  compiled._compile(buildSync({ entryPoints: [path.join(__dirname, '../src/chat/ChatPanel.jsx')], bundle: true, write: false, platform: 'node', format: 'cjs', external: ['react', 'react-dom'], loader: { '.css': 'empty' } }).outputFiles[0].text, compiled.filename)
+  Panel = compiled.exports.default
+})
+beforeEach(() => {
+  requests = []
+  window.sessionStorage.clear()
+  guestEvents = [{ type: 'memory', memory: { business_description: 'kite repair studio', last_tool_ids: ['quickbooks_online'], active_task_ids: ['bookkeeping'] } }, { type: 'message_delta', text: 'Which part would you like to improve?', validation: 'validated' }]
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url, ...options })
+    if (url === '/api/chat/status') return Response.json({ available: true })
+    if (url === '/api/trades') return Response.json(catalog.trades)
+    if (url === '/api/problems') return Response.json(catalog.problem_cards)
+    if (url === '/api/tools') return Response.json(catalog.tools)
+    if (url === '/api/chat/validate') return Response.json({ allowed: true })
+    if (url === '/api/chat') return new Response([...guestEvents, { type: 'done' }].map(event => 'data: ' + JSON.stringify(event) + '\n\n').join(''))
+    if (url === '/api/chat/conversations') return Response.json({ conversations: [{ conversationId: 'older', title: 'Older owner conversation' }, { conversationId: 'recent', title: 'Recent conversation' }] })
+    if (url === '/api/chat/history' && options.method === 'PUT') return new Response(null, { status: 204 })
+    if (url === '/api/chat/history') return Response.json(snapshot('recent', 'Recent business'))
+    if (url === '/api/chat/history?conversation_id=older') return Response.json({ ...snapshot('older', 'Older owner conversation'), hasMore: true, before: 40 })
+    if (url === '/api/chat/history?conversation_id=older&before=40') return Response.json({ ...snapshot('older', 'Earlier message'), messages: [{ id: 'earliest', kind: 'user', text: 'Earlier message' }], hasMore: false, before: 0 })
+    throw new Error('Unexpected test request: ' + url)
+  }
+  root = require('react-dom/client').createRoot(document.getElementById('root'))
+})
+afterEach(async () => { await React.act(async () => root.unmount()) })
+after(() => dom.window.close())
+async function render(auth) {
+  await React.act(async () => root.render(React.createElement(Panel, { auth })))
+  const launcher = document.querySelector('.msc-launcher')
+  if (document.querySelector('.msc-panel').hidden) await React.act(async () => launcher.click())
+}
+async function send(text) {
+  await React.act(async () => {
+    const field = document.querySelector('textarea')
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(field, text)
+    field.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await React.act(async () => document.querySelector('form.msc-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })))
+}
+test('configured guests retain chat and structured memory across remounts without account writes', async () => {
+  await render(owner(null))
+  await send('I own a kite repair studio')
+  await React.act(async () => root.unmount())
+  root = require('react-dom/client').createRoot(document.getElementById('root'))
+  await render(owner(null))
+  assert.match(document.querySelector('.msc-log').textContent, /I own a kite repair studio/)
+  await send('remember my business?')
+  const sent = requests.filter(item => item.url === '/api/chat').map(item => JSON.parse(item.body))
+  assert.equal(sent[1].memory.business_description, 'kite repair studio')
+  assert.deepEqual(sent[1].memory.last_tool_ids, ['quickbooks_online'])
+  assert.equal(requests.some(item => item.url.startsWith('/api/chat/history')), false)
+  await render(owner('alice'))
+  assert.doesNotMatch(document.querySelector('.msc-log').textContent, /kite repair studio/)
+})
+test('owner can select an archived conversation, page backwards, and continue with its own memory', async () => {
+  await render(owner('alice'))
+  await React.act(async () => {
+    const select = document.querySelector('select[aria-label="Past conversations"]')
+    select.value = 'older'
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+  })
+  assert.match(document.querySelector('.msc-log').textContent, /Older owner conversation/)
+  const earlier = [...document.querySelectorAll('button')].find(button => button.textContent === 'Load earlier messages')
+  await React.act(async () => earlier.click())
+  assert.match(document.querySelector('.msc-log').textContent, /Earlier message/)
+  assert.match(document.querySelector('.msc-log').textContent, /Older owner conversation/)
+  await send('compare by price')
+  const sent = JSON.parse(requests.findLast(item => item.url === '/api/chat').body)
+  assert.equal(sent.conversation_id, 'older')
+  assert.equal(sent.memory.business_description, 'Older owner conversation')
+  assert.deepEqual(sent.memory.last_tool_ids, ['quickbooks_online'])
+})

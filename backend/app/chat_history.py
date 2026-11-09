@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -190,9 +191,16 @@ class ChatSnapshot(BaseModel):
                     raise ValueError("Invalid chat choices")
             if item["kind"] == "a2ui" and not _valid_surface(item):
                 raise ValueError("Invalid chat surface")
-        if len(self.model_dump_json().encode("utf-8")) > MAX_SNAPSHOT_BYTES:
+        maximum = 8_000_000 if isinstance(self, StoredSnapshot) else MAX_SNAPSHOT_BYTES
+        if len(self.model_dump_json().encode("utf-8")) > maximum:
             raise ValueError("Chat history is too large")
         return self
+
+
+class StoredSnapshot(ChatSnapshot):
+    # Browser saves a bounded window; storage merges by message ID so scrolling
+    # or a later save cannot discard older messages. Refuse overflow explicitly.
+    messages: list[dict[str, Any]] = Field(default_factory=list, max_length=4000)
 
 
 def now():
@@ -239,6 +247,7 @@ def serialized(function):
 @router.get('/api/chat/history')
 @serialized
 async def load_history(request: Request, conversation_id: str | None = Query(default=None, max_length=100),
+                       before: int | None = Query(default=None, ge=0, le=4000),
                        principal: auth.Principal = Depends(auth.require_account)):
     with request.app.state.lock:
         current = now()
@@ -254,9 +263,27 @@ async def load_history(request: Request, conversation_id: str | None = Query(def
     try:
         stored = await client.get(_key(principal.user_id, row[0]))
         if stored:
-            snapshot = ChatSnapshot.model_validate_json(stored)
+            snapshot = StoredSnapshot.model_validate_json(stored)
             if snapshot.conversationId != row[0]:
                 raise ValueError('cache binding mismatch')
+            # Migrate old snapshots without erasing the owner's actual wording.
+            from .conversation_state import business_description
+            if not snapshot.memory.business_description:
+                for item in reversed(snapshot.messages):
+                    label = business_description(item['text']) if item['kind'] == 'user' else None
+                    if label:
+                        snapshot.memory.business_description = label
+                        break
+            if not snapshot.memory.last_tool_ids:
+                for item in reversed(snapshot.messages):
+                    rec = item.get('recommendation') if item['kind'] == 'result' else None
+                    if item['kind'] == 'a2ui' and item.get('surface') == 'recommendation':
+                        rec = item['protocol'][1]['updateComponents']['components'][0]['recommendation']
+                    if rec:
+                        snapshot.memory.last_tool_ids = list(dict.fromkeys(option['tool_id'] for option in [*rec.get('options', []), *rec.get('check_first', [])]))[:6]
+                        if not snapshot.memory.active_task_ids:
+                            snapshot.memory.active_task_ids = [rec['problem_id']]
+                        break
             auth.check_active(request, principal)
             _touch(request, principal, row[0])
             await client.expire(_key(principal.user_id, row[0]), ACTIVE_TTL_SECONDS)
@@ -264,7 +291,43 @@ async def load_history(request: Request, conversation_id: str | None = Query(def
         raise HTTPException(503, 'Conversation storage is unavailable') from None
     finally:
         await client.aclose()
-    return Response(stored or 'null', media_type='application/json', headers={'Cache-Control': 'no-store'})
+    if not stored:
+        return Response('null', media_type='application/json', headers={'Cache-Control': 'no-store'})
+    end = min(before, len(snapshot.messages)) if before is not None else len(snapshot.messages)
+    start = max(0, end - 40)
+    data = snapshot.model_dump(mode='json')
+    data.update(messages=snapshot.messages[start:end], before=start, hasMore=start > 0)
+    return JSONResponse(data, headers={'Cache-Control': 'no-store'})
+
+
+@router.get('/api/chat/conversations')
+@serialized
+async def list_conversations(request: Request, principal: auth.Principal = Depends(auth.require_account)):
+    auth.check_active(request, principal)
+    current = now()
+    with request.app.state.lock:
+        rows = request.app.state.conn.execute(
+            'SELECT conversation_id,updated_at FROM chat_conversation WHERE user_id=? AND '
+            '(recover_until IS NULL OR recover_until>?) AND (recover_until IS NOT NULL OR updated_at>?) ORDER BY updated_at DESC LIMIT 20',
+            (principal.user_id, current.isoformat(), (current-timedelta(seconds=ACTIVE_TTL_SECONDS)).isoformat())).fetchall()
+    client = _cache()
+    items = []
+    try:
+        for cid, updated in rows:
+            stored = await client.get(_key(principal.user_id, cid))
+            if not stored:
+                continue
+            snapshot = StoredSnapshot.model_validate_json(stored)
+            if snapshot.conversationId != cid:
+                raise ValueError('cache binding mismatch')
+            title = next((item['text'][:80] for item in snapshot.messages if item['kind'] == 'user'), 'Conversation')
+            items.append({'conversationId': cid, 'title': title, 'updatedAt': updated})
+        auth.check_active(request, principal)
+    except (RedisError, ValueError):
+        raise HTTPException(503, 'Conversation storage is unavailable') from None
+    finally:
+        await client.aclose()
+    return JSONResponse({'conversations': items}, headers={'Cache-Control': 'no-store'})
 
 
 @router.put('/api/chat/history', status_code=204)
@@ -288,9 +351,19 @@ async def save_history(request: Request, snapshot: ChatSnapshot,
             conn.execute('INSERT OR IGNORE INTO chat_conversation VALUES(?,?,?,?,NULL)',
                          (principal.user_id, snapshot.conversationId, principal.session_id, now().isoformat()))
         _touch(request, principal, snapshot.conversationId)
-        await client.set(_key(principal.user_id, snapshot.conversationId), snapshot.model_dump_json(), ex=ACTIVE_TTL_SECONDS)
+        previous = await client.get(_key(principal.user_id, snapshot.conversationId))
+        older = StoredSnapshot.model_validate_json(previous) if previous else None
+        if older and older.conversationId != snapshot.conversationId:
+            raise HTTPException(503, 'Conversation storage is unavailable')
+        merged = {item['id']: item for item in older.messages} if older else {}
+        merged.update({item['id']: item for item in snapshot.messages})
+        try:
+            saved = StoredSnapshot(conversationId=snapshot.conversationId, messages=list(merged.values()), memory=snapshot.memory)
+        except ValidationError:
+            raise HTTPException(409, 'Conversation is full. Start a new chat; this conversation remains in history.') from None
+        await client.set(_key(principal.user_id, snapshot.conversationId), saved.model_dump_json(), ex=ACTIVE_TTL_SECONDS)
         auth.check_active(request, principal)
-    except RedisError:
+    except (RedisError, ValueError):
         raise HTTPException(503, 'Conversation storage is unavailable') from None
     finally:
         await client.aclose()

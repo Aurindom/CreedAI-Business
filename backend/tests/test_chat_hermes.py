@@ -511,7 +511,8 @@ def test_hermes_unbound_routing_never_becomes_a_validated_answer(client, hermes,
     fake = hermes(FakeHermes(lambda p: answer(p, tools=(), output=json.dumps(raw))))
     events = frames(client.post('/api/chat', json={**BODY, 'message': 'hello'}))
     assert len([r for r in fake.requests if r[1] == '/v1/runs']) == 1
-    assert not any(e.get('validation') == 'validated' for e in texts(events))
+    assert not any(e['type'] == 'recommendation' or e.get('surface') == 'recommendation' for e in events)
+    assert all(e['text'] == "Hi! I'm Arkadio. How can I help today?" for e in texts(events))
 
 
 def test_routing_cannot_override_explicit_business_with_history(client):
@@ -660,14 +661,14 @@ def test_ambiguous_question_puts_the_owners_business_first(client, hermes):
     assert asked and asked[0]['choices'][0] == SCHEDULING['staff_scheduling']
 
 
-def test_refused_routing_for_a_clear_message_still_falls_back(client, hermes):
-    # Only ambiguity gets a question; anything else keeps Aurin's closed fallback.
+def test_refused_routing_cannot_prevent_a_safe_greeting_repair(client, hermes):
+    # Never invent the rejected task, but a harmless greeting can still be answered.
     raw = {'claim_ids': [], 'followup_id': None, 'routes': [{'problem_id': 'bookkeeping', 'task_text': 'made up owner text'}],
            'trade': None, 'trade_text': None}
     hermes(FakeHermes(lambda p: answer(p, tools=(), output=json.dumps(raw))))
     events = frames(client.post('/api/chat', json={**BODY, 'message': 'hello'}))
     assert not [e for e in events if e['type'] == 'clarify']
-    assert not any(e.get('validation') == 'validated' for e in texts(events))
+    assert any(e.get('validation') == 'validated' and 'Hi!' in e['text'] for e in texts(events))
 
 
 def test_business_named_in_the_first_message_needs_one_run(client, hermes):
@@ -687,11 +688,11 @@ def test_business_named_in_the_first_message_needs_one_run(client, hermes):
     assert any(e['type'] == 'memory' and e['memory']['trade'] == 'restaurant' for e in events)
 
 
-def test_a_business_already_set_is_not_replaced_before_the_run(client, hermes):
+def test_explicit_owner_business_correction_replaces_older_page_context(client, hermes):
     packages = []
     def script(package):
         packages.append(package)
         return answer(package)
     hermes(FakeHermes(script))
     events = frames(client.post('/api/chat', json={**BODY, 'message': 'I run a restaurant, which bookkeeping tool fits?'}))
-    assert not any(e['type'] == 'memory' and e['memory'].get('trade') == 'restaurant' for e in events)
+    assert any(e['type'] == 'memory' and e['memory'].get('trade') == 'restaurant' for e in events)

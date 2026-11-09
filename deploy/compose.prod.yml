@@ -34,6 +34,7 @@ services:
 
   app:
     <<: *app-image
+    stop_grace_period: 35s
     build:
       context: ..
       dockerfile: deploy/Dockerfile

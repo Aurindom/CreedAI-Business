@@ -35,6 +35,9 @@ def build(body: Any, profile: Any, memory: Any, guard: LeakGuard) -> str:
     """profile is the page profile already merged with memory, so a trade or budget set on the page is kept."""
     constraints = {
         "trade": profile.trade,
+        "business_description": getattr(memory, 'business_description', None),
+        "last_tool_ids": list(getattr(memory, 'last_tool_ids', [])),
+        "comparison_criterion": getattr(memory, 'comparison_criterion', None),
         "owned_tools": [entry.tool_id for entry in profile.owned],
         "excluded_tools": list(memory.ruled_out),
         "budget_monthly_usd": profile.budget_monthly_usd,

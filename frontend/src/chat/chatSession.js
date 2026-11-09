@@ -3,7 +3,7 @@ const MAX_SAVED_MESSAGES = 40
 const MAX_HISTORY = 12
 // The backend's ChatMemory limits. Memory goes back with every message, so a list over its
 // limit would get every message rejected; trimming here also heals a chat that is already stuck.
-const MEMORY_LIMITS = { owned: 20, ruled_out: 20, active_task_ids: 5, pending_task_ids: 3 }
+const MEMORY_LIMITS = { owned: 20, ruled_out: 20, active_task_ids: 5, pending_task_ids: 3, last_tool_ids: 6 }
 const MAX_PLANS = 20
 
 export function memoryForRequest(memory = {}) {
@@ -91,6 +91,11 @@ export function historyFor(messages, { dropLastUser = false } = {}) {
   const items = messages.flatMap((message) => {
     if (message.kind === 'user') return [{ role: 'user', text: message.text }]
     if (message.kind === 'a2ui' && message.surface === 'sources') return []
+    if (message.kind === 'a2ui' && message.surface === 'recommendation') {
+      const result = message.protocol?.[1]?.updateComponents?.components?.[0]?.recommendation
+      const tools = [...(result?.options || []), ...(result?.check_first || [])].map(tool => tool.tool_id).join(', ')
+      return [{ role: 'assistant', text: `${message.text || ''} Shown tool IDs: ${tools}` }]
+    }
     if (message.kind === 'assistant' || message.kind === 'clarify' || message.kind === 'a2ui') return [{ role: 'assistant', text: message.text }]
     if (message.kind === 'result') return [{ role: 'assistant', text: `I showed these results: ${message.recommendation.message}` }]
     if (message.kind === 'alternatives' && message.comparison) return [{ role: 'assistant', text: `I showed alternatives: ${message.comparison.tools.map((tool) => tool.tool_name).join(', ')}` }]

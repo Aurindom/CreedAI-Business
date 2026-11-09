@@ -277,6 +277,7 @@
 }
 @media (prefers-reduced-motion: reduce) { .msc-bubble .penny-hide { transition: none; } }
 .msc-root .msc-mic { width: 44px; height: 44px; }
+.msc-history-controls select { min-width: 0; max-width: 65%; padding: 6px; color: inherit; background: #211a2b; border: 1px solid #65516f; border-radius: 6px; }
 .msc-root .msc-text-button, .msc-root .msc-close, .msc-root .msc-move { height: auto; }
 .msc-bubble.msc-bubble-compact { bottom: 84px; }
 @media (max-width: 640px) {

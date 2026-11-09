@@ -111,7 +111,7 @@ def audit(reason_code: str, source: str):
     logger.warning("penny_guard_block", extra={"guard_reason": reason_code if reason_code in allowed_reasons else "output_blocked", "guard_source": source if source in allowed_sources else "output"})
 
 def check_request(body):
-    fields = [("message", body.message), ("history", [item.text for item in body.history]), ("profile", {"trade": body.profile.trade, "plans": [entry.plan for entry in body.profile.owned], "memory_trade": body.memory.trade})]
+    fields = [("message", body.message), ("history", [item.text for item in body.history]), ("profile", {"trade": body.profile.trade, "plans": [entry.plan for entry in body.profile.owned], "memory_trade": body.memory.trade, "business_description": getattr(body.memory, 'business_description', None)})]
     for source, value in fields:
         found = reason(value)
         if found:

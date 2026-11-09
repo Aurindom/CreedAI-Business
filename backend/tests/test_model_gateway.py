@@ -264,6 +264,15 @@ def test_intent_only_model_turn_cannot_attempt_unregistered_mcp_reads():
     assert body['tools']==tools
 
 
+def test_conversation_contract_is_versioned_for_rolling_deployment():
+    legacy = gw._pinned({'messages': [{'role': 'system', 'content': 'penny_hermes_selection_v1'}]})
+    modern = gw._pinned({'messages': [{'role': 'system', 'content': 'penny_hermes_selection_v1\nconversation_state_v2'}]})
+    old_schema = legacy['response_format']['json_schema']['schema']
+    new_schema = modern['response_format']['json_schema']['schema']
+    assert 'action' not in old_schema['properties'] and 'business_text' not in old_schema['properties']
+    assert 'action' in new_schema['required'] and 'business_text' in new_schema['required']
+
+
 def test_an_orphaned_reservation_is_held_on_restart(tmp_path):
     ledger = gw.Ledger(tmp_path / 'gateway.db')
     number, _ = ledger.admit(0.02, 3, 1.0)

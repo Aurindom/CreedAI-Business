@@ -43,6 +43,30 @@ def history(monkeypatch):
 SNAPSHOT = {'conversationId': 'conversation-1', 'messages': [{'id': 'm1', 'kind': 'user', 'text': 'Bakery workflow'}]}
 
 
+def test_paged_history_merges_windows_and_restores_multiple_conversations(client, history):
+    alice, bob = account_header(1, 1), account_header(2, 2)
+    for offset in (0, 35, 70):
+        messages = [{'id': f'm{i}', 'kind': 'user', 'text': f'Owner question {i}'} for i in range(offset, offset + 40)]
+        assert client.put('/api/chat/history', headers=alice, json={**SNAPSHOT, 'messages': messages,
+            'memory': {'business_description': 'specialty repair studio'}}).status_code == 204
+    assert client.put('/api/chat/history', headers=alice, json={**SNAPSHOT, 'conversationId': 'second'}).status_code == 204
+    index = client.get('/api/chat/conversations', headers=alice).json()['conversations']
+    assert {item['conversationId'] for item in index} == {'conversation-1', 'second'}
+    assert client.get('/api/chat/conversations', headers=bob).json()['conversations'] == []
+    page = client.get('/api/chat/history?conversation_id=conversation-1', headers=alice).json()
+    assert len(page['messages']) == 40 and page['hasMore']
+    seen = list(page['messages'])
+    while page['hasMore']:
+        page = client.get(f"/api/chat/history?conversation_id=conversation-1&before={page['before']}", headers=alice).json()
+        seen = page['messages'] + seen
+    assert [item['id'] for item in seen] == [f'm{i}' for i in range(110)]
+    assert page['memory']['business_description'] == 'specialty repair studio'
+    assert client.get('/api/chat/history?conversation_id=conversation-1', headers=bob).json() is None
+    client.post('/api/auth/logout', headers=alice)
+    restored = client.get('/api/chat/history?conversation_id=conversation-1', headers=account_header(1, 3)).json()
+    assert restored['hasMore'] and restored['memory']['business_description'] == 'specialty repair studio'
+
+
 def test_history_is_account_scoped_and_active_history_is_not_five_minute_cache(client, history):
     clock, _ = history
     alice, bob = account_header(1, 1), account_header(2, 2)

@@ -6,7 +6,7 @@ import { createChatAdapter, EMPTY_MEMORY, loadCatalog } from './chatAdapter'
 import ChatErrorBoundary from './ChatErrorBoundary'
 import ChatResult, { safeUrl } from './ChatResult'
 import { clearSession, historyFor, loadSession, memoryForRequest, newConversationId, saveSession, visibleMessages } from './chatSession'
-import { queueHistory, deleteSavedHistory } from './historyCache'
+import { queueHistory, deleteSavedHistory, flushHistory } from './historyCache'
 import ChatSummary from './ChatSummary'
 import PennyAvatar from './PennyAvatar'
 import PennyMemory from './PennyMemory'
@@ -76,7 +76,7 @@ const newId = (prefix) => `${prefix}_${Date.now()}_${nextId++}`
 
 function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, handoff }) {
   const adapter = useMemo(() => createChatAdapter(), [])
-  const [restored] = useState(() => auth?.configured ? null : loadSession(EMPTY_MEMORY))
+  const [restored] = useState(() => auth?.user?.id ? null : loadSession(EMPTY_MEMORY))
   const [conversationId, setConversationId] = useState(() => restored?.conversationId || newConversationId())
   const [messages, setMessages] = useState(() => restored?.messages || [])
   const [memory, setMemory] = useState(() => restored?.memory || EMPTY_MEMORY)
@@ -84,6 +84,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
   const [hydratedFor, setHydratedFor] = useState(null)
   const [historyReady, setHistoryReady] = useState(false)
   const [deletingHistory, setDeletingHistory] = useState(false)
+  const [conversations, setConversations] = useState([])
+  const [olderBefore, setOlderBefore] = useState(null)
   const [names, setNames] = useState({ tools: {}, trades: {}, urls: {} })
   const [live, setLive] = useState(null)
   const [speaking, setSpeaking] = useState(false)
@@ -110,7 +112,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
 
   useEffect(() => {
     adapter.isLive().then(setLive).catch(() => setLive(false))
-    if (auth?.configured) clearSession()
+    if (auth?.user?.id) clearSession()
     loadCatalog()
       .then((data) => setNames({
         tools: Object.fromEntries(data.tools.map((tool) => [tool.id, tool.name])),
@@ -134,9 +136,11 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
         setMessages(saved.messages)
         setMemory({ ...EMPTY_MEMORY, ...saved.memory })
         setResumed(saved.messages.length > 0)
+        setOlderBefore(saved.hasMore ? saved.before : null)
       }
       setHydratedFor(userId)
       setHistoryReady(true)
+      api.listChatConversations(authToken).then(data => { if (active) setConversations(data.conversations) }).catch(() => {})
     }).catch(() => {
       if (active) {
         setHydratedFor(userId)
@@ -147,7 +151,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
   }, [auth?.configured, auth?.ready, userId])
 
   useEffect(() => {
-    if (!auth?.configured) { saveSession({ conversationId, messages, memory }); return }
+    if (!userId && (!auth?.configured || auth.ready)) { saveSession({ conversationId, messages, memory }); return }
     if (userId && authToken && hydratedFor === userId && historyReady && !deletingHistory) {
       queueHistory(authToken, { conversationId, messages: messages.filter((item) => item.kind !== 'loading').slice(-40), memory }).catch(() => {
         setNotice('Arkadio could not save this short chat history. Please try again before signing out.')
@@ -219,6 +223,10 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
         loadCatalog().catch(() => ({ problems: [], tools: [] })),
       ])
       if (run !== runRef.current) return
+      setMemory(current => ({ ...current,
+        active_task_ids: [...new Set([...(current.active_task_ids || []), problemId])].slice(-5),
+        last_tool_ids: [...recommendation.options, ...recommendation.check_first].map(option => option.tool_id).slice(0, 6),
+      }))
       replaceMessage(id, {
         kind: 'result',
         recommendation,
@@ -317,6 +325,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
         // Dynamic dictionary keys in error locations may themselves contain private data.
         console.warn('Arkadio: request validation failed; rejected field count:', error.detail.length)
       }
+      if (run !== runRef.current) return
       setInputError(checkFailureMessage(error))
       finish(run)
       return
@@ -351,11 +360,11 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
         clearTimeout(speakTimer.current)
         speakTimer.current = setTimeout(() => setSpeaking(false), SPEAKING_MS)
         if (replyId) {
-          setMessages((current) => current.map((item) => (item.id === replyId ? { ...item, text: item.text + event.text } : item)))
+          setMessages((current) => current.map((item) => (item.id === replyId ? { ...item, text: item.text + event.text, validation: event.validation } : item)))
         } else {
           replyId = newId('m')
           const id = replyId
-          setMessages((current) => [...current, { id, kind: 'assistant', text: event.text }])
+          setMessages((current) => [...current, { id, kind: 'assistant', text: event.text, validation: event.validation }])
         }
       }
       if (event.type === 'a2ui') {
@@ -369,7 +378,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
           speakTimer.current = setTimeout(() => setSpeaking(false), SPEAKING_MS)
         }
         if (surface === 'sources') receivedA2UISources = true
-        addMessage({ kind: 'a2ui', surface, text: event.question || event.message, protocol: event.messages })
+        addMessage({ kind: 'a2ui', surface, text: event.question || event.message, protocol: event.messages, validation: event.validation })
       }
       if (event.type === 'clarify' && !receivedA2UIQuestion) addMessage({ kind: 'clarify', text: event.question, choices: event.choices || [], progress: event.progress || '' })
       if (event.type === 'recommendation' && !receivedA2UIRecommendation) pending.push(fetchRecommendation(event.problem_id, event.profile, run))
@@ -408,7 +417,11 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     finish(run)
   }
 
-  function startOver() {
+  async function startOver() {
+    if (authToken && historyReady) {
+      try { await flushHistory(); setConversations((await api.listChatConversations(authToken)).conversations) }
+      catch { setNotice('Could not save this conversation. Please retry before starting another.'); return }
+    }
     abortRef.current?.abort()
     runRef.current += 1
     busyRef.current = false
@@ -418,12 +431,33 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     setStatus('')
     setMessages([])
     setMemory(EMPTY_MEMORY)
+    setOlderBefore(null)
     setResumed(false)
     setInput('')
     setTypingHint('')
     setInputError('')
     setNotice('')
     inputRef.current?.focus()
+  }
+
+  async function openConversation(id, older = false) {
+    if (!authToken || busyRef.current || !id) return
+    const run = begin()
+    try {
+      await flushHistory()
+      const saved = await api.loadChatHistory(authToken, id, older ? olderBefore : undefined)
+      if (run !== runRef.current) return
+      if (!saved) { setNotice('That conversation is no longer available.'); return }
+      if (older) setMessages(current => [...saved.messages.filter(item => !current.some(existing => existing.id === item.id)), ...current])
+      else {
+        setConversationId(saved.conversationId)
+        setMessages(saved.messages)
+        setMemory({ ...EMPTY_MEMORY, ...saved.memory })
+        setResumed(true)
+      }
+      setOlderBefore(saved.hasMore ? saved.before : null)
+    } catch { if (run === runRef.current) setNotice('Could not load that conversation. Your current chat is still here.') }
+    finally { finish(run) }
   }
 
   async function deleteHistory() {
@@ -542,9 +576,11 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
   function quickReplies() {
     if (busy) return []
     const last = [...messages].reverse().find((message) => message.kind !== 'loading')
-    if (!last || ['clarify', 'draft-builder', 'user'].includes(last.kind) || (last.kind === 'a2ui' && last.surface === 'question')) return []
+    if (!last || ['clarify', 'draft-builder', 'user', 'error'].includes(last.kind) || last.validation === 'fallback' || (last.kind === 'a2ui' && last.surface === 'question')) return []
     const result = latestResult(messages)
     if (!result) return []
+    const lastUserIndex = messages.findLastIndex(item => item.kind === 'user')
+    if (messages.findIndex(item => item.id === result.id) < lastUserIndex) return []
     const { recommendation } = result
     const winner = recommendation.winner_tool_id
     const saved = messages.some((message) => message.kind === 'saved-plan' && message.forResult === result.id)
@@ -603,7 +639,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>
               </button>
             )}
-            <button type="button" className="msc-text-button" onClick={startOver} disabled={deletingHistory}>New chat</button>
+            <button type="button" className="msc-text-button" onClick={startOver} disabled={busy || deletingHistory}>New chat</button>
             <button type="button" className="msc-close" onClick={onClose} aria-label="Close chat">×</button>
           </div>
         </header>
@@ -612,8 +648,10 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
         {live === false && <p className="penny-unavailable-note" role="status">Arkadio is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} />
         {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
+        {userId && conversations.length > 0 && <label className="msc-history-controls">Past conversations<select aria-label="Past conversations" value={conversations.some(item => item.conversationId === conversationId) ? conversationId : ''} onChange={event => openConversation(event.target.value)} disabled={busy || deletingHistory}><option value="">Current conversation</option>{conversations.map(item => <option key={item.conversationId} value={item.conversationId}>{item.title}</option>)}</select></label>}
 
         <div className="msc-log" ref={logRef} role="log" aria-live="polite" aria-busy={busy}>
+          {olderBefore !== null && <button type="button" className="msc-text-button" onClick={() => openConversation(conversationId, true)} disabled={busy}>Load earlier messages</button>}
           {messages.length === 0 && (
             <div className="msc-welcome">
               <p className="penny-welcome-kicker">A LITTLE CLARITY GOES A LONG WAY</p><h3>Your business.<br />A clearer next step.</h3>

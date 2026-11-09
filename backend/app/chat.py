@@ -6,6 +6,7 @@ import copy
 import logging
 import math
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -208,12 +209,15 @@ class HistoryItem(BaseModel):
 
 class ChatMemory(BaseModel):
     trade: str | None = Field(default=None, max_length=100)
+    business_description: str | None = Field(default=None, max_length=100)
+    last_tool_ids: list[str] = Field(default_factory=list, max_length=6)
+    comparison_criterion: Literal['price', 'plan', 'cost', 'fit'] | None = None
     owned: list[str] = Field(default_factory=list, max_length=20)
     ruled_out: list[str] = Field(default_factory=list, max_length=20)
     budget_monthly_usd: float | None = Field(default=None, ge=0)
     background_done: bool = False
     active_task_ids: list[str] = Field(default_factory=list, max_length=5)
-    pending_question: Literal['business', 'software', 'budget', 'task', 'plan'] | None = None
+    pending_question: Literal['business', 'software', 'budget', 'task', 'plan', 'comparison'] | None = None
     pending_task_ids: list[str] = Field(default_factory=list, max_length=3)
     plans: dict[str, str] = Field(default_factory=dict, max_length=20)
 
@@ -436,6 +440,9 @@ def _clean_memory(catalog: Catalog, memory: ChatMemory) -> ChatMemory:
     tasks = {card.id for card in catalog.problem_cards}
     return ChatMemory(
         trade=catalog.resolve_trade(memory.trade) if memory.trade else None,
+        business_description=memory.business_description,
+        last_tool_ids=[tid for tid in dict.fromkeys(memory.last_tool_ids) if tid in known and tid not in memory.ruled_out],
+        comparison_criterion=memory.comparison_criterion,
         owned=[tool_id for tool_id in dict.fromkeys(memory.owned) if tool_id in known],
         ruled_out=[tool_id for tool_id in dict.fromkeys(memory.ruled_out) if tool_id in known],
         budget_monthly_usd=memory.budget_monthly_usd,
@@ -456,7 +463,7 @@ def _effective_profile(catalog: Catalog, profile: BusinessProfile, memory: ChatM
     ]
     owned += [OwnedSoftware(tool_id=tool_id, plan=plans.get(tool_id)) for tool_id in memory.owned if all(e.tool_id != tool_id for e in owned)]
     return BusinessProfile(
-        trade=memory.trade or profile.trade,
+        trade=memory.trade or memory.business_description or profile.trade,
         owned=owned,
         budget_monthly_usd=memory.budget_monthly_usd if memory.budget_monthly_usd is not None else profile.budget_monthly_usd,
     )
@@ -798,6 +805,8 @@ def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, fo
             return
         shown_tasks.append(task)
         memory.active_task_ids = list(shown_tasks)
+        memory.last_tool_ids = list(dict.fromkeys([entry['tool_id'] for entry in
+            [*result.data.get('options', []), *result.data.get('check_first', [])]]))[:6]
         yield _memory_event(memory)
         yield from result.events
     for event in reply_events(reply.text, reply.status):
@@ -811,7 +820,7 @@ def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, fo
 async def _ask_what_they_need(gate, catalog, profile, memory, body) -> AsyncIterator[dict[str, Any]]:
     """Answers a request that names no problem with a question and buttons. No model call."""
     trade = memory.trade or profile.trade
-    if not trade and not memory.background_done:
+    if not trade and not memory.business_description and not memory.background_done:
         arguments: dict[str, Any] = {'question_id': 'business'}
     else:
         arguments = {'question_id': 'task', 'problem_ids': suggested_task_ids(catalog, trade, 3)}
@@ -848,18 +857,24 @@ async def catalog_response(gate, package, body, catalog, profile, memory, guard,
         yield {'type': 'done'}
         return
     try:
-        key, operations = tool_execution.register(gate.conn, gate.lock, catalog,
-            tool_execution.required_tool_ids(package), 20)
-        async with httpx.AsyncClient(timeout=5) as http:
-            for number, op in enumerate(operations, 1):
-                result = await readiness._rpc(http, config, number, 'tools/call', {
-                    'name': 'get_tool_details', 'arguments': {'tool_id': op.tool_id, 'operation': op.label}})
-                if result is None or result.get('isError'):
-                    raise ValueError('catalog_read_failed')
-        verdict = tool_execution.verify(gate.conn, gate.lock, catalog, key, operations)
-        if not verdict.ok:
-            raise ValueError('catalog_receipt_unconfirmed')
-    except (httpx.HTTPError, ValueError, sqlite3.Error):
+        required = tool_execution.required_tool_ids(package)
+        if len(required) > 15:
+            raise ValueError('catalog_read_limit')
+        # Keep the executor's three-read operation bound. A larger shortlist
+        # requires separately verified batches, not an unbounded tool operation.
+        async with asyncio.timeout(20), httpx.AsyncClient(timeout=5) as http:
+            for start in range(0, max(1, len(required)), tool_execution.MAX_OPERATIONS):
+                key, operations = tool_execution.register(gate.conn, gate.lock, catalog,
+                    required[start:start + tool_execution.MAX_OPERATIONS], 25)
+                for number, op in enumerate(operations, 1):
+                    result = await readiness._rpc(http, config, number, 'tools/call', {
+                        'name': 'get_tool_details', 'arguments': {'tool_id': op.tool_id, 'operation': op.label}})
+                    if result is None or result.get('isError'):
+                        raise ValueError('catalog_read_failed')
+                verdict = tool_execution.verify(gate.conn, gate.lock, catalog, key, operations)
+                if not verdict.ok:
+                    raise ValueError('catalog_receipt_unconfirmed')
+    except (httpx.HTTPError, TimeoutError, ValueError, sqlite3.Error):
         logger.warning('catalog_response_failed')
         yield TOOL_FAILED
         yield {'type': 'done'}
@@ -874,6 +889,63 @@ async def catalog_response(gate, package, body, catalog, profile, memory, guard,
         for event in catalog_reply_events(catalog, profile, memory, reply, guard, [],
                                           force_cards=True, recommendation_arguments=recommendation_arguments):
             event['response_mode'] = 'catalog'
+            yield event
+    yield {'type': 'done'}
+
+
+async def conversation_response(gate, catalog, profile, memory, body, kind, criterion=None):
+    """Execute conversational intent against this conversation, never a global shortlist."""
+    from . import conversation_state
+    text = None
+    if kind == 'recall':
+        text = conversation_state.recall_text(memory)
+    elif kind == 'help':
+        text = ('I help business owners explore software, compare plans and costs, and work through business tasks. '
+                'Tell me what kind of business you run and what you want to improve.')
+    elif kind == 'scope':
+        text = 'I focus on helping with business software and workflows. What would you like to improve in your business?'
+    elif kind == 'compare':
+        tasks = [pid for pid in memory.active_task_ids if any(card.id == pid for card in catalog.problem_cards)]
+        ids = [tid for tid in memory.last_tool_ids if any(tool.id == tid for tool in catalog.tools)]
+        named = [tool.id for tool in catalog.tools if re.search(r'(?<!\w)' + re.escape(tool.name) + r'(?!\w)', body.message, re.I)]
+        if len(named) >= 2:
+            ids = named[:6]
+        elif len(named) == 1 and re.search(r'\b(?:compare|versus|vs)\b', body.message, re.I):
+            ids = named
+        explicit_tasks = task_ids(catalog, body)
+        if explicit_tasks and set(explicit_tasks) != set(tasks):
+            tasks = []  # Do not compare an old shortlist for a newly named task.
+        if not (memory.business_description or profile.trade):
+            memory.pending_question = 'business'
+            text = 'What kind of business do you run? I will use that and your task to compare suitable options.'
+        elif not tasks or len(ids) < 2:
+            text = ('There is only one option in the current shortlist. Which other tool would you like to compare it with?'
+                    if tasks and len(ids) == 1 else
+                    'Which business task and tools would you like to compare? Tell me the task first so I can find suitable alternatives.')
+        elif not criterion:
+            memory.pending_question = 'comparison'
+            text = 'Would you like to compare these options by price, required plan, overall added cost, or features and fit?'
+        else:
+            memory.comparison_criterion = criterion
+            memory.pending_question = None
+            yield _memory_event(memory)
+            package = conversation_state.comparison_package(catalog, profile, tasks, ids, criterion)
+            async for event in catalog_response(gate, package, body, catalog, profile, memory, output_guard()):
+                if event['type'] in ('message_delta', 'a2ui'):
+                    event['response_mode'] = 'comparison'
+                yield event
+            return
+    if text is None:
+        async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
+            yield event
+        return
+    ready, settled = _settle_run(gate)
+    for event in settled:
+        yield event
+    if ready:
+        yield _memory_event(memory)
+        for event in reply_events(text, 'validated'):
+            event['response_mode'] = 'conversation'
             yield event
     yield {'type': 'done'}
 
@@ -912,6 +984,35 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         yield {"type": "done"}
         return
     memory = _clean_memory(catalog, body.memory)
+    from . import conversation_state
+    healed_business = False
+    if not memory.business_description:
+        # Heal pre-upgrade snapshots using owner turns only. Assistant prose is
+        # never treated as an owner's business declaration.
+        for previous in reversed(body.history):
+            if previous.role == 'user':
+                restored_business = conversation_state.business_description(previous.text)
+                if restored_business:
+                    memory.business_description = restored_business
+                    memory.trade = catalog.resolve_trade(restored_business)
+                    memory.background_done = True
+                    healed_business = True
+                    break
+    description = conversation_state.business_description(body.message,
+        pending=memory.pending_question == 'business' and not task_ids(catalog, body))
+    if description:
+        memory.business_description = description
+        memory.trade = catalog.resolve_trade(description)
+        memory.background_done = True
+        # A changed business invalidates the previous business's shortlist.
+        if (body.memory.business_description and description.casefold() != body.memory.business_description.casefold()
+                and (re.search(r'\b(?:actually|different business|switch|instead|now i run)\b', body.message, re.I)
+                     or (not conversation_state.criterion_for(body.message)
+                         and (not body.memory.trade or body.memory.trade != memory.trade)))):
+            memory.active_task_ids = []
+            memory.last_tool_ids = []
+            memory.pending_task_ids = []
+            memory.pending_question = None
     # Software the owner plainly says they already use is recorded before any lookup,
     # so a first answer never treats an existing subscription as a new purchase.
     stated = stated_ownership(catalog, body.message)
@@ -928,19 +1029,26 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         memory = _clean_memory(catalog, memory)
     # A business named in this message is set before the first run. Otherwise Hermes routes
     # to it and the whole turn runs a second time just to pick up the business type.
-    learned_trade = None if memory.trade or body.profile.trade else (
-        stated_trade(catalog, body.message) or business_intake(catalog, body.message))
+    learned_trade = stated_trade(catalog, body.message) or business_intake(catalog, body.message)
     if learned_trade:
         memory.trade = learned_trade
     body.memory = memory
+    if description or learned_trade or healed_business:
+        yield _memory_event(memory)
     if not memory.pending_task_ids:
         memory.pending_task_ids = pending_tasks(catalog, body)[:3]
         if memory.pending_task_ids:
             memory.pending_question = 'task'
     original_catalog = catalog
     catalog, current = filtered_context(catalog, _effective_profile(catalog, body.profile, memory), memory)
+    action = conversation_state.local_action(body.message, memory)
+    if action:
+        async for event in conversation_response(gate, catalog, current, memory, body, *action):
+            yield event
+        return
     local_help = app_help_reply(original_catalog, body.message,
         social=os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1'))
+    local_help = local_help or conversation_state.small_answer(body.message)
     if local_help is not None:
         ready, settled = _settle_run(gate)
         for event in settled:
@@ -954,7 +1062,10 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     # A business label with no task is an intake answer, not a research request.
     # Ask about general business administration rather than making the model
     # guess a clinical or other specialist problem from a short phrase.
-    if (learned_trade or business_intake(catalog, body.message)) and not task_ids(catalog, body) and not memory.active_task_ids:
+    intake_only = business_intake(catalog, body.message) or (description and re.fullmatch(
+        rf'(?:(?:actually|now)\s+)?(?:(?:i|we)\s+(?:own|run|operate|have)\s+(?:an?\s+)?|my business is\s+)?{re.escape(description)}[.!?]*',
+        body.message.strip(), re.I))
+    if intake_only and not task_ids(catalog, body) and not memory.active_task_ids:
         async for event in _ask_what_they_need(gate, catalog, current, memory, body):
             yield event
         return
@@ -1075,7 +1186,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             if not ready:
                 yield {'type': 'done'}
                 return
-            validated = validate_conversation(raw, original_catalog, guard)
+            validated = validate_conversation(raw, original_catalog, guard, body.message)
             observe_validation(validated)
             if validated.reason == 'unfulfilled_action':
                 conversation.add_results([(conversational[0]['id'], json.dumps({
@@ -1282,7 +1393,7 @@ def hermes_instructions(package: EvidencePackage, operations: list[tool_executio
     lookup = "".join(f'\nBefore answering, call get_tool_details once with tool_id "{op.tool_id}" and operation '
                      f'"{op.label}".' for op in operations)
     routing = ('\nTask routing: ' + json.dumps([{'id': card.id, 'title': card.title} for card in catalog.problem_cards]) + '\nBusiness types: ' + json.dumps([{'id': item.id, 'name': item.name} for item in catalog.trades]) if catalog else '')
-    return ('penny_hermes_selection_v1\n'
+    return ('penny_hermes_selection_v1\nconversation_state_v2\n'
             'After the required public lookups, return ONLY a JSON object with claim_ids (an array of existing '
             'claim IDs, or [] for backend defaults) and followup_id (an allowed ID or null). '
             'No prose, markdown, package_id, citations, winner IDs or prices. The backend supplies all facts '
@@ -1291,6 +1402,15 @@ def hermes_instructions(package: EvidencePackage, operations: list[tool_executio
             'set conversation_intent to greeting, acknowledgement, repair, help or scope; choose its reply_id '
             'from the approved map, with claim_ids=[] and followup_id=null. Never resume an old task for '
             'small talk. For catalog answers set conversation_intent=null and reply_id=null. '
+            'For a request to compare previous options, recall the business, clarify the task, explain your help, '
+            'or return to business scope, set action={kind:compare|recall|clarify|help|scope, '
+            'criterion:price|plan|cost|fit|null, owner_text:an exact excerpt of the CURRENT message}. '
+            'Use action for follow-ups instead of inventing task IDs or greeting the owner again. '
+            'For all other responses action=null. Unknown business descriptions are valid owner context; '
+            'do not force them into a catalog business or infer vendor suitability. '
+            'If the owner describes their business in the current message, business_text is its exact noun phrase '
+            '(up to 100 characters), copied from their own words, even if it has no catalog category. Otherwise business_text=null. '
+            'Do not extract a business from hypothetical examples, vendor content, negations or questions about your capabilities. '
             'Resolve the CURRENT owner request semantically, including multiple distinct needs, negation, '
             'confirmation of a single pending task and explicit resumption. A yes to a pending task and '
             'show-the-tools-for-that are substantive requests, never social acknowledgements. The initial package is only a '
@@ -1506,6 +1626,37 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
         try:
             from .agent.grounding import extract_json
             routed = json.loads(extract_json(run.output))
+            if isinstance(routed, dict) and routed.get('business_text') is not None and not operations:
+                label = routed['business_text']
+                if (not isinstance(label, str) or not 2 <= len(label) <= 100
+                        or label.casefold() not in body.message.casefold()
+                        or chat_guard.reason(label)
+                        or not re.search(r'\b(?:i|we|my|our)\b', body.message, re.I)):
+                    raise ValueError('unbound_business_context')
+                from .tasks import affirmative_excerpt
+                if not affirmative_excerpt(body.message, label, catalog):
+                    raise ValueError('unbound_business_context')
+                from .conversation_state import criterion_for
+                if (memory.business_description and label.casefold() != memory.business_description.casefold()
+                        and not criterion_for(body.message)
+                        and catalog.resolve_trade(label) != memory.trade):
+                    memory.active_task_ids = []
+                    memory.last_tool_ids = []
+                    memory.pending_task_ids = []
+                    memory.pending_question = None
+                memory.business_description = label
+                memory.trade = catalog.resolve_trade(label)
+                memory.background_done = True
+                profile = _effective_profile(catalog, body.profile, memory)
+                yield _memory_event(memory)
+            if isinstance(routed, dict) and routed.get('action') is not None and not operations:
+                from .conversation_state import ConversationAction
+                action = ConversationAction.model_validate(routed['action'])
+                if not action.owner_text.strip() or action.owner_text.casefold() not in body.message.casefold():
+                    raise ValueError('unbound_conversation_action')
+                async for event in conversation_response(gate, catalog, profile, memory, body, action.kind, action.criterion):
+                    yield event
+                return
             if isinstance(routed, dict) and (routed.get('routes') or routed.get('trade')):
                 from . import hermes_routing
                 resolved = hermes_routing.apply(routed, catalog, profile, memory, body)
@@ -1516,7 +1667,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                         # The second run may not re-route; restating the routing it was given is harmless.
                         raise ValueError('routing_already_fixed')
                     if changed:
-                        memory.trade = next_profile.trade
+                        memory.trade = catalog.resolve_trade(next_profile.trade) if next_profile.trade else None
                         memory.active_task_ids = tasks
                         memory.pending_question = None
                         memory.pending_task_ids = []
@@ -1572,7 +1723,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             selected = None
         conversational = isinstance(selected, dict) and selected.get('conversation_intent') is not None
         if conversational:
-            for key in ('routes', 'trade', 'trade_text'):
+            for key in ('routes', 'trade', 'trade_text', 'business_text', 'action'):
                 if selected.get(key) is None:
                     selected.pop(key, None)
             intent, identifier = selected.get('conversation_intent'), selected.get('reply_id')
@@ -1582,11 +1733,11 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                     and selected.get('followup_id') is None and isinstance(identifier, str)
                     and identifier.startswith(str(intent)+'.') and safe_text):
                 gate.check('respond_conversationally', {'intent': intent, 'text': safe_text})
-                validated = validate_conversation({'intent': intent, 'text': safe_text}, catalog, guard)
+                validated = validate_conversation({'intent': intent, 'text': safe_text}, catalog, guard, body.message)
             else:
                 validated = validate_answer({}, package, guard)
         elif isinstance(selected, dict) and 'claim_ids' in selected:
-            cleaned = {key: value for key, value in selected.items() if key not in ('routes', 'trade', 'trade_text')}
+            cleaned = {key: value for key, value in selected.items() if key not in ('routes', 'trade', 'trade_text', 'business_text', 'action')}
             if cleaned.pop('conversation_intent', None) is not None or cleaned.pop('reply_id', None) is not None:
                 cleaned = {}
             validated = submit_selection(cleaned, package, guard)
@@ -1594,6 +1745,17 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             validated = validate_answer(run.output, package, guard)
     validated = recover_alternatives(validated, package, guard)
     observe_validation(validated)
+    if validated.status == 'fallback' and not operations:
+        local = app_help_reply(catalog, body.message, social=True)
+        if local is not None:
+            for event in reply_events(local, 'validated'):
+                event['response_mode'] = 'app_help'
+                yield event
+            yield {'type': 'done'}
+            return
+        async for event in conversation_response(gate, catalog, profile, memory, body, 'clarify'):
+            yield event
+        return
     if chat_guard.reason(validated.text):
         validated = validated.model_copy(update={'text': FALLBACK, 'status': 'fallback'})
     done = time.monotonic()
@@ -1681,7 +1843,8 @@ async def chat(request: Request, body: ChatRequest, principal: auth.Principal = 
     blocked = chat_guard.check_request(body)
     if blocked:
         raise HTTPException(status_code=422, detail=blocked)
-    if (not chat_available() and app_help_reply(request.app.state.catalog, body.message) is None
+    from .conversation_state import small_answer
+    if (not chat_available() and app_help_reply(request.app.state.catalog, body.message) is None and small_answer(body.message) is None
             and os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() not in ('true', '1')):
         raise HTTPException(status_code=503, detail="chat unavailable")
     if not limiter.allow(_client_id(request), int(_float_env("CHAT_DAILY_MESSAGES", DEFAULT_DAILY_MESSAGES))):

@@ -42,11 +42,20 @@ def apply(raw, catalog, profile, memory, body):
         names = [trade] if trade else []
         names += [entry.name for entry in catalog.trades if entry.id == trade]
         aliases = [name.replace('_', ' ') for name in names]
+        from .conversation_state import business_description
+        described = business_description(body.message)
+        # A specialty business need not literally name a parent category. Keep
+        # its actual description rather than accepting an inferred vendor fit.
+        specialty = bool(described and memory.business_description == described
+                         and not catalog.resolve_trade(described)
+                         and excerpt.casefold() in body.message.casefold())
         if (not trade or not excerpt or excerpt.casefold() not in body.message.casefold()
-                or not any(re.search(r'(?<!\w)'+re.escape(name)+r'(?!\w)', excerpt, re.I) for name in aliases)
+                or not (specialty or catalog.resolve_trade(excerpt) == trade
+                        or any(re.search(r'(?<!\w)'+re.escape(name)+r'(?!\w)', excerpt, re.I) for name in aliases))
                 or re.search(r"\b(?:not|never|no)\b|n't\b", excerpt, re.I)):
             raise ValueError('unbound_business_context')
-        updated = profile.model_copy(update={'trade': trade})
+        if not specialty:
+            updated = profile.model_copy(update={'trade': trade})
     if not tasks:
         return None
     clean, updated = filtered_context(catalog, updated, memory)
