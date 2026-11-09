@@ -100,3 +100,30 @@ test('a busy refusal stays retryable and does not mark Arkadio as down', async (
   assert.deepEqual(events.find(event => event.type === 'error'), busy)
   assert.equal(events.at(-1).type, 'done')
 })
+
+for (const [status, detail, code] of [
+  [429, 'daily chat limit reached', 'daily_ai_limit'],
+  [429, 'Too many chat requests', 'rate_limited'],
+  [401, 'Sign in again', 'session_expired'],
+  [422, 'Invalid request', 'invalid_request'],
+]) {
+  test(`HTTP ${status}/${code} remains a specific refusal and never marks the agent offline`, async () => {
+    const events = await run(async () => Response.json({ detail }, { status, headers: { 'Retry-After': '60' } }))
+    const error = events.find(event => event.type === 'error')
+    assert.equal(error.code, code)
+    assert.equal(error.retryable, false)
+    assert.deepEqual(events.filter(event => event.type === 'mode').map(event => event.live), [true])
+    assert.doesNotMatch(error.message, /unavailable|could not finish/i)
+  })
+}
+
+test('a truncated stream does not change service health and retry can recover', async () => {
+  let count = 0
+  const adapter = createChatAdapter({ fetcher: async () => ++count === 1 ? stream([], false) : stream([{ type: 'message_delta', text: 'Hello again' }]) })
+  const first = [], second = []
+  await adapter.sendMessage(request, event => first.push(event))
+  await adapter.sendMessage(request, event => second.push(event))
+  assert.equal(first.find(event => event.type === 'error').retryable, true)
+  assert.deepEqual(first.filter(event => event.type === 'mode').map(event => event.live), [true])
+  assert.ok(second.some(event => event.text === 'Hello again'))
+})

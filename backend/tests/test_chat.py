@@ -255,7 +255,11 @@ def test_daily_limit(client, monkeypatch):
     monkeypatch.setenv("CHAT_DAILY_MESSAGES", "1")
     script(monkeypatch, reply("Hi."), reply("Hi."))
     send(client)
-    assert client.post("/api/chat", json={"conversation_id": "c", "message": "hi"}).status_code == 429
+    refused = send(client)
+    assert any(event.get('code') == 'daily_ai_limit' and event['retryable'] is False for event in refused)
+    monkeypatch.setenv('CHAT_CATALOG_FAST_PATH', 'true')
+    greeting = send(client, message='hi')
+    assert any(event.get('response_mode') == 'app_help' for event in greeting)
 
 
 @pytest.mark.parametrize("payload", [

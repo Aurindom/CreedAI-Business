@@ -158,7 +158,11 @@ def test_tool_fact_note_cannot_hide_instructions(client, monkeypatch):
     assert "withheld" in seen[1][-1]["content"]
 
 
-def test_live_chat_and_validation_share_burst_limit(client, monkeypatch):
+def test_validation_does_not_consume_execution_burst_allowance(client, monkeypatch):
     monkeypatch.setenv("CHAT_REQUESTS_PER_MINUTE", "1")
-    assert client.post("/api/chat/validate", json={"conversation_id": "guard", "message": "help"}).status_code == 200
-    assert client.post("/api/chat", json={"conversation_id": "guard", "message": "help"}).status_code == 429
+    monkeypatch.setenv('CHAT_CATALOG_FAST_PATH', 'true')
+    body = {"conversation_id": "guard", "message": "hi"}
+    assert client.post('/api/chat/validate', json=body).status_code == 200
+    assert client.post('/api/chat', json=body).status_code == 200
+    refused = client.post('/api/chat', json=body)
+    assert refused.status_code == 429 and refused.headers['retry-after'] == '60'

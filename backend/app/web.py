@@ -47,6 +47,11 @@ def _is_api(path: str) -> bool:
 
 async def _not_found_or_page(request: Request, exc: StarletteHTTPException):
     """Only an unmatched GET outside /api becomes a page. Everything else keeps the JSON error."""
+    if request.url.path in ('/api/chat', '/api/chat/validate'):
+        code = {401: 'session_expired', 403: 'forbidden', 422: 'invalid_request', 429: 'rate_limited'}.get(exc.status_code, 'request_refused')
+        logging.getLogger('app.chat').warning('chat_request_refused', extra={
+            'http_status': exc.status_code, 'error_code': code,
+            'stage': 'validation' if request.url.path.endswith('/validate') else 'execution'})
     if exc.status_code != 404 or request.method not in ("GET", "HEAD") or _is_api(request.url.path):
         return await http_exception_handler(request, exc)
     if _is_probe(request.scope["path"]):

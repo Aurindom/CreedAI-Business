@@ -21,7 +21,17 @@ export function createHttpAdapter({ fetcher = (...args) => fetch(...args) } = {}
       signal,
       body: JSON.stringify({ conversation_id: conversationId, message, profile, memory, history }),
     })
-    if (!response.ok || !response.body) throw new Error(`Chat request failed with ${response.status}`)
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      const seconds = Number(response.headers.get('retry-after'))
+      throw Object.assign(new Error('Chat request was refused'), {
+        status: response.status,
+        dailyLimit: typeof body.detail === 'string' && /daily.*limit/i.test(body.detail),
+        accountCheck: typeof body.detail === 'string' && /account verification/i.test(body.detail),
+        retryAfter: Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null,
+      })
+    }
+    if (!response.body) throw new Error('Chat response has no stream')
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -81,9 +91,28 @@ export function createChatAdapter({ fetcher = (...args) => fetch(...args) } = {}
       await agent.sendMessage(request, (event) => {
         onEvent(event)
       })
-    } catch {
-      onEvent({ type: 'mode', live: false })
-      onEvent({ type: 'error', code: 'agent_unavailable', message: 'Arkadio could not finish that reply. Please retry, or browse and compare tools on this page.', retryable: true })
+    } catch (error) {
+      if (request.signal?.aborted || error?.name === 'AbortError') return
+      // A refusal or one broken stream does not establish global service health.
+      // In particular, HTTP 429 must never become an "agent offline" badge.
+      let failure = { type: 'error', code: 'agent_unavailable', message: 'The connection ended before the reply finished. Your chat is still here. Please try again.', retryable: true }
+      if (error?.status === 429) failure = {
+        type: 'error', code: error.dailyLimit ? 'daily_ai_limit' : 'rate_limited',
+        message: error.dailyLimit
+          ? "You have reached today's AI request limit. Catalog browsing and supported comparisons still work. Your AI allowance renews at midnight UTC."
+          : `Too many messages were sent in a short time. Please wait ${error.retryAfter || 60} seconds before sending another. Your chat is still here.`,
+        retryable: false, retry_after_seconds: error.retryAfter,
+      }
+      else if (error?.status === 401 || error?.status === 403) failure = {
+        type: 'error', code: 'session_expired', message: 'Your sign-in has expired. Sign in again to continue this conversation. Your saved history is still available.', retryable: false,
+      }
+      else if (error?.status === 422) failure = {
+        type: 'error', code: 'invalid_request', message: 'This message could not be sent. Refresh the page and try again; your saved chat will stay available.', retryable: false,
+      }
+      else if (error?.accountCheck) failure = {
+        type: 'error', code: 'account_verification_unavailable', message: 'Your sign-in could not be checked right now. Please try again in a moment.', retryable: true,
+      }
+      onEvent(failure)
       onEvent({ type: 'done' })
     }
   }

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import copy
+import hashlib
 import logging
 import math
 import os
@@ -12,7 +13,7 @@ import sqlite3
 import threading
 import time
 from contextlib import aclosing
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 
@@ -227,6 +228,8 @@ class ChatRequest(BaseModel):
     _check_session: Any = PrivateAttr(default=None)
     _conn: Any = PrivateAttr(default=None)
     _lock: Any = PrivateAttr(default=None)
+    _quota_subject: str = PrivateAttr(default='guest:unknown')
+    _daily_admitted: bool = PrivateAttr(default=False)
     conversation_id: str = Field(min_length=1, max_length=100)
     message: str = Field(min_length=1, max_length=500)
     profile: BusinessProfile = Field(default_factory=BusinessProfile)
@@ -361,14 +364,56 @@ def _client_id(request: Request) -> str:
 burst_limiter = chat_guard.BurstLimiter()
 
 
-def _check_burst(request: Request) -> None:
+def _check_burst(request: Request, *, validation: bool = False) -> None:
     try:
         limit = max(1, min(1000, int(os.environ.get("CHAT_REQUESTS_PER_MINUTE", "30"))))
     except ValueError:
         limit = 30
-    if not burst_limiter.allow(_client_id(request), limit):
+    # A normal UI turn makes both calls. Validation and execution have separate
+    # bounded buckets so the safety check cannot consume the send's allowance.
+    bucket = ('validate:' if validation else 'chat:') + _client_id(request)
+    if not burst_limiter.allow(bucket, limit):
         chat_guard.audit("rate_limit", "limiter")
         raise HTTPException(status_code=429, detail="Too many chat requests. Please try again shortly.", headers={"Retry-After": "60"})
+
+
+def _admit_model_turn(body: ChatRequest) -> dict | None:
+    """Daily allowance applies only to turns that actually need a model.
+
+    Accounts are keyed by verified identity; guests retain a network bound.
+    Persistent counters survive restarts. No identity/counter reaches the model.
+    The independent, durable dollar/request gateways remain the spending limit.
+    """
+    if body._daily_admitted:
+        return None
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    limit = int(_float_env('CHAT_DAILY_MESSAGES', DEFAULT_DAILY_MESSAGES))
+    subject = hashlib.sha256(body._quota_subject.encode()).hexdigest()
+    try:
+        if body._conn is None:
+            allowed = limiter.allow(subject, limit)
+        else:
+            with body._lock, body._conn:
+                conn = body._conn
+                conn.execute('CREATE TABLE IF NOT EXISTS chat_model_daily (day TEXT NOT NULL, subject TEXT NOT NULL, turns INTEGER NOT NULL, PRIMARY KEY(day,subject))')
+                conn.execute('DELETE FROM chat_model_daily WHERE day<?', ((now.date()-timedelta(days=2)).isoformat(),))
+                row = conn.execute('SELECT turns FROM chat_model_daily WHERE day=? AND subject=?', (today, subject)).fetchone()
+                count = row[0] if row else 0
+                capacity = bool(row) or conn.execute('SELECT COUNT(*) FROM chat_model_daily WHERE day=?', (today,)).fetchone()[0] < MAX_TRACKED_CLIENTS
+                allowed = count < limit and capacity
+                if allowed:
+                    conn.execute('INSERT INTO chat_model_daily VALUES(?,?,1) ON CONFLICT(day,subject) DO UPDATE SET turns=turns+1', (today, subject))
+    except sqlite3.Error:
+        logger.warning('chat_model_admission_unavailable')
+        return {'type': 'error', 'code': 'admission_unavailable', 'message': 'AI request checks are temporarily unavailable. You can still browse tools or ask about the catalog.', 'retryable': True}
+    if allowed:
+        body._daily_admitted = True
+        return None
+    reset = datetime.combine(now.date()+timedelta(days=1), datetime.min.time(), timezone.utc)
+    retry_after = max(1, int((reset-now).total_seconds()))
+    logger.info('chat_model_daily_limited', extra={'stage': 'admission'})
+    return {'type': 'error', 'code': 'daily_ai_limit', 'message': "You have reached today's AI request limit. Catalog browsing, business details and supported tool comparisons still work. Your AI allowance renews at midnight UTC.", 'retryable': False, 'retry_after_seconds': retry_after}
 
 
 def usage_cost(usage: dict[str, Any] | None) -> float | None:
@@ -1122,6 +1167,11 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     if learned_ownership or learned_trade:
         yield _memory_event(memory)
 
+    admission = _admit_model_turn(body)
+    if admission:
+        yield admission
+        yield {'type': 'done'}
+        return
     for _ in range(MAX_ROUNDS):
         if body._check_session is not None:
             body._check_session()
@@ -1501,6 +1551,11 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             for event in _bail():
                 yield event
             return
+    admission = _admit_model_turn(body)
+    if admission:
+        yield admission
+        yield {'type': 'done'}
+        return
     if not spend.reserve(_hermes_reserve()):
         for event in _bail():
             yield event
@@ -1782,7 +1837,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
 @router.post("/api/chat/validate")
 def validate_chat(request: Request, body: ChatRequest, principal: auth.Principal = Depends(auth.optional_account)) -> dict:
     """Used before the browser records a message. Never calls a model."""
-    _check_burst(request)
+    _check_burst(request, validation=True)
     blocked = chat_guard.check_request(body)
     return {"allowed": blocked is None, "message": blocked}
 
@@ -1839,6 +1894,7 @@ async def chat(request: Request, body: ChatRequest, principal: auth.Principal = 
     body._check_session = lambda: auth.check_active(request, principal)
     body._conn = request.app.state.conn
     body._lock = request.app.state.lock
+    body._quota_subject = 'account:' + principal.user_id if principal.authenticated else 'guest:' + _client_id(request)
     _check_burst(request)
     blocked = chat_guard.check_request(body)
     if blocked:
@@ -1847,10 +1903,6 @@ async def chat(request: Request, body: ChatRequest, principal: auth.Principal = 
     if (not chat_available() and app_help_reply(request.app.state.catalog, body.message) is None and small_answer(body.message) is None
             and os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() not in ('true', '1')):
         raise HTTPException(status_code=503, detail="chat unavailable")
-    if not limiter.allow(_client_id(request), int(_float_env("CHAT_DAILY_MESSAGES", DEFAULT_DAILY_MESSAGES))):
-        chat_guard.audit("rate_limit", "limiter")
-        raise HTTPException(status_code=429, detail="daily chat limit reached")
-
     # This immutable turn snapshot matches its registered MCP execution receipts.
     with request.app.state.lock:
         from . import db, verification_worker

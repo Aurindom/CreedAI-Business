@@ -33,6 +33,7 @@ beforeEach(async () => {
     if (url === '/api/chat/status') return Response.json({ available: true })
     if (url === '/api/chat') {
       const events = replies.shift()
+      if (events instanceof Response) return events
       return new Response(events.map(event => `data: ${JSON.stringify(event)}
 
 `).join(''), { headers: { 'Content-Type': 'text/event-stream' } })
@@ -93,6 +94,20 @@ test('retrying after an outage resends once without a second user message', asyn
   assert.equal(document.querySelectorAll('.msc-row-user').length, 1)
   assert.equal(requests.filter(request => request.url === '/api/chat').length, 2)
   assert.match(document.querySelector('.msc-panel').textContent, /Jobber handles scheduling/)
+})
+
+test('a daily refusal after successful validation preserves the chat and keeps the agent ready', async () => {
+  replies.push(Response.json({ detail: 'daily chat limit reached' }, { status: 429 }))
+  await submit('hi')
+  assert.match(document.querySelector('.msc-error').textContent, /today.*AI request limit/)
+  assert.equal(document.querySelector('.msc-error button'), null)
+  assert.equal(document.querySelector('.msc-live').textContent, 'Ready')
+  assert.equal(document.querySelector('.penny-unavailable-note'), null)
+  replies.push([{ type: 'message_delta', text: 'Hello! What can I help with?' }, { type: 'done' }])
+  await submit('hello')
+  assert.equal(document.querySelectorAll('.msc-row-user').length, 2)
+  assert.match(document.querySelector('.msc-log').textContent, /Hello! What can I help with/)
+  assert.equal(document.querySelector('.msc-live').textContent, 'Ready')
 })
 
 test('unknown action statuses are not rendered as progress', async () => {
