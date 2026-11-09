@@ -230,14 +230,23 @@ def _pinned(body: dict[str, Any]) -> dict[str, Any]:
            for message in body.get('messages', []) if isinstance(message, dict)):
         from .penny_conversation import reply_choices
         excerpts = []
+        registered_reads = False
         for message in body.get('messages', []):
             content = message.get('content', '') if isinstance(message, dict) else ''
+            if (message.get('role') == 'system' and isinstance(content, str)
+                    and re.search(r'\nBefore answering, call get_tool_details once with tool_id "[^"\n]+" and operation "op_[0-9a-f]{24}"\.', content)):
+                registered_reads = True
             if isinstance(content, str) and '\nrouting_excerpts: ' in content:
                 try:
                     candidates = json.loads(content.split('\nrouting_excerpts: ', 1)[1].split('\n', 1)[0])
                     excerpts = [value for value in candidates if isinstance(value, str) and 1 <= len(value) <= 500][:24]
                 except (ValueError, TypeError):
                     pass
+        if not registered_reads:
+            # Intent-only turns have no authorized operation label. Offering a
+            # catalog tool here invites a failed call and another model round.
+            for field in ('tools', 'tool_choice', 'parallel_tool_calls'):
+                body.pop(field, None)
         task_text_schema = {'type': 'string', **({'enum': excerpts} if excerpts else {})}
         body['response_format'] = {'type': 'json_schema', 'json_schema': {
             'name': 'penny_selection', 'strict': True, 'schema': {

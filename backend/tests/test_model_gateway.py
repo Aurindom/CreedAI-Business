@@ -254,6 +254,16 @@ def test_selection_schema_is_bounded_and_bound_to_the_actual_package(tmp_path):
     assert provider.seen[0]['body']['max_tokens']==gw.MAX_OUTPUT_TOKENS
 
 
+def test_intent_only_model_turn_cannot_attempt_unregistered_mcp_reads():
+    tools=[{'type':'function','function':{'name':'mcp__marketplace__get_tool_details'}}]
+    system='penny_hermes_selection_v1\nrouting_excerpts: ["less phone calls"]'
+    body=gw._pinned({'messages':[{'role':'system','content':system}],'tools':tools,'tool_choice':'auto'})
+    assert 'tools' not in body and 'tool_choice' not in body
+    system+='\nBefore answering, call get_tool_details once with tool_id "homebase" and operation "op_'+'a'*24+'".'
+    body=gw._pinned({'messages':[{'role':'system','content':system}],'tools':tools})
+    assert body['tools']==tools
+
+
 def test_an_orphaned_reservation_is_held_on_restart(tmp_path):
     ledger = gw.Ledger(tmp_path / 'gateway.db')
     number, _ = ledger.admit(0.02, 3, 1.0)
