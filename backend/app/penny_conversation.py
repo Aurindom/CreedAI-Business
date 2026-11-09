@@ -31,6 +31,45 @@ def reply_choices():
     return {f'{intent}.{i}': text for intent, choices in APPROVED_REPLIES.items() for i, text in enumerate(choices)}
 
 
+def app_help_reply(catalog, message, *, social=False):
+    """Answer explicit app navigation questions from app-owned data, without a model.
+
+    Anchored questions cannot swallow a substantive product request or resume
+    earlier tasks. Business examples describe catalog navigation, not approval
+    of every product for those businesses.
+    """
+    text = re.sub(r'\s+', ' ', message.casefold()).strip(' .!?')
+    business_question = re.fullmatch(
+        r'(?:what|which)(?: kinds? of| types? of)? (?:businesses|business|industries) (?:can|do) you (?:help|work|support)(?: me)?(?: with| for)?', text)
+    if business_question:
+        names = ', '.join(trade.name for trade in catalog.trades)
+        return ('You can explore business software for these business types: ' + names +
+                '. I help with everyday work such as scheduling, customer calls and bookkeeping. '
+                'Which kind of business do you run?')
+    if text in {'what can you do', 'what can you help me with', 'how can you help me',
+                'how does this work', 'what is this website', 'what is creed ai'}:
+        return ('I help you explore business software, compare options and plan your next steps. '
+                'Tell me your type of business and one task you want to make easier, '
+                'such as handling calls, scheduling or bookkeeping.')
+    if social:
+        if text in {'hello', 'hi', 'hey', 'hello arkadio', 'hi arkadio'}:
+            return APPROVED_REPLIES['greeting'][0]
+        if text in {'how are you', 'how are you doing'}:
+            return APPROVED_REPLIES['greeting'][2]
+        if text in {'thanks', 'thank you', 'thanks a lot'}:
+            return APPROVED_REPLIES['acknowledgement'][0]
+    return None
+
+
+def business_intake(catalog, message):
+    text = re.sub(r'\s+', ' ', message.casefold()).strip(' .!?')
+    text = re.sub(r'^(?:help(?: me)? (?:with )?|i (?:run|own|have) (?:a |an )?)', '', text)
+    text = re.sub(r' (?:issues|problems|business)$', '', text)
+    if text == 'clinical':
+        text = 'medical'
+    return catalog.resolve_trade(text)
+
+
 # This path is for conversation management, not a second product-facts channel.
 _FACTUAL = re.compile(
     r'\d|[$\u00a3\u20ac%]|https?://|www\.|<[^>]*>|'

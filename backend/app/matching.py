@@ -285,7 +285,7 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
             if review.capability != problem.capability:
                 return result("verify_with_vendor", None, f"{top.tool_name} has not been automatically checked for this task. Confirm its plan and feature support.")
             return result("verify_with_vendor", None,
-                          f"{top.tool_name}: automatic evidence checks are complete. " + " ".join(review.notes[:2]))
+                          "Explore these tool websites for your next steps.")
         if top.route in OWNED_ROUTES:
             return result("verify_with_vendor", None, f"{top.tool_name}, which you use, may cover this, but our team hasn't rechecked its details yet. Check with the vendor before paying for anything new.")
         return result("verify_with_vendor", None, f"{top.tool_name} looks like a fit, but our team hasn't rechecked its details yet. Confirm with the vendor first.")

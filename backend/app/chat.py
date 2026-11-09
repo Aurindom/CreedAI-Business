@@ -39,10 +39,10 @@ from .agent import hermes_runtime
 from .agent.hermes_runtime import HermesError, HermesRun
 from .agent.prompts import SYSTEM_PROMPT as GROUNDED_PROMPT
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
-from .penny_conversation import ConversationReply, validate_conversation, reply_choices
+from .penny_conversation import ConversationReply, validate_conversation, reply_choices, app_help_reply, business_intake
 from .penny_grounding import (ActionContextError, action_package, filtered_context, question, request_package, qualify_package,
                               plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, is_generic_request, ambiguous_choices,
-                              recommendation_catalog, recommendation_package, alternatives_note, contextual_alternatives)
+                              recommendation_catalog, recommendation_package, alternatives_note, contextual_alternatives, task_ids)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -835,6 +835,49 @@ async def _ask_what_they_need(gate, catalog, profile, memory, body) -> AsyncIter
     yield {"type": "done"}
 
 
+async def catalog_response(gate, package, body, catalog, profile, memory, guard,
+                           recommendation_arguments=None):
+    """An unambiguous task needs real MCP receipts, not a paid claim selection.
+
+    Explicit catalog mode never pretends that Hermes executed a run. The same
+    immutable snapshot, executor receipt and grounding gates remain mandatory.
+    """
+    config = readiness.mcp_config()
+    if config is None or gate.conn is None:
+        yield TOOL_FAILED
+        yield {'type': 'done'}
+        return
+    try:
+        key, operations = tool_execution.register(gate.conn, gate.lock, catalog,
+            tool_execution.required_tool_ids(package), 20)
+        async with httpx.AsyncClient(timeout=5) as http:
+            for number, op in enumerate(operations, 1):
+                result = await readiness._rpc(http, config, number, 'tools/call', {
+                    'name': 'get_tool_details', 'arguments': {'tool_id': op.tool_id, 'operation': op.label}})
+                if result is None or result.get('isError'):
+                    raise ValueError('catalog_read_failed')
+        verdict = tool_execution.verify(gate.conn, gate.lock, catalog, key, operations)
+        if not verdict.ok:
+            raise ValueError('catalog_receipt_unconfirmed')
+    except (httpx.HTTPError, ValueError, sqlite3.Error):
+        logger.warning('catalog_response_failed')
+        yield TOOL_FAILED
+        yield {'type': 'done'}
+        return
+    if body._check_session is not None:
+        body._check_session()
+    ready, settled = _settle_run(gate)
+    for event in settled:
+        yield event
+    if ready:
+        reply = submit_selection({'claim_ids': [], 'followup_id': None}, package, guard)
+        for event in catalog_reply_events(catalog, profile, memory, reply, guard, [],
+                                          force_cards=True, recommendation_arguments=recommendation_arguments):
+            event['response_mode'] = 'catalog'
+            yield event
+    yield {'type': 'done'}
+
+
 async def run_agent(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     """One in-flight slot per chat turn, for every runtime, taken before any readiness check or spend reservation."""
     if not _claim_inflight():
@@ -885,7 +928,8 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         memory = _clean_memory(catalog, memory)
     # A business named in this message is set before the first run. Otherwise Hermes routes
     # to it and the whole turn runs a second time just to pick up the business type.
-    learned_trade = None if memory.trade or body.profile.trade else stated_trade(catalog, body.message)
+    learned_trade = None if memory.trade or body.profile.trade else (
+        stated_trade(catalog, body.message) or business_intake(catalog, body.message))
     if learned_trade:
         memory.trade = learned_trade
     body.memory = memory
@@ -895,6 +939,25 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             memory.pending_question = 'task'
     original_catalog = catalog
     catalog, current = filtered_context(catalog, _effective_profile(catalog, body.profile, memory), memory)
+    local_help = app_help_reply(original_catalog, body.message,
+        social=os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1'))
+    if local_help is not None:
+        ready, settled = _settle_run(gate)
+        for event in settled:
+            yield event
+        if ready:
+            for event in reply_events(local_help, 'validated'):
+                event['response_mode'] = 'app_help'
+                yield event
+        yield {'type': 'done'}
+        return
+    # A business label with no task is an intake answer, not a research request.
+    # Ask about general business administration rather than making the model
+    # guess a clinical or other specialist problem from a short phrase.
+    if (learned_trade or business_intake(catalog, body.message)) and not task_ids(catalog, body) and not memory.active_task_ids:
+        async for event in _ask_what_they_need(gate, catalog, current, memory, body):
+            yield event
+        return
     package = qualify_package(catalog, request_package(catalog, current, body), body)
     alternatives = contextual_alternatives(catalog, body)
     if alternatives:
@@ -908,6 +971,15 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
         # "I want an AI tool" names no problem. Ask instead of letting the model guess one:
         # start the background questions if the business is unknown, otherwise offer tasks that fit it.
         async for event in _ask_what_they_need(gate, catalog, current, memory, body):
+            yield event
+        return
+    message_trade = stated_trade(catalog, body.message)
+    if (os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1') and task_ids(catalog, body)
+            and (not message_trade or message_trade == current.trade)):
+        if learned_trade:
+            yield _memory_event(memory)
+        async for event in catalog_response(gate, package, body, original_catalog, current, memory,
+                                           guard, alternatives):
             yield event
         return
     if runtime() == "hermes":
@@ -1288,6 +1360,11 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
     marks["ready"] = time.monotonic()
     if not found.ok:
         logger.warning("Hermes not ready: %s", found.code)
+        if (os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1')
+                and not tool_execution.required_tool_ids(package) and not task_ids(catalog, body)):
+            async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
+                yield event
+            return
         for event in _bail():
             yield event
         return
@@ -1338,7 +1415,10 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
 
         loop = asyncio.get_running_loop()
         reader = loop.create_task(read())
-        deadline = loop.time() + config.timeout
+        # Unresolved intent is a short routing attempt, not a minute-long tool
+        # research job. If it cannot route promptly, ask the owner directly.
+        timeout = config.timeout if operations else min(config.timeout, 12.0)
+        deadline = loop.time() + timeout
         outcome: str | None = None
         revoked: Exception | None = None
         try:
@@ -1390,6 +1470,10 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             logger.warning("Hermes run stopped: %s", outcome)
             if revoked is not None:
                 raise revoked
+            if outcome == 'timeout' and not operations and not task_ids(catalog, body):
+                async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
+                    yield event
+                return
             yield _closed("session_ended") if outcome == "session_ended" else _unavailable()
             yield {"type": "done"}
             return
@@ -1400,6 +1484,10 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
     if run.terminal != "run.completed":
         logger.warning("Hermes run ended: %s", run.terminal)
         readiness.invalidate()
+        if not tool_execution.required_tool_ids(package) and not task_ids(catalog, body):
+            async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
+                yield event
+            return
         for event in _bail():
             yield event
         return
@@ -1433,6 +1521,11 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                         memory.pending_question = None
                         memory.pending_task_ids = []
                         yield _memory_event(memory)
+                        if os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1'):
+                            async for event in catalog_response(gate, next_package, body, catalog,
+                                                              next_profile, memory, guard):
+                                yield event
+                            return
                         async for event in run_hermes(gate, next_package, body, guard, spend,
                                                       catalog, next_profile, memory, routing_done=True):
                             yield event
@@ -1545,7 +1638,10 @@ async def runtime_ready() -> bool:
 
 
 @router.get("/api/chat/status")
-async def chat_status() -> dict[str, bool]:
+async def chat_status(request: Request) -> dict[str, bool]:
+    if os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1'):
+        return {'available': _database_ready(request),
+                'model_available': chat_available() and await runtime_ready()}
     return {"available": chat_available() and await runtime_ready()}
 
 
@@ -1585,7 +1681,8 @@ async def chat(request: Request, body: ChatRequest, principal: auth.Principal = 
     blocked = chat_guard.check_request(body)
     if blocked:
         raise HTTPException(status_code=422, detail=blocked)
-    if not chat_available():
+    if (not chat_available() and app_help_reply(request.app.state.catalog, body.message) is None
+            and os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() not in ('true', '1')):
         raise HTTPException(status_code=503, detail="chat unavailable")
     if not limiter.allow(_client_id(request), int(_float_env("CHAT_DAILY_MESSAGES", DEFAULT_DAILY_MESSAGES))):
         chat_guard.audit("rate_limit", "limiter")

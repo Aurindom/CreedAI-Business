@@ -16,7 +16,6 @@ from test_penny_grounding import text
     ('hey, are you there?', 'greeting', "I'm here. What would you like to discuss?"),
     ('thank you', 'acknowledgement', "You're welcome!"),
     ('why are you repeating yourself?', 'repair', "You're right to flag that. Let's focus on the part you want to work through."),
-    ('what can you help me with?', 'help', 'I can help you compare business software and understand what you already use.'),
     ('tell me a sports score', 'scope', 'I focus on business software. What would you like help with there?'),
 ])
 def test_conversational_intents_reply_without_product_cards(client, monkeypatch, owner_text, intent, answer):

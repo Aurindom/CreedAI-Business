@@ -250,6 +250,28 @@ def _pinned(body: dict[str, Any]) -> dict[str, Any]:
                                'trade': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
                                'trade_text': {'anyOf': [{'type': 'string'}, {'type': 'null'}]}},
                 'required': ['claim_ids', 'followup_id', 'conversation_intent', 'reply_id', 'routes', 'trade', 'trade_text']}}}
+        properties = body['response_format']['json_schema']['schema']['properties']
+        properties['claim_ids']['maxItems'] = 10
+        properties['claim_ids']['items']['maxLength'] = 160
+        task_text_schema['maxLength'] = 500
+        for message in body.get('messages', []):
+            content = message.get('content', '') if isinstance(message, dict) else ''
+            if message.get('role') != 'system' or not isinstance(content, str):
+                continue
+            if '\ninitial_evidence_package: ' not in content:
+                continue
+            try:
+                package, _ = json.JSONDecoder().raw_decode(content.rsplit('\ninitial_evidence_package: ', 1)[1].lstrip())
+                ids = [claim['id'] for claim in package['claims'] if isinstance(claim.get('id'), str)]
+                if ids:
+                    properties['claim_ids']['items']['enum'] = ids
+                else:
+                    properties['claim_ids']['maxItems'] = 0
+                followups = list(package.get('followups', {}))
+                properties['followup_id'] = ({'anyOf': [{'type': 'string', 'enum': followups}, {'type': 'null'}]}
+                                              if followups else {'type': 'null'})
+            except (ValueError, KeyError, TypeError, AttributeError):
+                pass
     if body.get("stream"):
         body["stream_options"] = {"include_usage": True}
     else:
@@ -378,6 +400,9 @@ class Gateway:
                 await upstream.aclose()
                 await client.aclose()
         usage = data.get("usage") if isinstance(data, dict) else None
+        if isinstance(data, dict):
+            reasons = [choice.get('finish_reason') for choice in data.get('choices', []) if isinstance(choice, dict)]
+            entry['finish_reason'] = next((value for value in reasons if value in ('stop', 'length', 'tool_calls', 'content_filter')), None)
         self.close(number, entry, usage_cost(usage), usage, failed, reserved)
         if failed or not isinstance(data, dict):
             return _error("usage_unverified", 502)
@@ -429,6 +454,11 @@ class Relay:
                         if isinstance(chunk, dict) and chunk.get("usage"):
                             state["usage"] = chunk["usage"]
                             state["cost"] = usage_cost(chunk["usage"])
+                        if isinstance(chunk, dict):
+                            for choice in chunk.get('choices', []):
+                                reason = choice.get('finish_reason') if isinstance(choice, dict) else None
+                                if reason in ('stop', 'length', 'tool_calls', 'content_filter'):
+                                    self.entry['finish_reason'] = reason
                     await deliver({"type": "http.response.body", "body": (line + "\n").encode(), "more_body": True})
             except httpx.HTTPError as exc:
                 state["failed"] = f"stream_{type(exc).__name__}"

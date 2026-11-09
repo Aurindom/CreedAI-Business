@@ -39,7 +39,7 @@ export function createHttpAdapter({ fetcher = (...args) => fetch(...args) } = {}
       onEvent(event)
     }
 
-    while (!finished) {
+    try { while (!finished) {
       const { value, done } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
@@ -49,6 +49,10 @@ export function createHttpAdapter({ fetcher = (...args) => fetch(...args) } = {}
     }
     if (!finished && buffer.trim()) handle(buffer)
     if (!finished) throw new Error('The reply ended early')
+    } finally {
+      await reader.cancel().catch(() => {})
+      reader.releaseLock()
+    }
   }
 
   return { sendMessage }
@@ -70,16 +74,11 @@ export function createChatAdapter({ fetcher = (...args) => fetch(...args) } = {}
   const agent = createHttpAdapter({ fetcher })
   const isLive = () => checkLiveChat(fetcher)
   async function sendMessage(request, onEvent) {
-    if (!(await isLive())) {
-      onEvent({ type: 'mode', live: false })
-      onEvent({ type: 'error', code: 'agent_unavailable', message: UNAVAILABLE, retryable: true })
-      onEvent({ type: 'done' })
-      return
-    }
+    // The server can answer app help and grounded catalog requests without a
+    // healthy model. A separate readiness probe must not veto those requests.
     onEvent({ type: 'mode', live: true })
     try {
       await agent.sendMessage(request, (event) => {
-        if (event.type === 'error' && event.code !== 'agent_busy') onEvent({ type: 'mode', live: false })
         onEvent(event)
       })
     } catch {

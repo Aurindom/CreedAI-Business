@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { recommendationIntro } from '../toolEvidence'
 import { createPortal } from 'react-dom'
 import { vendorQuestions } from './vendorQuestions'
 import { costText, HEADLINES, ROUTE_LABELS, safeUrl, serviceUrl, statusLabel } from './ChatResult'
@@ -60,7 +61,7 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
       <h1 id="penny-summary-title">Creed AI summary</h1>
       <p className="msc-print-meta">{problemTitle}, {new Date().toLocaleDateString()}</p>
       <h2>{HEADLINES[recommendation.outcome] || 'Here is what I found'}</h2>
-      <p>{recommendation.message}</p>
+      <p>{recommendationIntro(recommendation)}</p>
       {recommendation.tailoring_note && <p>{recommendation.tailoring_note}</p>}
       {recommendation.budget_note && <p>{recommendation.budget_note}</p>}
       {shortlist.length > 1 && <p>These are alternatives. Choose one that covers your need.</p>}

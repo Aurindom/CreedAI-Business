@@ -19,6 +19,7 @@ venv/
 
 deploy/settings.env
 deploy/secrets/
+deploy/.chat-hotfix.lock
 
 # Internal team notes and local build/validation records stay on this machine.
 /docs/

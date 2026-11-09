@@ -43,10 +43,10 @@ test('verified-account credential is sent in the header, never the model request
   assert.ok(!('Authorization' in captured.headers))
 })
 
-test('no key or budget means unavailable, with no generated fallback reply', async () => {
+test('a server refusal stays unavailable with no generated browser fallback', async () => {
   const urls = []
-  const events = await run(async url => { urls.push(url); return Response.json({ available: false }) })
-  assert.deepEqual(urls, ['/api/chat/status'])
+  const events = await run(async url => { urls.push(url); return new Response('', { status: 503 }) })
+  assert.deepEqual(urls, ['/api/chat'])
   assertUnavailable(events)
   assert.equal(events.some(event => event.type === 'message_delta'), false)
 })
@@ -82,13 +82,14 @@ test('live events and profile come from the real transport unchanged', async () 
   assert.equal(events.some(event => event.type === 'error'), false)
 })
 
-test('availability is rechecked so a recovered provider can be retried', async () => {
+test('model readiness cannot veto app help served by the real backend', async () => {
   let checks = 0
   const adapter = createChatAdapter({ fetcher: async url => url.endsWith('/status') ? Response.json({ available: ++checks > 1 }) : stream([{ type: 'message_delta', text: 'Recovered' }]) })
   const first = [], second = []
+  assert.equal(await adapter.isLive(),false)
   await adapter.sendMessage(request, event => first.push(event))
   await adapter.sendMessage(request, event => second.push(event))
-  assertUnavailable(first)
+  assert.ok(first.some(event => event.text === 'Recovered'))
   assert.ok(second.some(event => event.text === 'Recovered'))
 })
 

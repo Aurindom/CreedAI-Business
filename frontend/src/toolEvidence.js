@@ -1,5 +1,10 @@
 // One place decides how much a card may claim. The backend owns the verdict; this file only reads it.
 
+export function recommendationIntro(recommendation) {
+  if (recommendation.outcome === 'verify_with_vendor') return 'Explore these options and visit their websites to choose your next step.'
+  return recommendation.message
+}
+
 export function safeWebsite(url) {
   if (typeof url !== 'string') return null
   try {

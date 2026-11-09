@@ -242,6 +242,18 @@ def test_a_client_disconnect_keeps_reading_to_learn_the_cost(tmp_path):
     assert log[-1]['result'] == 'ok' and log[-1]['client_gone'] is True
 
 
+def test_selection_schema_is_bounded_and_bound_to_the_actual_package(tmp_path):
+    app,provider=make(tmp_path)
+    package={'claims':[{'id':'bookkeeping:decision'}],'followups':{}}
+    system='penny_hermes_selection_v1\nrouting_excerpts: ["I need bookkeeping"]\ninitial_evidence_package: '+json.dumps(package)
+    assert run(app,ask(messages=[{'role':'system','content':system},{'role':'user','content':'I need bookkeeping'}]))[0]==200
+    schema=provider.seen[0]['body']['response_format']['json_schema']['schema']['properties']
+    assert schema['claim_ids']['maxItems']==10
+    assert schema['claim_ids']['items']['enum']==['bookkeeping:decision']
+    assert schema['followup_id']=={'type':'null'}
+    assert provider.seen[0]['body']['max_tokens']==gw.MAX_OUTPUT_TOKENS
+
+
 def test_an_orphaned_reservation_is_held_on_restart(tmp_path):
     ledger = gw.Ledger(tmp_path / 'gateway.db')
     number, _ = ledger.admit(0.02, 3, 1.0)

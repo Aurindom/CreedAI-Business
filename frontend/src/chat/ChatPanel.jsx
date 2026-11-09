@@ -376,12 +376,14 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
       if (event.type === 'sources' && !receivedA2UISources) addMessage({ kind: 'sources', items: event.items || [] })
       if (event.type === 'action' && ACTION_LABELS[event.status]) addMessage({ kind: 'action', status: event.status, text: event.message || ACTION_LABELS[event.status] })
       if (event.type === 'error') {
+        finish(run)
         addMessage({
           kind: 'error',
           text: event.message || UNAVAILABLE,
           retry: event.retryable ? { type: 'send', text } : null,
         })
       }
+      if (event.type === 'done') finish(run)
     }
 
     try {
@@ -390,8 +392,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     } catch {
       if (run === runRef.current) addMessage({ kind: 'error', text: UNAVAILABLE, retry: { type: 'send', text } })
     }
-    await Promise.allSettled(pending)
     finish(run)
+    await Promise.allSettled(pending)
   }
 
   async function retry(message) {
@@ -592,7 +594,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
             <div className="penny-panel-heading">
               <span className="penny-panel-eyebrow">CREED AI / ASSISTANT</span>
               <h2>Arkadio</h2>
-              <span className={live ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : live ? 'Live AI' : 'Unavailable'}</span>
+              <span className={live ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : live ? 'Ready' : 'Unavailable'}</span>
             </div>
           </div>
           <div className="msc-header-actions">
