@@ -42,6 +42,14 @@ def _negated(clause: str) -> bool:
     return bool(_NEGATION.search(_FALLING_BEHIND.sub(' ', clause)))
 
 
+# An explicit "I don't need help with X" turns X down. Plain negation ("invoices don't get paid",
+# "I don't want to answer calls myself") can still describe the problem, so it is not a rejection.
+_REJECTION = re.compile(
+    r"\b(?:do\s+not|don['’]?t|no\s+longer)\s+(?:really\s+)?need\b(?!\s+to\b)"
+    r"|\b(?:do\s+not|don['’]?t)\s+want\s+(?:any\s+)?(?:help|a\s+tool|software)\b"
+    r"|\bnot\s+(?:interested\s+in|looking\s+for)\b|\bno\s+need\s+for\b", re.IGNORECASE)
+
+
 def _example_key(text: str) -> str:
     # Exact sentence identity, not a bag of words: wrappers and extra negation
     # must never acquire the authority of a server-owned example.
@@ -121,16 +129,26 @@ def resolve_task(catalog: Catalog, text: str) -> TaskMatch:
     """
     stated: list[ProblemCard] = []
     negated: list[ProblemCard] = []
+    only_rejections = True
     for clause in _CLAUSE_BREAK.split(_owner_text(text)):
         if clause and clause.strip():
             examples = _example_cards(catalog, clause)
             if examples:
                 _add(stated, examples)
                 continue
-            _add(negated if _negated(clause) else stated, _clause_hits(catalog, _FALLING_BEHIND.sub(' ', clause)))
+            hits = _clause_hits(catalog, _FALLING_BEHIND.sub(' ', clause))
+            if _negated(clause):
+                _add(negated, hits)
+                only_rejections = only_rejections and (not hits or bool(_REJECTION.search(clause)))
+            else:
+                _add(stated, hits)
     choices = stated + [card for card in negated if card not in stated]
     if not choices:
         return TaskMatch(status="unsupported", message="We don't cover that task yet. Pick one of the listed problems instead.")
+    # "I don't need help with calls, I need bookkeeping" names one need and turns the other down.
+    # Matching it here saves Penny a second model run to re-route the turn.
+    if len(stated) == 1 and negated and only_rejections:
+        return TaskMatch(status="matched", problem_id=stated[0].id, choices=stated, message=f"Sounds like: {stated[0].title}.")
     if len(choices) == 1 and stated:
         return TaskMatch(status="matched", problem_id=choices[0].id, choices=choices, message=f"Sounds like: {choices[0].title}.")
     if len(choices) == 1:

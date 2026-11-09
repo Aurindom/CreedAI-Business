@@ -63,10 +63,30 @@ def test_negation_never_gives_a_confident_match(phrased, positive, negative):
     assert "confirm" in match.message
 
 
-def test_negated_need_is_listed_after_the_stated_one(phrased):
-    match = resolve_task(phrased, "I do not need help answering calls; I need bookkeeping")
+@pytest.mark.parametrize("text", [
+    "I do not need help answering calls; I need bookkeeping",
+    "I don't need help to answer calls. My books are a mess",
+    "Not interested in answering calls, but my books are a mess",
+])
+def test_turning_one_task_down_matches_the_stated_one(phrased, text):
+    match = resolve_task(phrased, text)
+    assert match.status == "matched" and match.problem_id == "books" and [c.id for c in match.choices] == ["books"]
+
+
+@pytest.mark.parametrize("text", [
+    "I do not want to answer calls myself; I need bookkeeping",
+    "Answer calls is not a worry for us; I need bookkeeping",
+    "I don't need to answer calls; I need bookkeeping",
+])
+def test_negation_that_still_describes_a_problem_keeps_both(phrased, text):
+    match = resolve_task(phrased, text)
     assert match.status == "ambiguous" and match.problem_id is None
     assert [c.id for c in match.choices] == ["books", "calls"]
+
+
+def test_turning_down_a_task_with_two_stated_needs_still_asks(phrased):
+    match = resolve_task(phrased, "I don't need help answering calls; help me schedule")
+    assert match.status == "ambiguous" and match.problem_id is None
 
 
 @pytest.mark.parametrize("text", [
@@ -90,10 +110,11 @@ def test_a_shorter_phrase_inside_the_winning_one_is_not_a_second_need(phrased):
     assert match.status == "matched" and match.problem_id == "calls"
 
 
-@pytest.mark.parametrize("text", [
-    "I do not need help answering calls; I need bookkeeping",
-    "I answer calls fine but invoices are late",
-])
-def test_real_catalog_does_not_guess_on_mixed_sentences(client, text):
-    match = client.post("/api/tasks/resolve", json={"text": text}).json()
+def test_real_catalog_does_not_guess_on_mixed_sentences(client):
+    match = client.post("/api/tasks/resolve", json={"text": "I answer calls fine but invoices are late"}).json()
     assert match["status"] == "ambiguous" and match["problem_id"] is None and len(match["choices"]) >= 2
+
+
+def test_real_catalog_matches_a_need_next_to_a_turned_down_one(client):
+    match = client.post("/api/tasks/resolve", json={"text": "I do not need help answering calls. I need help with bookkeeping."}).json()
+    assert match["status"] == "matched" and match["problem_id"] == "bookkeeping"
