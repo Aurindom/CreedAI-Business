@@ -52,10 +52,13 @@ wait_ready() {
 wait_ready app-candidate
 "${next[@]}" exec -T app-candidate python - <<'PY'
 import urllib.request,json
-body=json.dumps({'conversation_id':'release-help-check','message':'what businesses can you help me with?'}).encode()
-r=urllib.request.Request('http://127.0.0.1:8000/api/chat',data=body,headers={'Content-Type':'application/json'})
-text=urllib.request.urlopen(r,timeout=5).read().decode()
-assert 'app_help' in text and 'agent_unavailable' not in text
+for i,message in enumerate(['what businesses can you help me with?','clinical issues','I need help with bookkeeping']):
+ body=json.dumps({'conversation_id':'release-help-check-'+str(i),'message':message}).encode()
+ r=urllib.request.Request('http://127.0.0.1:8000/api/chat',data=body,headers={'Content-Type':'application/json'})
+ text=urllib.request.urlopen(r,timeout=8).read().decode()
+ assert '"done"' in text and '"type": "error"' not in text
+ if i==0:assert 'app_help' in text
+ if i==2:assert '"response_mode": "catalog"' in text and '"validation": "validated"' in text
 PY
 python3 - "$stage_dir/Caddyfile" <<'PY'
 from pathlib import Path
