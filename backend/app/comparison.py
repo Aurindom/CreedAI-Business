@@ -248,7 +248,7 @@ def _all_in_one(catalog: Catalog, profile: BusinessProfile, problems: list[Probl
         coverage = "confirmed" if all(f.coverage == "confirmed" for f in fits) else "possible"
         line = _line(t, fits, catalog, profile, owned)
         note = line.note if coverage == "confirmed" else f"{line.note}. Its fit for some of these still needs checking"
-        found.append(AllInOne(tool_id=t.id, tool_name=t.name, status=t.status, coverage=coverage, monthly_usd=line.monthly_usd, note=note, price_estimated=line.price_estimated))
+        found.append(AllInOne(tool_id=t.id, tool_name=t.name, status="verified" if coverage == "confirmed" else "pending_review", coverage=coverage, monthly_usd=line.monthly_usd, note=note, price_estimated=line.price_estimated))
     found.sort(key=lambda a: a.coverage != "confirmed")
     if not found:
         return [], "No single tool in our catalog lists all of these tasks. A wider search isn't available yet"
@@ -273,7 +273,8 @@ def compare(
     compared = []
     for t in chosen:
         role, note = _role(t, usable[t.id], slots, fits[t.id])
-        compared.append(ComparedTool(tool_id=t.id, tool_name=t.name, status=t.status, role=role, role_note=note, tasks=fits[t.id], facts=tool_facts(t)))
+        checked = bool(usable[t.id]) and all(f.coverage == "confirmed" for f in usable[t.id])
+        compared.append(ComparedTool(tool_id=t.id, tool_name=t.name, status="verified" if checked else "pending_review", role=role, role_note=note, tasks=fits[t.id], facts=tool_facts(t)))
 
     given = {s.problem_id: s.assigned_to for s in slots if s.assigned_to}
     assigned = {t.id: [f for f in usable[t.id] if given.get(f.problem_id) == t.id] for t in chosen}

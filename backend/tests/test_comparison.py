@@ -222,7 +222,7 @@ def test_an_unconfirmed_fit_is_not_ready(catalog):
 
 def test_an_unknown_price_is_not_ready(catalog):
     stack = run(catalog, ["calls", "books"], ["mystery", "ledger"], BusinessProfile(trade="hvac", budget_monthly_usd=500)).stack
-    assert stack.lines[0].confirmed and not stack.ready and stack.within_budget is None
+    assert not stack.lines[0].confirmed and not stack.ready and stack.within_budget is None
 
 
 def test_a_set_aside_tool_is_excluded(catalog):

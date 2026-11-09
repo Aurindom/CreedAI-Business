@@ -164,7 +164,7 @@ def build_evidence(catalog: Catalog, profile: BusinessProfile, problem_ids: list
             followups["workflow"] = "Which workflow or channel must this support so we can check the fit?"
         if rec.outcome == "no_match":
             followups["custom_steps"] = "Would you like a draft checklist for a custom tool instead?"
-        for option in [*rec.options[:3], *rec.check_first[:2]]:
+        for option in [*rec.options[:3], *rec.check_first[:max(2, 3 - len(rec.options[:3]))]]:
             tool = catalog.tool(option.tool_id)
             cap = tool.capability(problem.capability)
             ids = ["policy"]

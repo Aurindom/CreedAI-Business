@@ -29,7 +29,8 @@ def test_unknown_add_on_price_has_no_winner(catalog):
     result = run(catalog, owned=["hidden"])
     assert result.outcome == "verify_with_vendor"
     assert result.winner_tool_id is None
-    assert result.options[0].added_monthly_usd is None
+    assert "hidden" not in [o.tool_id for o in result.options]
+    assert result.check_first[0].tool_id == "hidden" and result.check_first[0].added_monthly_usd is None
 
 
 def test_connected_tool_ranks_above_unconnected(catalog):
@@ -173,15 +174,15 @@ def pending(tool_id, price, **kw):
 def test_cheap_pending_tool_cannot_beat_a_verified_one(catalog):
     catalog.tools = [pending("cheap", 1, trades=("all",), applicability="cross_industry"), tool("solo", 60, [cap("phone", plan="Core")], entry_plan=fact("Core"))]
     result = run(catalog)
-    assert [o.tool_id for o in result.options] == ["solo", "cheap"]
+    assert [o.tool_id for o in result.options] == ["solo"]
     assert result.winner_tool_id == "solo"
-    assert result.options[1].status == "pending_review"
+    assert [(o.tool_id, o.status) for o in result.check_first] == [("cheap", "pending_review")]
 
 
 def test_pending_tool_alone_is_shown_but_never_wins(catalog):
     catalog.tools = [pending("cheap", 1, trades=("all",), applicability="cross_industry")]
     result = run(catalog, trade="bakery")
-    assert [o.tool_id for o in result.options] == ["cheap"]
+    assert result.options == [] and [o.tool_id for o in result.check_first] == ["cheap"]
     assert result.outcome == "verify_with_vendor"
     assert result.winner_tool_id is None
     assert "hasn't rechecked" in result.message
@@ -190,7 +191,8 @@ def test_pending_tool_alone_is_shown_but_never_wins(catalog):
 def test_pending_tool_you_own_is_not_called_no_new_tool(catalog):
     catalog.tools = [pending("mine", 40, trades=("restaurant",)), tool("solo", 60, [cap("phone")])]
     result = run(catalog, owned=["mine"])
-    assert result.options[0].tool_id == "mine"
+    assert "mine" not in [o.tool_id for o in result.options]
+    assert result.check_first[0].tool_id == "mine" and result.check_first[0].route == "check_plan"
     assert result.outcome == "verify_with_vendor"
     assert result.winner_tool_id is None
 

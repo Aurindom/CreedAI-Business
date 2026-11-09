@@ -3,7 +3,7 @@ import React, { useEffect, useRef } from 'react'
 const steps = [
   { number: '1', title: 'Tell us about your business', detail: 'Your type of business and the software you already pay for. Every question is optional.' },
   { number: '2', title: "Pick what's slowing you down", detail: 'Missed calls, the books, reviews, scheduling and more, in plain words.' },
-  { number: '3', title: 'See checked tools and real prices', detail: 'See sources for prices and facts, with service links to confirm any missing details.' },
+  { number: '3', title: 'See what we recommend', detail: 'Recommended tools show sourced prices and facts. More options link straight to each website so you can look for yourself.' },
   { number: '4', title: 'Compare, plan, or ask Penny', detail: 'Compare side by side, save a plan, or ask Penny. She can even draft a custom assistant for your staff.' },
 ]
 

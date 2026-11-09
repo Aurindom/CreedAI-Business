@@ -50,13 +50,20 @@ def ranked(catalog, tools):
     return [o.tool_id for o in result.options]
 
 
+def priced(tool_id, price):
+    return tool(tool_id, price, [cap("phone", plan="Core")], entry_plan=fact("Core"))
+
+
 def test_cheaper_known_price_ranks_first_on_same_route(catalog):
-    assert ranked(catalog, [tool("dear", 90, [cap("phone")]), tool("cheap", 20, [cap("phone")])]) == ["cheap", "dear"]
+    assert ranked(catalog, [priced("dear", 90), priced("cheap", 20)]) == ["cheap", "dear"]
 
 
 def test_same_price_falls_back_to_name(catalog):
-    assert ranked(catalog, [tool("zeta", 20, [cap("phone")]), tool("alpha", 20, [cap("phone")])]) == ["alpha", "zeta"]
+    assert ranked(catalog, [priced("zeta", 20), priced("alpha", 20)]) == ["alpha", "zeta"]
 
 
 def test_unknown_price_ranks_after_known_price(catalog):
-    assert ranked(catalog, [tool("hidden", None, [cap("phone")]), tool("pricey", 500, [cap("phone", plan="Core")], entry_plan=fact("Core"))]) == ["pricey", "hidden"]
+    catalog.tools = [tool("hidden", None, [cap("phone")]), priced("pricey", 500)]
+    result = recommend(catalog, BusinessProfile(trade="hvac"), catalog.problem("calls"))
+    assert [o.tool_id for o in result.options] == ["pricey"]
+    assert [o.tool_id for o in result.check_first] == ["hidden"]

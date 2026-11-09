@@ -8,7 +8,8 @@ TIERS = ["Lite", "Pro", "Max"]
 
 
 def answer(catalog, plan):
-    catalog.tools = [tool("crm", 40, [cap("phone", plan="Pro")], entry_plan=fact("Lite"), plan_tiers=fact(TIERS))]
+    catalog.tools = [tool("crm", 40, [cap("phone", plan="Pro")], entry_plan=fact("Lite"), plan_tiers=fact(TIERS),
+                          plan_prices=fact({"Lite": 40, "Pro": 90, "Max": 200}))]
     profile = BusinessProfile(trade="hvac", owned=[OwnedSoftware(tool_id="crm", plan=plan)])
     return recommend(catalog, profile, catalog.problem("calls"))
 

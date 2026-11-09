@@ -149,8 +149,8 @@ def test_resource_shortage_routes_to_tools_for_latest_business_type(client, monk
     component = surface['messages'][1]['updateComponents']['components'][0]
     rec = component['recommendation']
     assert rec['problem_id'] == 'missed_calls'
-    assert rec['options']
-    assert all(row['tool_id'] not in ('slang_ai', 'square_restaurants') for row in rec['options'])
+    assert rec['options'] or rec['check_first']
+    assert all(row['tool_id'] not in ('slang_ai', 'square_restaurants') for row in rec['options'] + rec['check_first'])
     assert component['taskPurpose'] == 'answering phone calls'
     assert [event['memory'] for event in events if event['type'] == 'memory'][-1]['trade'] == 'hvac'
     assert next(event for event in events if event['type'] == 'recommendation')['profile']['trade'] == 'hvac'

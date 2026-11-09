@@ -1,10 +1,10 @@
 import React from 'react'
-import { catalogStatus } from '../catalogStatus'
+import { safeWebsite, taskChecked } from '../toolEvidence'
 import { FavouriteButton } from '../favourites/Favourites'
 import './businessToolkit.css'
 
 export function businessToolkitGroups(tools, categories, tradeId) {
-  const eligible = tools.filter(tool => tool.status === 'verified' && (
+  const eligible = tools.filter(tool => tool.verification_state !== 'refresh_due' && (
     tool.applicability === 'cross_industry' || (tradeId && tool.applicability === 'restricted' && tool.trades.includes(tradeId))
   ))
   return categories.map(category => ({
@@ -12,6 +12,7 @@ export function businessToolkitGroups(tools, categories, tradeId) {
     tools: eligible.map(tool => ({
       tool,
       purposes: tool.capabilities.filter(capability => category.capabilities.includes(capability.capability)
+        && taskChecked(tool, capability.capability)
         && capability.access?.status === 'present'
         && ['included', 'add_on'].includes(capability.access.value)
         && /^https?:\/\//i.test(capability.access.source_url || ''))
@@ -36,7 +37,7 @@ export default function BusinessToolkit({ business, tradeId, tools, categories, 
         {groups.map((group, index) => <article className="business-toolkit-card" key={group.id}>
           <div className="business-toolkit-category"><span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><h4>{group.name}</h4></div>
           <ul>{group.tools.map(({ tool, purposes }) => <li key={tool.id}>
-            <div><a href={tool.url} target="_blank" rel="noopener noreferrer">{tool.name} <span aria-hidden="true">&#8599;</span></a><p>{purposes.join(' · ')}</p><small>{tool.applicability === 'cross_industry' ? 'General-purpose' : `Lists ${business.toLowerCase()}`} · {catalogStatus(tool)}</small></div>
+            <div>{safeWebsite(tool.url) ? <a href={safeWebsite(tool.url)} target="_blank" rel="noopener noreferrer">{tool.name} <span aria-hidden="true">&#8599;</span></a> : <strong>{tool.name}</strong>}<p>{purposes.join(' · ')}</p><small>{tool.applicability === 'cross_industry' ? 'General-purpose' : `Lists ${business.toLowerCase()}`} · Checked for these tasks</small></div>
             <FavouriteButton toolId={tool.id} name={tool.name} />
           </li>)}</ul>
           <button type="button" onClick={() => onCategory(group.id)}>Find tools for this work <span aria-hidden="true">&#8594;</span></button>

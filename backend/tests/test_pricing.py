@@ -11,14 +11,14 @@ TIERS = ["Lite", "Pro", "Max"]
 def buyer_option(catalog, candidate):
     catalog.tools = [candidate]
     result = recommend(catalog, BusinessProfile(trade="hvac"), catalog.problem("calls"))
-    return result, result.options[0]
+    return result, (result.options + result.check_first)[0]
 
 
 def owner_option(catalog, owned, plan=None):
     catalog.tools = [owned]
     profile = BusinessProfile(trade="hvac", owned=[OwnedSoftware(tool_id=owned.id, plan=plan)])
     result = recommend(catalog, profile, catalog.problem("calls"))
-    return result, result.options[0]
+    return result, (result.options + result.check_first)[0]
 
 
 def tiered(phone_cap, prices=None, **extra):
@@ -80,9 +80,16 @@ def test_owner_below_the_add_on_plan_needs_an_upgrade(catalog):
 
 
 def test_owner_on_the_add_on_plan_gets_the_add_on(catalog):
-    result, top = owner_option(catalog, tiered(cap("phone", "add_on", 15, plan="Pro")), plan="Max")
+    sourced = tiered(cap("phone", "add_on", 15, plan="Pro"), prices={"Lite": 40, "Pro": 90, "Max": 200})
+    result, top = owner_option(catalog, sourced, plan="Max")
     assert top.route == "native_add_on" and top.added_monthly_usd == 15
     assert result.outcome == "add_on"
+
+
+def test_owner_add_on_with_an_unpriced_prerequisite_plan_is_checked_first(catalog):
+    result, top = owner_option(catalog, tiered(cap("phone", "add_on", 15, plan="Pro")), plan="Max")
+    assert result.options == [] and top.route == "native_add_on" and top.status == "pending_review"
+    assert result.outcome == "verify_with_vendor" and result.winner_tool_id is None
 
 
 def test_owner_with_unknown_plan_and_higher_add_on_plan_checks_plan(catalog):

@@ -163,6 +163,16 @@ def _fit(catalog: Catalog, tool: Tool, trade: str | None, owned: list[Tool]) -> 
     return None, f"Built for {catalog.trade_names(tool.trades)}, not {catalog.trade_names([trade])}"
 
 
+def checked_for(tool: Tool, capability: str) -> bool:
+    """A product-level verified flag is not approval for every task; only current evidence scoped to this capability is."""
+    if tool.status == "rejected":
+        return False
+    if tool.reviews or tool.origin == "catalog":
+        return tool.scope_checked(capability)
+    review = tool.auto_review
+    return bool(tool.status == "verified" and review and review.eligible and review.capability == capability)
+
+
 def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: str, plan: str | None = None) -> Option:
     route = _route(tool, capability, owned, plan)
     cost, note, is_estimate = _monthly_cost(tool, capability, route, plan)
@@ -170,8 +180,7 @@ def _option(tool: Tool, capability: str, owned: list[Tool], fit: Fit, fit_note: 
         tool_id=tool.id,
         tool_name=tool.name,
         service_url=tool.url,
-        status=(("verified" if tool.scope_checked(capability) else "pending_review") if tool.reviews else "pending_review" if tool.origin == "discovered" and tool.auto_review
-                and (not tool.auto_review.eligible or tool.auto_review.capability != capability) else tool.status),
+        status="verified" if checked_for(tool, capability) else "pending_review",
         route=route,
         fit=fit,
         fit_note=fit_note,
@@ -240,7 +249,7 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
         gap = _facet_gap(catalog, tool, problem)
         option = _option(tool, problem.capability, owned, fit, gap or fit_note, profile.plan_for(tool.id))
         _budget(option, profile.budget_monthly_usd)
-        (uncertain if fit == "unconfirmed" or gap else eligible).append(option)
+        (uncertain if fit == "unconfirmed" or gap or option.status != "verified" else eligible).append(option)
     options = _rank(eligible)
     check_first = _rank(uncertain)
     note = _tailoring_note((profile.trade or "").strip(), trade, options)
@@ -263,12 +272,13 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
             budget_note=budget_note,
         )
 
-    if not options and check_first:
-        return result("verify_with_vendor", None, "Nothing is confirmed to suit you yet. Check these with the vendor first.")
-    if not options:
+    if not options and not check_first:
         return result("no_match", None, "Nothing in the catalog fits this yet.")
-    top = options[0]
-    if top.status != "verified":
+    owned_unchecked = next((o for o in check_first if o.route in OWNED_ROUTES and o.status != "verified"), None)
+    if not options or (owned_unchecked and options[0].route not in OWNED_ROUTES):
+        top = owned_unchecked if options else check_first[0]
+        if top.status == "verified":
+            return result("verify_with_vendor", None, "Nothing is confirmed to suit you yet. Check these with the vendor first.")
         source_tool = catalog.tool(top.tool_id)
         review = source_tool.reviews.get(problem.capability) or source_tool.auto_review
         if review:
@@ -279,6 +289,7 @@ def recommend(catalog: Catalog, profile: BusinessProfile, problem: ProblemCard) 
         if top.route in OWNED_ROUTES:
             return result("verify_with_vendor", None, f"{top.tool_name}, which you use, may cover this, but our team hasn't rechecked its details yet. Check with the vendor before paying for anything new.")
         return result("verify_with_vendor", None, f"{top.tool_name} looks like a fit, but our team hasn't rechecked its details yet. Confirm with the vendor first.")
+    top = options[0]
     if top.route == "already_have":
         return result("no_new_tool", top.tool_id, f"No new tool needed. {top.tool_name} already covers this.")
     if top.route == "check_plan":

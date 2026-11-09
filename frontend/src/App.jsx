@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { catalogStatus, catalogChecked } from './catalogStatus'
+import { catalogStatus, checkedTaskNames } from './catalogStatus'
+import { safeWebsite } from './toolEvidence'
 import { api, ownedProfile, planChoices, isSingleOffering, PLAN_UNKNOWN, PLAN_LABEL_MAX } from './api'
 import { resolveTrade } from './businessTypes'
 import ChatPanel from './chat/ChatPanel'
@@ -30,16 +31,6 @@ const stages = [
 const categoryIcons = {
   calls_messages: '\u260e', reviews: '\u2726', scheduling: '\u25a6',
   staff: '\u25f7', finance: '$', marketing: '\u2709', sales: '\u25a3',
-}
-
-const routeLabels = {
-  already_have: 'You already have this',
-  check_plan: 'Your plan may include this',
-  native_add_on: 'Add-on to a tool you use',
-  plan_upgrade: 'Needs a higher plan',
-  compatible_tool: 'Connects to a tool you use',
-  separate_tool: 'A new tool',
-  switch: 'Overlaps a tool you use',
 }
 
 const outcomeTones = {
@@ -111,53 +102,17 @@ function CompareButton({ selected, full, onClick }) {
   )
 }
 
-function OptionCard({ option, tool, selected, full, onCompare, uncertain, budgetProvided }) {
-  return (
-    <article className="tool-card">
-      <div className="tool-card-head">
-        <span className="tool-avatar">{option.tool_name.slice(0, 1)}</span>
-        <span className={`tool-status ${option.status !== 'verified' || uncertain || option.route === 'check_plan' || option.route === 'plan_upgrade' ? 'pending' : 'verified'}`}>{option.status === 'verified' ? 'Source checked' : 'Pending review'}</span>
-        <FavouriteButton toolId={option.tool_id} name={option.tool_name} />
-      </div>
-      <p className="route-label">{routeLabels[option.route]}</p>
-      <h3>{option.tool_name}</h3>
-      <p className="tool-summary">{tool?.summary}</p>
-      <div className={`fit-line fit-${uncertain || option.status !== 'verified' || option.fit === 'unconfirmed' ? 'check' : 'good'}`}>{option.fit_note}</div>
-      <div className="tool-divider" />
-      <div className="tool-price">
-        <div>
-          <small>Added cost per month</small>
-          <strong>{option.added_monthly_usd === null ? 'Ask vendor' : `${dollars(option.added_monthly_usd)} / mo`}</strong>
-        </div>
-        <CompareButton selected={selected} full={full} onClick={onCompare} />
-      </div>
-      <p className="cost-note">{option.cost_note}</p>
-      {budgetProvided && <p className={`budget-status budget-${option.within_budget === true ? 'within' : option.within_budget === false ? 'over' : 'unknown'}`}>{option.within_budget === true ? 'Within your added monthly budget' : option.within_budget === false ? 'Over your added monthly budget' : 'Confirm vendor pricing to assess budget fit'}</p>}
-      <details className="tool-evidence"><summary>Plan details and sources</summary><dl className="fact-list">
-        {option.facts.map((fact) => (
-          <div key={fact.label} className={fact.known ? 'fact-known' : 'fact-unknown'}>
-            <dt>{fact.label}</dt>
-            <dd><ToolFactValue fact={fact} toolName={option.tool_name} />
-            </dd>
-          </div>
-        ))}
-      </dl></details>
-      {tool && <a className="source-link" href={tool.url} target="_blank" rel="noopener noreferrer">Visit vendor website <ArrowIcon size={14} /></a>}
-    </article>
-  )
-}
-
 function DirectoryCard({ tool, trades, tradeId, selected, full, onCompare }) {
   const audience = audienceOf(tool, trades, tradeId)
   const price = priceOf(tool)
   return (
     <article className="tool-card">
-      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span><span className={`tool-status ${catalogChecked(tool) ? 'verified' : 'pending'}`}>{catalogStatus(tool)}</span><FavouriteButton toolId={tool.id} name={tool.name} /></div>
+      <div className="tool-card-head"><span className="tool-avatar">{tool.name.slice(0, 1)}</span>{catalogStatus(tool) && <span className="tool-status verified">{catalogStatus(tool)}</span>}<FavouriteButton toolId={tool.id} name={tool.name} /></div>
       <h3>{tool.name}</h3><p className="tool-summary">{tool.summary}</p>
-      {tool.auto_review && <p className="tool-summary">{tool.auto_review.eligible ? `Checked for ${tool.auto_review.capability.replaceAll('_', ' ')}.` : tool.auto_review.notes.join(' ')}</p>}
+      {checkedTaskNames(tool).length > 0 && <p className="tool-summary">Checked for {checkedTaskNames(tool).join(', ')}.</p>}
       <div className={`fit-line fit-${audience.tone}`}>{audience.text}</div>
       <div className="tool-divider" />
-      <div className="tool-price"><div><small>Published entry price</small><strong>{price === null ? 'Ask vendor' : `${dollars(price)} / mo`}</strong></div><CompareButton selected={selected} full={full} onClick={onCompare} /></div>
+      <div className="tool-price">{price === null ? <div /> : <div><small>Published entry price</small><strong>{`${dollars(price)} / mo`}</strong></div>}<CompareButton selected={selected} full={full} onClick={onCompare} /></div>
       <a className="source-link" href={tool.url} target="_blank" rel="noopener noreferrer">Visit vendor website <ArrowIcon size={14} /></a>
     </article>
   )
@@ -166,12 +121,13 @@ function DirectoryCard({ tool, trades, tradeId, selected, full, onCompare }) {
 function ToolFactValue({ fact, toolName }) {
   if (fact === null) return <span className="fact-load-error">Evidence unavailable. Try selecting this tool again.</span>
   if (!fact) return <span className="fact-loading">Loading evidence...</span>
+  if (!fact.known || fact.state !== 'known') return null
   return <span className={`fact-value fact-state-${fact.state}`}>
-    {fact.state === 'not_checked' ? 'Check vendor details' : fact.state === 'unresolved' ? (fact.note || 'Confirm with vendor') : fact.value}
+    {fact.value}
     {fact.source_type === 'vendor' && fact.known && <span className="fact-source"> ? vendor says</span>}
     {fact.note && <span className="fact-why">{fact.note}</span>}
     {fact.checked && <small className="evidence-date">Checked {fact.checked}</small>}
-    {fact.source_url && <a className="evidence-link" href={fact.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View ${fact.label.toLowerCase()} source for ${toolName}`}>View source</a>}
+    {safeWebsite(fact.source_url) && <a className="evidence-link" href={safeWebsite(fact.source_url)} target="_blank" rel="noopener noreferrer" aria-label={`View ${fact.label.toLowerCase()} source for ${toolName}`}>View source</a>}
   </span>
 }
 
@@ -215,6 +171,8 @@ function Marketplace({ auth }) {
 
   const [businessName, setBusinessName] = useState('')
   const [businessType, setBusinessType] = useState('')
+  // A shortcut on a carousel slide must not overwrite a business the user typed in step 1.
+  const businessTypedByUser = useRef(false)
   const [owned, setOwned] = useState([])
   const [showAllOwned, setShowAllOwned] = useState(false)
   const [scene, setScene] = useState({ image: 'coffee-shop', type: 'Coffee shop', theme: '#edc49e' })
@@ -344,6 +302,13 @@ function Marketplace({ auth }) {
     return <ToolFactValue fact={facts === null ? null : facts?.find((fact) => fact.label === label)} toolName={tool.name} />
   }
 
+  function comparisonFactKnown(tool, label) {
+    const facts = comparisonFacts[tool.id]
+    if (facts === undefined) return undefined
+    const fact = facts?.find((item) => item.label === label)
+    return Boolean(fact?.known && fact.state === 'known')
+  }
+
   async function resolveTypedTask(event) {
     event.preventDefault()
     if (!taskText.trim() || isResolving) return
@@ -446,7 +411,7 @@ function Marketplace({ auth }) {
 
   const businessNote = typedTrade && !tradeId
     ? `We haven't checked tools for "${typedTrade}" yet. You'll still see tools offered to many kinds of business, and we'll say so.`
-    : 'Pick a suggestion or type your own. If we have not checked your kind of business, we rank tools offered to many kinds of business.'
+    : 'Pick a suggestion or type your own. For other kinds of business, we show tools that suit most businesses.'
 
   const exploreHeading = showDirectory ? 'Browse the directory' : multiProblem ? 'Your options' : 'What fits this task'
   const exploreLead = showDirectory
@@ -479,7 +444,7 @@ function Marketplace({ auth }) {
         <div className="sidebar-bottom">
           <div className="sidebar-tip-icon">✳</div>
           <strong>A calmer way to choose AI.</strong>
-          <p>See what is known, what needs checking, and what fits the way you work.</p>
+          <p>See prices, setup and fit side by side, with a link to each tool's website.</p>
           <span>LOCAL PRODUCT PREVIEW</span>
         </div>
       </aside>
@@ -504,8 +469,8 @@ function Marketplace({ auth }) {
 
           {quickCompare ? <QuickCompare tools={allTools} baseline={baseline} selected={selectedTools} plans={ownedPlans} onBaseline={selectBaseline} onPlan={(id, plan) => setOwnedPlans((current) => ({ ...current, [id]: plan }))} onToggle={toggleCompare} onBack={() => { setQuickCompare(false); window.requestAnimationFrame(() => stageAnchor('business')) }} /> : <>
             <ProductShowcase part="hero" scene={scene} onSceneChange={setScene} tools={allTools} onCompare={openQuickCompare} onAskPenny={askPenny}
-              onChooseBusiness={(type) => { setBusinessType(type); stageAnchor('business') }}
-              onChooseProblem={(type, problemId) => { setBusinessType(type); setCategory(''); chooseProblem(problemId) }} />
+              onChooseBusiness={(type) => { businessTypedByUser.current = false; setBusinessType(type); stageAnchor('business') }}
+              onChooseProblem={(type, problemId) => { if (!businessTypedByUser.current || !businessType.trim()) setBusinessType(type); setCategory(''); chooseProblem(problemId) }} />
             <ProductShowcase part="story" scene={scene} tools={allTools} />
             <HowItWorks accent={scene.theme} onStart={() => stageAnchor('business')} onAskPenny={askPenny} onCompare={openQuickCompare} />
           </>}
@@ -528,7 +493,7 @@ function Marketplace({ auth }) {
               <label className="field"><span>Business name <small>optional</small></span><input type="text" value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="e.g. Northside Coffee" maxLength={80} /></label>
               <label className="field">
                 <span>Type of business <small>optional, type anything</small></span>
-                <input type="text" list="trade-list" value={businessType} onChange={(event) => setBusinessType(event.target.value)} placeholder="e.g. Bakery, Plumbing, Dog grooming" maxLength={100} />
+                <input type="text" list="trade-list" value={businessType} onChange={(event) => { businessTypedByUser.current = true; setBusinessType(event.target.value) }} placeholder="e.g. Bakery, Plumbing, Dog grooming" maxLength={100} />
                 <datalist id="trade-list">{trades.map((t) => <option key={t.id} value={t.name} />)}</datalist>
                 {tradeId && <small role="status">Business category: {tradeLabel}</small>}
               </label>
@@ -548,7 +513,7 @@ function Marketplace({ auth }) {
                 {owned.filter((id) => !isSingleOffering(toolsById[id])).map((id) => {
                   const tool = toolsById[id]
                   const choices = planChoices(tool)
-                  return <label className="field" key={id}><span>{tool.name} plan <small>optional</small></span>{choices.length ? <select value={ownedPlans[id] ?? PLAN_UNKNOWN} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))}><option value={PLAN_UNKNOWN}>I do not know</option>{choices.map((plan) => <option value={plan} key={plan}>{plan}</option>)}</select> : <><input value={ownedPlans[id] ?? ''} maxLength={PLAN_LABEL_MAX} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))} placeholder="Plan name, if you know it" /><small>Not checked by us. We will ask you to verify an unrecognized plan.</small></>}</label>
+                  return <label className="field" key={id}><span>{tool.name} plan <small>optional</small></span>{choices.length ? <select value={ownedPlans[id] ?? PLAN_UNKNOWN} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))}><option value={PLAN_UNKNOWN}>I do not know</option>{choices.map((plan) => <option value={plan} key={plan}>{plan}</option>)}</select> : <><input value={ownedPlans[id] ?? ''} maxLength={PLAN_LABEL_MAX} onChange={(event) => setOwnedPlans((plans) => ({ ...plans, [id]: event.target.value }))} placeholder="Plan name, if you know it" /><small>We keep the plan name as you typed it.</small></>}</label>
                 })}
               </div>}
               </details>
@@ -679,7 +644,7 @@ function Marketplace({ auth }) {
 
           <section className="section-block compare-section" id="compare">
             <div className="section-heading"><div><div className="section-kicker">STEP 04: DECIDE WITH CLARITY</div><h2>{quickCompare ? 'Your side-by-side comparison' : 'Compare your shortlist'}</h2><p>{quickCompare ? 'Your current subscription and alternatives, with the same sourced facts for each.' : 'Put up to three tools side by side. We flag the details that need confirmation.'}</p></div><div className="section-counter">04 / 04</div></div>
-            <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} />
+            <ComparisonWorkspace auth={auth} tools={comparison} problems={allProblems} profile={{ ...ownedProfile(typedTrade, owned, ownedPlans), budget_monthly_usd: budget === '' ? null : Number(budget) }} activeProblemId={selectedProblem} baseline={baseline} onRemove={toggleCompare} renderFact={comparisonFact} factKnown={comparisonFactKnown} />
           </section>
 
           <section className="next-panel" hidden={quickCompare}><div className="next-symbol">✳</div><div><span>WHAT COMES NEXT</span><h2>From a shortlist to a real plan.</h2><p>Check your current plan, explore task-specific costs, and spot overlapping tools. Confirm task assignments and save a private adoption plan for your next steps.</p></div><button type="button" onClick={() => stageAnchor('business')}>Explore again <ArrowIcon size={17} /></button></section>

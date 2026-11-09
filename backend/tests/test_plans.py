@@ -14,19 +14,22 @@ def owner_result(catalog, owned_tool, plan=None):
 
 
 def tiered(**cap_args):
-    return tool("crm", 40, [cap("phone", **cap_args)], entry_plan=fact("Lite"), plan_tiers=fact(["Lite", "Pro", "Max"]))
+    return tool("crm", 40, [cap("phone", **cap_args)], entry_plan=fact("Lite"), plan_tiers=fact(["Lite", "Pro", "Max"]),
+                plan_prices=fact({"Lite": 40, "Pro": 90, "Max": 200}))
 
 
 def test_unknown_access_is_check_your_plan_not_a_paid_add_on(catalog):
     result = owner_result(catalog, tool("crm", 40, [cap("phone", "unknown")]))
-    top = result.options[0]
+    top = (result.options + result.check_first)[0]
     assert top.route == "check_plan" and top.added_monthly_usd is None
     assert result.outcome == "verify_with_vendor" and result.winner_tool_id is None
     assert "Check your plan" in top.cost_note
 
 
 def test_included_without_a_plan_fact_is_not_claimed_as_owned(catalog):
-    top = owner_result(catalog, tool("crm", 40, [cap("phone")])).options[0]
+    result = owner_result(catalog, tool("crm", 40, [cap("phone")]))
+    top = result.check_first[0]
+    assert "crm" not in [o.tool_id for o in result.options]
     assert top.route == "check_plan"
     assert "not on which plans" in top.cost_note
 
@@ -66,7 +69,7 @@ def test_owner_plan_at_or_above_the_tier_has_it(catalog):
 
 def test_owner_plan_below_the_tier_needs_an_upgrade(catalog):
     result = owner_result(catalog, tiered(plan="Pro"), plan="Lite")
-    top = result.options[0]
+    top = (result.options + result.check_first)[0]
     assert top.route == "plan_upgrade" and top.added_monthly_usd is None
     assert "starts on the Pro plan" in top.cost_note
     assert result.outcome == "verify_with_vendor"

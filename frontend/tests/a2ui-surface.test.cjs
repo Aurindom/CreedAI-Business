@@ -80,7 +80,7 @@ test('A2UI shows a concise task-specific tool shortlist with expandable detail',
   const more = [...document.querySelectorAll('details')].find((item) => item.querySelector('summary')?.textContent === 'More alternatives (2)')
   assert.ok(more)
   assert.equal(more.open, false)
-  assert.equal(document.querySelector('.msc-option details').open, false)
+  assert.equal(document.querySelector('.msc-option details'), null)
   await React.act(async () => root.unmount())
 })
 
@@ -88,10 +88,10 @@ test('missing prices and facts offer the actual service link without unknown lab
   const option = { tool_id: 'service', tool_name: 'Example service', service_url: 'https://example.com/', route: 'separate_tool', added_monthly_usd: null, cost_note: 'The billing period is not published.', fit_note: 'Check the required workflow.', facts: [{ label: 'Privacy', known: false, value: 'Unknown', note: 'Ask about retention.' }] }
   const root = await render(protocol('recommendation', 'PennyRecommendation', { recommendation: { outcome: 'verify_with_vendor', message: 'Check the plan before buying.', options: [option], check_first: [], set_aside: [] }, problemTitle: 'Calls go unanswered', statuses: {} }))
   assert.doesNotMatch(document.querySelector('.msc-result').textContent, /unknown/i)
-  assert.match(document.querySelector('.msc-cost').textContent, /Check current pricing/)
+  assert.equal(document.querySelector('.msc-cost'), null)
   assert.equal(document.querySelector('.msc-service-link').href, 'https://example.com/')
-  assert.equal(document.querySelector('.msc-facts a').href, 'https://example.com/')
-  assert.match(document.querySelector('.msc-facts').textContent, /Ask about retention/)
+  assert.equal(document.querySelector('.msc-facts'), null)
+  assert.doesNotMatch(document.querySelector('.msc-result').textContent, /Check the required workflow|billing period is not published|Needs checking/)
   await React.act(async () => root.unmount())
 })
 

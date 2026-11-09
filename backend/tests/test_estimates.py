@@ -34,10 +34,10 @@ def test_an_inferred_fact_needs_a_present_value_and_a_note(fields):
 def test_an_estimated_price_never_wins_outright(catalog):
     with_estimated_price(catalog, "solo")
     result = recommend(catalog, BUDGET, catalog.problem("calls"))
-    top = result.options[0]
-    assert top.tool_id == "solo" and top.price_estimated and top.added_monthly_usd == 60
+    assert "solo" not in [o.tool_id for o in result.options] and result.winner_tool_id != "solo"
+    top = next(o for o in result.check_first if o.tool_id == "solo")
+    assert top.price_estimated and top.added_monthly_usd == 60 and top.status == "pending_review"
     assert top.within_budget is None and "estimate" in top.cost_note
-    assert result.outcome == "verify_with_vendor" and result.winner_tool_id is None and "pricing page" in result.message
 
 
 def test_an_estimated_add_on_price_is_not_a_confirmed_add_on(catalog):
@@ -46,8 +46,9 @@ def test_an_estimated_add_on_price_is_not_a_confirmed_add_on(catalog):
     catalog.tools[0] = suite.model_copy(update={"capabilities": [phone, suite.capability("jobs")]})
     profile = BusinessProfile(trade="hvac", owned=[OwnedSoftware(tool_id="suite", plan="Base")])
     result = recommend(catalog, profile, catalog.problem("calls"))
-    assert result.options[0].route == "native_add_on" and result.options[0].price_estimated
-    assert result.outcome == "verify_with_vendor"
+    assert result.check_first[0].route == "native_add_on" and result.check_first[0].price_estimated
+    assert "suite" not in [o.tool_id for o in result.options]
+    assert result.outcome == "verify_with_vendor" and result.winner_tool_id is None
 
 
 def test_a_stack_with_an_estimated_price_keeps_the_total_but_is_not_ready(catalog):

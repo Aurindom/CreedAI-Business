@@ -13,7 +13,7 @@ function money(amount) {
 
 function costOf(option) {
   if (!option) return ''
-  if (option.added_monthly_usd === null || option.added_monthly_usd === undefined) return 'Price not confirmed'
+  if (option.added_monthly_usd === null || option.added_monthly_usd === undefined) return ''
   if (option.added_monthly_usd === 0) return option.fit === 'you_use_it' || option.route === 'already_have' ? 'Included in what you pay' : 'Free plan'
   return `${option.price_estimated ? 'About ' : ''}${money(option.added_monthly_usd)} a month${option.price_estimated ? ' (estimate)' : ''}`
 }

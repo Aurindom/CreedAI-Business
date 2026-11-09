@@ -127,8 +127,10 @@ def test_unlisted_business_is_named_in_the_note(client):
 def test_business_type_can_be_left_out(client):
     response = client.post("/api/recommend", json={"profile": {}, "problem_id": "invoicing"})
     assert response.status_code == 200
-    assert response.json()["options"]
-    assert response.json()["tailored"] is False
+    body = response.json()
+    assert body["options"] or body["check_first"]
+    assert all(o["status"] == "verified" for o in body["options"])
+    assert body["tailored"] is False
 
 
 def test_listed_trade_matches_however_it_is_typed(client):
@@ -151,15 +153,17 @@ def test_unknown_tool_is_a_404(client):
 def test_jobber_add_on_asks_which_plan_the_owner_has(client):
     body = {"profile": {"trade": "hvac", "owned_tool_ids": ["jobber"], "budget_monthly_usd": 100}, "problem_id": "missed_calls"}
     result = client.post("/api/recommend", json=body).json()
-    top = result["options"][0]
+    top = result["check_first"][0]
     assert top["tool_id"] == "jobber" and top["route"] == "check_plan" and top["added_monthly_usd"] is None
     assert "add-on from the Core plan" in top["cost_note"] and result["outcome"] == "verify_with_vendor"
 
 
 def test_jobber_add_on_is_priced_for_an_owner_on_a_plan_that_can_add_it(client):
     body = {"profile": {"trade": "hvac", "owned": [{"tool_id": "jobber", "plan": "Core"}]}, "problem_id": "missed_calls"}
-    top = client.post("/api/recommend", json=body).json()["options"][0]
+    result = client.post("/api/recommend", json=body).json()
+    top = result["check_first"][0]
     assert top["tool_id"] == "jobber" and top["route"] == "native_add_on" and top["added_monthly_usd"] == 29
+    assert top["status"] == "pending_review" and result["winner_tool_id"] is None
 
 
 def test_restaurant_missed_calls_has_no_confident_winner(client):

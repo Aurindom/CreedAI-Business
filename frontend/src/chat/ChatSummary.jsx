@@ -8,15 +8,15 @@ function SummaryOption({ option, status, fallbackUrl, includeDetails }) {
   return (
     <div className="msc-print-option">
       <h3>{option.tool_name}</h3>
-      <p>{ROUTE_LABELS[option.route] || 'An option to consider'} · {costText(option)} · {statusLabel(status)}</p>
-      <p>{option.cost_note}</p>
-      <p>{option.fit_note}</p>
+      <p>{[ROUTE_LABELS[option.route] || 'An option to consider', costText(option), statusLabel(status)].filter(Boolean).join(' · ')}</p>
+      {costText(option) && option.cost_note && <p>{option.cost_note}</p>}
+      {statusLabel(status) && option.fit_note && <p>{option.fit_note}</p>}
       {url && <p><a href={url} target="_blank" rel="noreferrer noopener">{url}</a></p>}
       <details open={includeDetails} className="msc-summary-sources"><summary>Sources and checks</summary>
       <ul>
-        {option.facts.map((fact) => {
+        {option.facts.filter((fact) => fact.known).map((fact) => {
           const url = safeUrl(fact.source_url)
-          return <li key={fact.label}>{fact.label}: {fact.known ? fact.value : 'Confirm with vendor'}{fact.note ? `; ${fact.note}` : ''}{url ? ` (${url}${fact.checked ? `, checked ${fact.checked}` : ''})` : ''}</li>
+          return <li key={fact.label}>{fact.label}: {fact.value}{fact.note ? `; ${fact.note}` : ''}{url ? ` (${url}${fact.checked ? `, checked ${fact.checked}` : ''})` : ''}</li>
         })}
       </ul>
       </details>
@@ -67,7 +67,7 @@ function SummaryPreview({ data, onClose, onPrint, serviceUrls = {} }) {
       {shortlist.map(option => <SummaryOption key={option.tool_id} option={option} status={statuses[option.tool_id]} fallbackUrl={serviceUrls[option.tool_id]} includeDetails={includeDetails} />)}
       {remaining > 0 && <p>{remaining} more alternatives and detailed sources are available in your chat.</p>}
       {questions.length > 0 && <section className="msc-summary-vendor-questions"><h2>Questions for the vendor</h2>{questions.map(group => <div key={group.toolId}><h3>{group.toolName}</h3><ul>{group.questions.map(question => <li key={question}>{question}</li>)}</ul></div>)}</section>}
-      <p className="msc-print-footer">Confirm the required plan, current pricing, business fit and data handling with the service before subscribing.</p>
+      <p className="msc-print-footer">Plans and prices change. Check each tool's website for the current plan before subscribing.</p>
     </section>
     </div>
     </div>,

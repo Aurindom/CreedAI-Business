@@ -21,7 +21,7 @@ from .chat_history import router as chat_history_router
 from .favourites import router as favourites_router
 from .comparison import AssignmentError, compare
 from .facts import tool_facts
-from .matching import check_stack, recommend
+from .matching import check_stack, checked_for, recommend
 from .tasks import resolve_task
 from .schemas import (
     AdoptionPlan,
@@ -205,8 +205,18 @@ def problems(request: Request, trade: str | None = None, category: str | None = 
     return sorted(cards, key=lambda card: not card.common_for(known_trade))
 
 
+class DirectoryTool(Tool):
+    checked_capabilities: list[str] = []
+
+
+def _directory(tool: Tool) -> DirectoryTool:
+    """Browse surfaces show the same per-task verdict as recommendations instead of trusting a product-wide flag."""
+    checked = [c.capability for c in tool.capabilities if checked_for(tool, c.capability)]
+    return DirectoryTool(**tool.model_dump(), checked_capabilities=checked)
+
+
 @app.get("/api/tools")
-def tools(request: Request, trade: str | None = None, capability: str | None = None, category: str | None = None) -> list[Tool]:
+def tools(request: Request, trade: str | None = None, capability: str | None = None, category: str | None = None) -> list[DirectoryTool]:
     """Business type only orders the directory. Hiding tools here made unlisted businesses see an empty page."""
     catalog = _catalog(request)
     known_trade = catalog.resolve_trade(trade)
@@ -221,13 +231,13 @@ def tools(request: Request, trade: str | None = None, capability: str | None = N
         and (wanted is None or any(tool.capability(c) for c in wanted))
     ]
     order = {"made_for": 0, "any_business": 1, "unconfirmed": 2, None: 3}
-    return sorted(found, key=lambda tool: order[tool.fit(known_trade)])
+    return [_directory(tool) for tool in sorted(found, key=lambda tool: order[tool.fit(known_trade)])]
 
 
 @app.get("/api/tools/{tool_id}")
-def tool_detail(request: Request, tool_id: str) -> Tool:
+def tool_detail(request: Request, tool_id: str) -> DirectoryTool:
     try:
-        return _catalog(request).tool(tool_id)
+        return _directory(_catalog(request).tool(tool_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=exc.args[0]) from exc
 

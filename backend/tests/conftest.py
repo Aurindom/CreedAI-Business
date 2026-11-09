@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from datetime import date
 from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -33,6 +34,22 @@ def tool(tool_id, price=None, caps=(), connects=None, trades=("hvac",), applicab
     if connects is not None:
         fields["connects_to"] = fact(connects)
     return Tool(id=tool_id, name=tool_id.title(), url="https://example.com", trades=list(trades), summary="x", capabilities=list(caps), **fields)
+
+
+EVIDENCE_TODAY = date(2026, 11, 8)
+
+
+class _EvidenceDate(date):
+    @classmethod
+    def today(cls):
+        return EVIDENCE_TODAY
+
+
+@pytest.fixture(autouse=True)
+def evidence_clock(monkeypatch):
+    """Scoped approvals expire after 7 days, so the fixture dates would otherwise age out of the suite."""
+    from app import schemas
+    monkeypatch.setattr(schemas, "date", _EvidenceDate)
 
 
 @pytest.fixture

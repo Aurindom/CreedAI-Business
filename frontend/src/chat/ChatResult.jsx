@@ -6,8 +6,8 @@ export const HEADLINES = {
   no_new_tool: 'You may not need a new tool',
   add_on: 'A small add-on may be enough',
   new_tool: "Here's what fits",
-  verify_with_vendor: 'Check these before you decide',
-  no_match: 'Nothing we checked fits yet',
+  verify_with_vendor: 'Tools to look at',
+  no_match: "Here's what we found",
 }
 
 export const ROUTE_LABELS = {
@@ -21,13 +21,11 @@ export const ROUTE_LABELS = {
 }
 
 export function statusLabel(status) {
-  if (status === 'verified') return 'Source checked'
-  if (status === 'pending_review') return 'Pending review'
-  return 'Check service details'
+  return status === 'verified' ? 'Recommended' : ''
 }
 
 export function costText(option) {
-  if (option.added_monthly_usd == null) return 'Check current pricing'
+  if (option.added_monthly_usd == null) return ''
   const amount = `$${Number(option.added_monthly_usd).toLocaleString()} more each month`
   return option.price_estimated ? `About ${amount} (estimate)` : amount
 }
@@ -48,16 +46,16 @@ export function serviceUrl(option, fallback) {
   return safeUrl(option.service_url) || safeUrl(fallback) || option.facts.map((fact) => safeUrl(fact.source_url)).find(Boolean) || null
 }
 
-function FactRow({ fact, serviceLink }) {
-  const url = safeUrl(fact.source_url) || (!fact.known ? serviceLink : null)
+function FactRow({ fact }) {
+  const url = safeUrl(fact.source_url)
   return (
     <li>
       <span className="msc-fact-label">{fact.label}</span>
       <span>
-        {fact.known ? fact.value : 'Confirm with the service'}
+        {fact.value}
         {fact.inferred && <span className="msc-estimate"> (estimate)</span>}
         {fact.note && <span className="msc-fact-note">{fact.note}</span>}
-        {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">{fact.known ? 'Source' : 'View service details'}{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
+        {url && <> · <a href={url} target="_blank" rel="noreferrer noopener">Source{fact.checked ? `, checked ${fact.checked}` : ''}</a></>}
       </span>
     </li>
   )
@@ -65,23 +63,26 @@ function FactRow({ fact, serviceLink }) {
 
 function OptionCard({ option, status, ruledOut, taskPurpose, fallbackUrl }) {
   const url = serviceUrl(option, fallbackUrl)
+  const label = statusLabel(status)
+  const cost = costText(option)
+  const facts = option.facts.filter((fact) => fact.known)
   return (
     <article className="msc-option">
       <div className="msc-option-top">
         <h4>{option.tool_name}</h4>
-        <span className={`msc-badge${status === 'verified' ? '' : ' msc-badge-check'}`}>{statusLabel(status)}</span>
+        {label && <span className="msc-badge">{label}</span>}
         <FavouriteButton toolId={option.tool_id} name={option.tool_name} />
       </div>
       <p className="msc-route">{ROUTE_LABELS[option.route] || 'An option to consider'}</p>
       {ruledOut && <p className="msc-ruled-out">You told Penny you don't want this one</p>}
-      <p className="msc-cost">{costText(option)}</p>
-      <p className="msc-note">{option.cost_note}</p>
-      <p className="msc-note">{option.fit_note}</p>
+      {cost && <p className="msc-cost">{cost}</p>}
+      {cost && option.cost_note && <p className="msc-note">{option.cost_note}</p>}
+      {label && option.fit_note && <p className="msc-note">{option.fit_note}</p>}
       {taskPurpose && <p className="msc-note"><strong>For this need:</strong> {taskPurpose}</p>}
       {url && <a className="msc-service-link" href={url} target="_blank" rel="noreferrer noopener">Visit {option.tool_name} <span aria-hidden="true">↗</span></a>}
-      <details className="msc-details"><summary>Details and sources</summary>
-        <ul className="msc-facts">{option.facts.map((fact) => <FactRow fact={fact} serviceLink={url} key={fact.label} />)}</ul>
-      </details>
+      {facts.length > 0 && <details className="msc-details"><summary>Details and sources</summary>
+        <ul className="msc-facts">{facts.map((fact) => <FactRow fact={fact} key={fact.label} />)}</ul>
+      </details>}
     </article>
   )
 }
@@ -127,8 +128,7 @@ function ChatResult({ recommendation, statuses, ruledOut = [], onPrint, problemT
 
       {possible.length > 0 && (
         <section>
-          <h4 className="msc-section">Check these first</h4>
-          <p className="msc-note">We can't confirm these fit yet.</p>
+          <h4 className="msc-section">Tools to look at</h4>
           {possible.map(renderOption)}
         </section>
       )}

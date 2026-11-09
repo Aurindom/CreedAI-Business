@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import './options.css'
 import { FavouriteButton } from '../favourites/Favourites'
+import ToolWebsiteLink from './ToolWebsiteLink'
+import { BADGE, hasPrice, knownFacts, optionChecked, safeWebsite } from '../toolEvidence'
 
 // Everything shown here comes from the backend recommendation. This file only groups it and
 // words it plainly; it never ranks tools, decides fit, or works out a price.
@@ -19,7 +21,6 @@ const FIT_LABELS = {
   made_for: 'Yes, built for it',
   any_business: 'Yes, for any business',
   you_use_it: 'You already use it',
-  unconfirmed: 'Not confirmed',
 }
 
 function money(amount) {
@@ -27,80 +28,78 @@ function money(amount) {
 }
 
 function monthlyCost(option) {
-  if (option.added_monthly_usd === null || option.added_monthly_usd === undefined) return 'Ask the company'
   if (option.added_monthly_usd === 0) return option.route === 'already_have' || option.fit === 'you_use_it' ? 'Included in what you pay' : 'Free plan'
   const amount = `${money(option.added_monthly_usd)} a month`
   return option.price_estimated ? `About ${amount} (estimate)` : amount
-}
-
-function budgetText(option) {
-  if (option.within_budget === true) return 'Fits your budget'
-  if (option.within_budget === false) return 'Over your budget'
-  return 'Price not confirmed'
-}
-
-function factValue(fact) {
-  if (!fact) return 'Confirm with the service'
-  if (fact.state === 'not_checked') return 'Not checked yet'
-  if (!fact.known || fact.state === 'unresolved') return 'Confirm with the service'
-  return fact.value
 }
 
 function isOwned(option) {
   return option.fit === 'you_use_it' || ['already_have', 'check_plan', 'plan_upgrade'].includes(option.route)
 }
 
-function ToolCard({ option, tool, budgetProvided, compare, highlight, uncertain }) {
+// Unknown details are left off the card rather than labelled. The backend keeps the full record.
+function cardRows(option, budgetProvided) {
+  const rows = []
+  if (hasPrice(option)) rows.push({ label: 'Monthly cost', value: monthlyCost(option) })
+  if (FIT_LABELS[option.fit]) rows.push({ label: 'Fits your business?', value: FIT_LABELS[option.fit] })
+  const setup = knownFacts(option.facts).find((fact) => fact.label === 'Setup')
+  if (budgetProvided && typeof option.within_budget === 'boolean') rows.push({ label: 'Your budget', value: option.within_budget ? 'Fits your budget' : 'Over your budget' })
+  else if (setup) rows.push({ label: 'Setup', value: setup.value })
+  return rows
+}
+
+function ToolCard({ option, tool, budgetProvided, compare, highlight }) {
   const [open, setOpen] = useState(false)
-  const checked = option.status === 'verified'
-  const setup = option.facts.find((fact) => fact.label === 'Setup')
-  const third = budgetProvided ? { label: 'Your budget', value: budgetText(option) } : { label: 'Setup', value: factValue(setup) }
-  const fitWarning = uncertain || option.fit === 'unconfirmed'
-  const site = option.service_url || tool?.url
+  const recommended = optionChecked(option)
+  const rows = cardRows(option, budgetProvided)
+  const site = safeWebsite(option.service_url || tool?.url)
+  const facts = knownFacts(option.facts)
+  const hasDetails = Boolean(option.cost_note || (recommended && option.fit_note) || facts.length)
 
   return (
     <article className={`opt-card${highlight ? ' opt-card-best' : ''}`}>
       <div className="opt-card-top">
         <span className="opt-avatar" aria-hidden="true">{option.tool_name.slice(0, 1)}</span>
-        <span className={`opt-badge ${checked ? 'opt-badge-ok' : 'opt-badge-warn'}`}>{checked ? 'Checked by us' : 'Not checked by us yet'}</span>
+        {recommended && <span className="opt-badge opt-badge-ok">{BADGE.checked}</span>}
         <FavouriteButton toolId={option.tool_id} name={option.tool_name} />
       </div>
       <p className="opt-route">{ROUTE_LABELS[option.route] || 'Option'}</p>
       <h4>{option.tool_name}</h4>
       {tool?.summary && <p className="opt-summary">{tool.summary}</p>}
-      <dl className="opt-facts">
-        <div><dt>Monthly cost</dt><dd>{monthlyCost(option)}</dd></div>
-        <div><dt>Fits your business?</dt><dd className={fitWarning ? 'opt-warn-text' : ''}>{FIT_LABELS[option.fit] || 'Not confirmed'}</dd></div>
-        <div><dt>{third.label}</dt><dd>{third.value}</dd></div>
-      </dl>
-      {fitWarning && option.fit_note && <p className="opt-why"><span aria-hidden="true">!</span> {option.fit_note}</p>}
+      {rows.length > 0 && (
+        <dl className="opt-facts">
+          {rows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}
+        </dl>
+      )}
       <div className="opt-actions">
         {compare}
-        <button type="button" className="opt-link" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? 'Hide details' : 'See details'}</button>
+        {hasDetails && <button type="button" className="opt-link" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? 'Hide details' : 'See details'}</button>}
         {site && <a className="opt-link" href={site} target="_blank" rel="noopener noreferrer">Visit website <span className="sr-only">(opens in a new tab)</span><span aria-hidden="true">↗</span></a>}
       </div>
       {open && (
         <div className="opt-details">
           {option.cost_note && <p><strong>About the price:</strong> {option.cost_note}</p>}
-          {!fitWarning && option.fit_note && <p><strong>Why it fits:</strong> {option.fit_note}</p>}
-          <ul>
-            {option.facts.map((fact) => (
-              <li key={fact.label}>
-                <span>{fact.label}</span>
-                <span>
-                  {factValue(fact)}{fact.inferred ? ' (estimate)' : ''}
-                  {fact.source_url && <> · <a href={fact.source_url} target="_blank" rel="noopener noreferrer">Source{fact.checked ? `, checked ${fact.checked}` : ''}<span className="sr-only"> (opens in a new tab)</span></a></>}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {recommended && option.fit_note && <p><strong>Why it fits:</strong> {option.fit_note}</p>}
+          {facts.length > 0 && (
+            <ul>
+              {facts.map((fact) => (
+                <li key={fact.label}>
+                  <span>{fact.label}</span>
+                  <span>
+                    {fact.value}{fact.inferred ? ' (estimate)' : ''}
+                    {safeWebsite(fact.source_url) && <> · <a href={safeWebsite(fact.source_url)} target="_blank" rel="noopener noreferrer">Source{fact.checked ? `, checked ${fact.checked}` : ''}<span className="sr-only"> (opens in a new tab)</span></a></>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </article>
   )
 }
 
-// Questions are worded from what the backend left unconfirmed. They make no claims.
+// Questions are worded from what the backend left open. They make no claims.
 function questionsFor(options, problemTitle, business) {
   return options.slice(0, 3).map((option) => {
     const list = []
@@ -129,73 +128,77 @@ function CopyButton({ text }) {
   return <span className="opt-copy"><button type="button" onClick={copy}>Copy questions</button><span role="status">{state}</span></span>
 }
 
-// "Did you mean": asks the backend about a few related problems and keeps only confirmed answers.
 export default function OptionsResults({ recommendation, toolsById, activeProblem, business, budgetProvided, compareProps, onAskPenny, onCompareThese }) {
   const groups = useMemo(() => {
-    // A tool only counts as confirmed when the backend's answer is confirmed.
-    // When it says "check with the vendor", even its leading option belongs under "Worth checking".
+    // Only a confident answer about a tool checked for this task is called recommended.
+    // A checked winner never lends that label to the tools next to it.
     const confident = ['new_tool', 'add_on', 'no_new_tool'].includes(recommendation.outcome)
-    const all = [...recommendation.options.map((option) => ({ option, uncertain: !confident })), ...recommendation.check_first.map((option) => ({ option, uncertain: true }))]
+    const all = [
+      ...recommendation.options.map((option) => ({ option, recommended: confident && optionChecked(option) })),
+      ...recommendation.check_first.map((option) => ({ option, recommended: false })),
+    ]
     const owned = all.filter(({ option }) => isOwned(option))
     const rest = all.filter(({ option }) => !isOwned(option))
-    const best = rest.find(({ option, uncertain }) => !uncertain && option.tool_id === recommendation.winner_tool_id)
+    const best = rest.find(({ option, recommended }) => recommended && option.tool_id === recommendation.winner_tool_id)
     return {
       owned,
       best,
-      others: rest.filter(({ option, uncertain }) => !uncertain && option !== best?.option),
-      checking: rest.filter(({ uncertain }) => uncertain),
+      others: rest.filter(({ option, recommended }) => recommended && option !== best?.option),
+      more: rest.filter(({ recommended }) => !recommended),
     }
   }, [recommendation])
 
-  const unconfirmed = ['verify_with_vendor', 'no_match'].includes(recommendation.outcome)
+  const recommendedCount = (groups.best ? 1 : 0) + groups.others.length
+  const browsing = recommendedCount === 0 && groups.owned.length === 0
   const businessName = business ? business.toLowerCase() : 'business like yours'
-  const confirmedCount = (groups.best ? 1 : 0) + groups.others.length
-  const questions = questionsFor([...groups.owned, ...groups.checking].map(({ option }) => option).filter((option) => option.fit === 'unconfirmed' || option.added_monthly_usd === null || option.route === 'check_plan'), activeProblem?.title || 'this task', businessName)
+  const questions = questionsFor([...groups.owned, ...groups.more].map(({ option }) => option).filter((option) => option.fit === 'unconfirmed' || option.added_monthly_usd === null || option.route === 'check_plan'), activeProblem?.title || 'this task', businessName)
   const questionText = questions.map((group) => [group.name, ...group.list.map((item) => `- ${item}`)].join('\n')).join('\n\n')
 
-  const headline = {
+  const headline = browsing ? 'Tools to look at' : {
     no_new_tool: 'Good news: you may not need a new tool',
     add_on: 'A small add-on may be all you need',
-    new_tool: "Here's your best match",
-    verify_with_vendor: "Tools to check for this task",
-    no_match: "We don't have a checked tool for this yet",
+    new_tool: "Here's what we recommend",
   }[recommendation.outcome] || "Here's what we found"
+  const message = browsing ? `These tools work in this area. Their websites show which plan suits your ${businessName}.` : recommendation.message
 
-  const card = ({ option, uncertain }, highlight = false) => (
-    <ToolCard key={option.tool_id} option={option} tool={toolsById[option.tool_id]} budgetProvided={budgetProvided} uncertain={uncertain} highlight={highlight}
+  const card = ({ option }, highlight = false) => (
+    <ToolCard key={option.tool_id} option={option} tool={toolsById[option.tool_id]} budgetProvided={budgetProvided} highlight={highlight}
       compare={<CompareToggle {...compareProps(option.tool_id)} />} />
   )
 
   return (
     <div className="opt-results">
       <div className="opt-summary-bar" aria-label="Summary">
-        {(confirmedCount > 0 || groups.owned.length === 0) && <span className="opt-pill"><strong>{confirmedCount}</strong> confirmed {confirmedCount === 1 ? 'fit' : 'fits'}</span>}
-        {groups.checking.length > 0 && <span className="opt-pill"><strong>{groups.checking.length}</strong> worth checking</span>}
+        {recommendedCount > 0 && <span className="opt-pill"><strong>{recommendedCount}</strong> recommended</span>}
         {groups.owned.length > 0 && <span className="opt-pill"><strong>{groups.owned.length}</strong> you already pay for</span>}
-        {recommendation.set_aside.length > 0 && <span className="opt-pill"><strong>{recommendation.set_aside.length}</strong> not a fit</span>}
+        {groups.more.length > 0 && <span className="opt-pill"><strong>{groups.more.length}</strong> {browsing ? 'to look at' : 'more options'}</span>}
       </div>
 
-      <div className={`opt-answer${unconfirmed ? ' opt-answer-check' : ''}`} role="status">
+      <div className="opt-answer" role="status">
         <h3>{headline}</h3>
-        <p>{recommendation.message}</p>
+        <p>{message}</p>
         {recommendation.tailoring_note && <p className="opt-muted">{recommendation.tailoring_note}</p>}
-
       </div>
 
-      {groups.best && <section aria-labelledby="opt-best"><h4 className="opt-group" id="opt-best">Best match</h4><div className="opt-grid">{card(groups.best, true)}</div></section>}
+      {groups.best && <section aria-labelledby="opt-best"><h4 className="opt-group" id="opt-best">Recommended</h4><div className="opt-grid">{card(groups.best, true)}</div></section>}
+      {groups.others.length > 0 && <section aria-labelledby="opt-others"><h4 className="opt-group" id="opt-others">{groups.best ? 'Also recommended' : 'Recommended'}</h4><div className="opt-grid">{groups.others.map((item) => card(item))}</div></section>}
       {groups.owned.length > 0 && <section aria-labelledby="opt-owned"><h4 className="opt-group" id="opt-owned">You already pay for</h4><div className="opt-grid">{groups.owned.map((item) => card(item))}</div></section>}
-      {groups.others.length > 0 && <section aria-labelledby="opt-others"><h4 className="opt-group" id="opt-others">Also a good fit</h4><div className="opt-grid">{groups.others.map((item) => card(item))}</div></section>}
-      {groups.checking.length > 0 && (
-        <section aria-labelledby="opt-checking">
-          <h4 className="opt-group" id="opt-checking">Worth checking</h4>
-          <p className="opt-group-note">These can do the job, but we haven't confirmed they suit a {businessName}. Ask the company before you pay.</p>
-          <div className="opt-grid">{groups.checking.map((item) => card(item))}</div>
+      {groups.more.length > 0 && (
+        <section aria-labelledby="opt-more">
+          <h4 className="opt-group" id="opt-more">{browsing ? 'Tools to look at' : 'More options'}</h4>
+          <ul className="tool-site-list">
+            {groups.more.map(({ option }) => (
+              <ToolWebsiteLink key={option.tool_id} toolId={option.tool_id} name={option.tool_name}
+                url={option.service_url || toolsById[option.tool_id]?.url} summary={toolsById[option.tool_id]?.summary}
+                compare={<CompareToggle {...compareProps(option.tool_id)} />} />
+            ))}
+          </ul>
         </section>
       )}
 
       <div className="opt-help-actions">
         <button type="button" className="opt-chip" onClick={() => onAskPenny({ problemIds: [activeProblem.id] })}>Ask Penny about these options</button>
-        {groups.checking.length > 1 && <button type="button" className="opt-chip" onClick={() => onCompareThese(groups.checking.slice(0, 3).map(({ option }) => option.tool_id))}>Compare these {Math.min(3, groups.checking.length)}</button>}
+        {groups.more.length > 1 && <button type="button" className="opt-chip" onClick={() => onCompareThese(groups.more.slice(0, 3).map(({ option }) => option.tool_id))}>Compare these {Math.min(3, groups.more.length)}</button>}
       </div>
 
       {questions.length > 0 && (

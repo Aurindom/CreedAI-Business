@@ -628,3 +628,4 @@ footer { padding-bottom: 100px; }
  .comparison-tray { left: 12px; right: 138px; bottom: 16px; transform: none; display: block; width: auto; max-width: none; padding: 12px; border-radius: 16px; }.comparison-tray-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }.comparison-tray-heading > button { margin: 0; }.comparison-tray-go { width: 100%; font-size: 11px; padding: 10px 12px; gap: 8px; }.comparison-tray-heading strong { font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; }.owner-path, .tool-card { transition: none; }.owner-path:hover, .tool-card:hover { transform: none; } }
+.fact-missing { color: var(--muted); }

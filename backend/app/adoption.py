@@ -47,7 +47,7 @@ def _steps(catalog: Catalog, result: Comparison) -> list[PlanStep]:
             PlanStep(
                 tool_id=tool.id,
                 tool_name=tool.name,
-                status=tool.status,
+                status="verified" if line.confirmed else "pending_review",
                 coverage="confirmed" if line.confirmed else "possible",
                 problem_ids=line.problem_ids,
                 tasks=[f.title for f in fits],
