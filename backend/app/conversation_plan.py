@@ -330,14 +330,21 @@ _CLAIMED = re.compile(r"\b(?:i(?:'ve| have)?|we(?:'ve| have)?)\s+(?:just\s+|alre
 def repeats(new, old):
     # Substring, not equality: history can join several replies into one message.
     norm = lambda value: ' ' + re.sub(r'[^a-z0-9]+', ' ', (value or '').casefold()).strip() + ' '
-    return norm(new).strip() != '' and norm(new) in norm(old)
+    if norm(new).strip() == '':
+        return False
+    if norm(new) in norm(old):
+        return True
+    # A reworded question is still a loop: most of its words already appeared last turn.
+    words = [w for w in norm(new).split() if len(w) > 3]
+    seen = set(norm(old).split())
+    return len(words) >= 5 and sum(w in seen for w in words) / len(words) >= 0.75
 
 
 def safe_reply(text, catalog, recent=()):
     from . import chat_guard
     if not isinstance(text, str):
         return None
-    text = ' '.join(text.split())
+    text = ' '.join(re.sub(r'\s*[—–]\s*', ', ', text).split())
     if not 2 <= len(text) <= 600:
         return None
     if (mentioned_tools(catalog, text) or _MONEY.search(text) or _CONTACT.search(text) or _CLAIMED.search(text)

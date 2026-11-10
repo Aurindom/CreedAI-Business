@@ -153,6 +153,31 @@ def test_tapping_a_card_choice_routes_without_another_ai_run(client, hermes, pub
     assert any(e['type'] == 'recommendation' and e['problem_id'] == 'email_marketing' for e in events)
 
 
+def test_a_reworded_repeat_question_is_also_stopped(client, hermes, public_reads):
+    asked = 'Transporting eggs is not in the catalog yet. Are you managing delivery routes or customer orders?'
+    reworded = "Egg transportation isn't in the current catalog yet. Are you managing delivery routes or customer orders?"
+    Script(hermes,
+           [step('clarify', 'transportation of eggs', asked, 'workflow')],
+           [step('clarify', 'transportation of eggs', reworded, 'workflow')])
+    chat = Chat(client)
+    assert chat.say('transportation of eggs')[1] == asked
+    _, second = chat.say('transportation of eggs')
+    assert 'keep asking the same thing' in second and reworded not in second
+
+
+def test_attract_customers_fallback_card_offers_only_acquisition_tasks(client, hermes, public_reads):
+    Script(hermes, [])
+    chat = Chat(client, {'business_description': 'coffee shop', 'business_goal': 'attract customers'})
+    _, text = chat.say('how do I attract customers.')
+    assert sorted(chat.card()) == ['email_marketing', 'review_requests', 'website_chat_leads']
+    assert text.startswith('For coffee shop, which would help most')
+
+
+def test_em_dashes_in_ai_wording_become_commas(client):
+    text = planner.safe_reply('Good question — which part takes the most time?', client.app.state.catalog)
+    assert text == 'Good question, which part takes the most time?'
+
+
 def test_reply_is_dropped_for_kinds_that_render_verified_data(client):
     raw = {'steps': [step('help', 'what is this', 'Made-up help text', 'overview')]}
     plan = planner.validate_plan(raw, SimpleNamespace(message='what is this'), client.app.state.catalog)

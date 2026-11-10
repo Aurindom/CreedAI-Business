@@ -928,6 +928,8 @@ async def _ask_what_they_need(gate, catalog, profile, memory, body, reason: str 
         arguments: dict[str, Any] = {'question_id': 'business'}
     else:
         ids, matched = relevant_task_ids(catalog, [body.message, memory.business_goal], trade, 3)
+        if _WINNING_CUSTOMERS.search(body.message):
+            ids, matched = sorted(ACQUISITION_TASKS, key=lambda task: ids.index(task) if task in ids else len(ids)), True
         arguments = {'question_id': 'task', 'problem_ids': ids}
     result = run_action(catalog, 'ask_owner', arguments, profile, memory)
     yield {"type": "status", "text": "Arkadio is thinking",
@@ -947,6 +949,12 @@ async def _ask_what_they_need(gate, catalog, profile, memory, body, reason: str 
     if reason:
         logger.warning("outage_card %s matched=%s", reason, matched)
         for event in reply_events(_outage_note(reason, matched), 'fallback'):
+            event['response_mode'] = 'conversation'
+            yield event
+    elif sorted(arguments.get('problem_ids', [])) == sorted(ACQUISITION_TASKS):
+        business = memory.business_description
+        text = f'For {business}, {ACQUISITION_QUESTION}' if business else ACQUISITION_QUESTION[0].upper() + ACQUISITION_QUESTION[1:]
+        for event in reply_events(text, 'validated'):
             event['response_mode'] = 'conversation'
             yield event
     for event in result.events:
@@ -1224,6 +1232,7 @@ async def _answer_skipped_parts(gate, catalog, profile, memory, body, known):
     yield _memory_event(memory)
 
 
+_WINNING_CUSTOMERS = re.compile(r'\b(attract|win|get|gain|find|more|new|bring in)\b[\w\s]{0,15}\b(customers?|clients?|buyers?)\b', re.I)
 ACQUISITION_TASKS = ('review_requests', 'email_marketing', 'website_chat_leads')
 ACQUISITION_QUESTION = ('which would help most: more customer reviews, bringing past customers back, or turning '
                         'website visitors into enquiries? Those are the ways to win customers I can find software for.')
