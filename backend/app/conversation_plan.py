@@ -59,6 +59,13 @@ def contextual_language(text):
                           r'a friend|my friend|someone|he says|she says|they said)\b|["“”]', text, re.I))
 
 
+def goal_from_text(text):
+    if contextual_language(text):
+        return None
+    goal = re.search(r'\b(?:i|we)\s+(?:need|want)\s+(?:help\s+)?(?:with\s+|to\s+)?([^.!?]+)|\bhow (?:do|can|could) (?:i|we)\s+([^.!?]+)', text, re.I)
+    return next(value for value in goal.groups() if value)[:300] if goal else None
+
+
 def mentioned_tools(catalog, text):
     return [tool.id for tool in catalog.tools if tool.status != 'rejected' and any(
         re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text, re.I)

@@ -208,6 +208,26 @@ def test_semantic_format_cannot_override_existing_price_basis(client, public_rea
     assert state['comparison_criterion'] == table['messages'][1]['updateComponents']['components'][0]['criterion'] == 'price'
 
 
+def test_app_how_to_does_not_replace_business_goal(client, public_reads, hermes):
+    memory = {**MEMORY, 'business_goal': 'attract customers'}
+    _, state, _ = turn(client, 'How do I save tools as a favourite?', memory)
+    assert state['business_goal'] == 'attract customers'
+    message = 'How can I keep something here to look at later?'
+    semantic(hermes, [{'kind': 'help', 'topic': 'favourites', 'owner_text': message}])
+    _, state, _ = turn(client, message, state)
+    assert state['business_goal'] == 'attract customers'
+
+
+def test_scenario_recommendation_keeps_confirmed_owner_goal(client, public_reads, hermes):
+    message = 'Imagine I run a bakery. I need help with bookkeeping'
+    semantic(hermes, [{'kind': 'recommend', 'owner_text': 'I need help with bookkeeping',
+                      'problem_ids': ['bookkeeping'], 'context_mode': 'scenario', 'assumed_business': 'bakery'}])
+    events, state, _ = turn(client, message, {**MEMORY, 'business_goal': 'reduce phone interruptions'})
+    assert any(event.get('surface') == 'recommendation' for event in events)
+    assert state['business_goal'] == 'reduce phone interruptions'
+    assert state['business_description'] == 'kite repair studio'
+
+
 def test_failed_favourite_read_is_not_empty_list(client, public_reads, monkeypatch):
     import sqlite3
     from app import favourites

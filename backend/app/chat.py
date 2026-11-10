@@ -1155,6 +1155,8 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
             from .penny_conversation import APPROVED_REPLIES
             text = APPROVED_REPLIES['acknowledgement'][0] if step.topic == 'thanks' else APPROVED_REPLIES['greeting'][2 if step.topic == 'wellbeing' else 0]
         elif step.kind == 'clarify':
+            if step.context_mode == 'owner':
+                memory.business_goal = planner.goal_from_text(step.owner_text) or memory.business_goal
             goal = memory.business_goal
             if step.topic == 'acquisition':
                 business = memory.scenario_business if step.context_mode == 'scenario' else memory.business_description
@@ -1166,6 +1168,8 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
             proposal = {'routes': [{'problem_id': pid, 'task_text': step.owner_text} for pid in step.problem_ids]}
             resolved = hermes_routing.apply(proposal, catalog, step_profile, memory, body)
             if resolved:
+                if step.context_mode == 'owner':
+                    memory.business_goal = planner.goal_from_text(step.owner_text) or step.owner_text[:300]
                 package, resolved_profile, tasks = resolved
                 memory.active_task_ids = tasks
                 memory.pending_question = None
@@ -1262,10 +1266,6 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             memory.comparison_criterion = None
             memory.comparison_excluded_ids = []
             memory.business_goal = None
-    if not conversation_plan.contextual_language(body.message):
-        goal = re.search(r'\b(?:i|we)\s+(?:need|want)\s+(?:help\s+)?(?:with\s+|to\s+)?([^.!?]+)|\bhow (?:do|can|could) (?:i|we)\s+([^.!?]+)', body.message, re.I)
-        if goal:
-            memory.business_goal = next(value for value in goal.groups() if value)[:300]
     # Software the owner plainly says they already use is recorded before any lookup,
     # so a first answer never treats an existing subscription as a new purchase.
     stated = stated_ownership(catalog, body.message)
@@ -1344,6 +1344,7 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
     covered = conversation_plan.fast_task_covered(catalog, body)
     if (os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1') and task_ids(catalog, body)
             and covered and (not message_trade or message_trade == current.trade)):
+        memory.business_goal = conversation_plan.goal_from_text(body.message) or memory.business_goal
         if learned_trade:
             yield _memory_event(memory)
         async for event in catalog_response(gate, package, body, original_catalog, current, memory,
