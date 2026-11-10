@@ -192,12 +192,20 @@ def test_strict_plan_schema_requires_all_fields():
 def test_hypothetical_assumption_is_separate_and_followup_can_return_to_owner(client, public_reads, hermes):
     message = 'Imagine I run a bakery. How would I get customers?'
     semantic(hermes, [{'kind': 'clarify', 'topic': 'acquisition', 'owner_text': message,
-                      'context_mode': 'scenario', 'assumed_business': 'bakery'}])
+                      'context_mode': 'scenario', 'assumed_business': 'bakery'}], business_text='bakery')
     _, state, text = turn(client, message)
     assert 'Assuming' in text and 'bakery' in text
     assert state['business_description'] == 'kite repair studio' and state['scenario_business'] == 'bakery'
     _, _, text = turn(client, 'Do you remember my business?', state)
     assert 'kite repair studio' in text and 'bakery' not in text
+
+
+def test_semantic_format_cannot_override_existing_price_basis(client, public_reads, hermes):
+    message = 'Could you lay those choices out in a table instead?'
+    semantic(hermes, [{'kind': 'compare', 'owner_text': message, 'criterion': 'fit', 'presentation': 'table'}])
+    events, state, _ = turn(client, message)
+    table = next(event for event in events if event.get('surface') == 'table')
+    assert state['comparison_criterion'] == table['messages'][1]['updateComponents']['components'][0]['criterion'] == 'price'
 
 
 def test_failed_favourite_read_is_not_empty_list(client, public_reads, monkeypatch):

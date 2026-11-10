@@ -986,7 +986,11 @@ async def conversation_response(gate, catalog, profile, memory, body, kind, crit
         elif len(named) == 1 and re.search(r'\b(?:compare|versus|vs)\b', body.message, re.I):
             ids = named
         ids = [tid for tid in ids if tid not in excluded]
-        criterion = criterion or memory.comparison_criterion
+        # Formatting alone cannot silently change the previous comparison basis.
+        if step and step.presentation and not conversation_state.criterion_for(step.owner_text):
+            criterion = memory.comparison_criterion or criterion
+        else:
+            criterion = criterion or memory.comparison_criterion
         if step and step.presentation:
             memory.comparison_presentation = step.presentation
         explicit_tasks = task_ids(catalog, body) if step is None else []
@@ -1904,7 +1908,8 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             from .agent.grounding import extract_json
             routed = json.loads(extract_json(run.output))
             from . import conversation_plan
-            if isinstance(routed, dict) and routed.get('business_text') is not None and not operations:
+            if (isinstance(routed, dict) and routed.get('business_text') is not None and not operations
+                    and not conversation_plan.contextual_language(body.message)):
                 label = routed['business_text']
                 if (not isinstance(label, str) or not 2 <= len(label) <= 100
                         or label.casefold() not in body.message.casefold()
