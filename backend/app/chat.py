@@ -1224,6 +1224,63 @@ async def _answer_skipped_parts(gate, catalog, profile, memory, body, known):
     yield _memory_event(memory)
 
 
+ACQUISITION_TASKS = ('review_requests', 'email_marketing', 'website_chat_leads')
+ACQUISITION_QUESTION = ('which would help most: more customer reviews, bringing past customers back, or turning '
+                        'website visitors into enquiries? Those are the ways to win customers I can find software for.')
+STUCK_REPLY = ("Sorry, I keep asking the same thing. I may not have software for that exact need yet, so I won't guess. "
+               "These are the closest tasks I can help with, or tell me in a few words what slows you down.")
+UNSUPPORTED_REPLY = "I don't have software listed for that yet, so I won't guess at a tool."
+
+
+def _task_card(catalog, profile, memory, ids, texts):
+    trade = _owner_trade(catalog, profile, memory)
+    known = {card.id for card in catalog.problem_cards}
+    ids = [pid for pid in dict.fromkeys(ids) if pid in known]
+    if len(ids) < 2:
+        ids = list(dict.fromkeys([*ids, *relevant_task_ids(catalog, texts, trade, 3)[0]]))
+    ids = ids[:3]
+    card = run_action(catalog, 'ask_owner', {'question_id': 'task', 'problem_ids': ids}, profile, memory)
+    if card.data.get('error'):
+        return None
+    memory.pending_question = 'task'
+    memory.pending_task_ids = card.data.get('shown_task_ids') or ids
+    return card
+
+
+def _clarify_turn(catalog, profile, memory, body, step, account_catalog):
+    from . import conversation_plan as planner
+    if step.context_mode == 'owner':
+        memory.business_goal = planner.goal_from_text(step.owner_text) or memory.business_goal
+    recent = planner.recent_questions(body)
+    texts = [step.owner_text, memory.business_goal]
+    reply = planner.safe_reply(step.reply, account_catalog, recent)
+    # Falling back to a template question here would be the same loop reworded.
+    looping = bool(step.reply) and any(planner.repeats(step.reply, old) for old in recent)
+    choices = list(step.problem_ids)
+    memory.pending_question, memory.pending_task_ids = None, []
+    if step.kind == 'unsupported':
+        ids, matched = relevant_task_ids(catalog, texts, _owner_trade(catalog, profile, memory), 3)
+        choices = choices or (ids if matched else [])
+        text = reply or UNSUPPORTED_REPLY + (' These are the closest tasks I can help with.' if choices else
+                                             ' Tell me another task that takes up your time and I will look.')
+        return text, _task_card(catalog, profile, memory, choices, texts) if choices else None
+    text = reply
+    if text is None and step.topic == 'acquisition':
+        business = memory.scenario_business if step.context_mode == 'scenario' else memory.business_description
+        choices = choices or list(ACQUISITION_TASKS)
+        text =f'For {business}, {ACQUISITION_QUESTION}' if business else ACQUISITION_QUESTION[0].upper() + ACQUISITION_QUESTION[1:]
+    elif text is None and memory.business_goal:
+        text = f'You want help with: {memory.business_goal}. Which part takes the most time or needs software support?'
+    if looping or (text is not None and any(planner.repeats(text, old) for old in recent)):
+        logger.warning("clarify_repeat_stopped")
+        text, choices = STUCK_REPLY, []
+    if text is None:
+        return None, None
+    if text == STUCK_REPLY or (choices and step.kind == 'clarify'):
+        return text, _task_card(catalog, profile, memory, choices, texts)
+    return text, None
+
+
 async def plan_response(gate, catalog, profile, memory, body, plan):
     """Execute all validated steps. Private facts never travel through the model.
 
@@ -1237,7 +1294,7 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
             yield _closed('session_ended')
             yield {'type': 'done'}
             return
-        text = None
+        text = card = None
         if step.kind in ('help', 'favourites_list', 'favourites_save', 'favourites_remove', 'scope'):
             memory.pending_question = None
             memory.pending_task_ids = []
@@ -1298,16 +1355,12 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
                         text = 'I could not confirm your favourites. Open Favourite tools to check before trying the change again.'
         elif step.kind == 'social':
             from .penny_conversation import APPROVED_REPLIES
-            text = APPROVED_REPLIES['acknowledgement'][0] if step.topic == 'thanks' else APPROVED_REPLIES['greeting'][2 if step.topic == 'wellbeing' else 0]
-        elif step.kind == 'clarify':
-            if step.context_mode == 'owner':
-                memory.business_goal = planner.goal_from_text(step.owner_text) or memory.business_goal
-            goal = memory.business_goal
-            if step.topic == 'acquisition':
-                business = memory.scenario_business if step.context_mode == 'scenario' else memory.business_description
-                text = (f'For {business}, ' if business else '') + 'are you trying to reach new customers through search, social media, referrals, or repeat-customer follow-up? I can help compare software for that workflow.'
-            elif goal:
-                text = f'You want help with: {goal}. Which part takes the most time or needs software support?'
+            text = (planner.safe_reply(step.reply, account_catalog, planner.recent_questions(body))
+                    or (APPROVED_REPLIES['acknowledgement'][0] if step.topic == 'thanks' else APPROVED_REPLIES['greeting'][2 if step.topic == 'wellbeing' else 0]))
+        elif step.kind == 'scope':
+            text = planner.safe_reply(step.reply, account_catalog, planner.recent_questions(body))
+        elif step.kind in ('clarify', 'unsupported'):
+            text, card = _clarify_turn(catalog, step_profile, memory, body, step, account_catalog)
         elif step.kind == 'recommend':
             from . import hermes_routing
             proposal = {'routes': [{'problem_id': pid, 'task_text': step.owner_text} for pid in step.problem_ids]}
@@ -1333,6 +1386,8 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
             yield _memory_event(memory)
             for event in reply_events(('\n\n' if step_index else '') + text, 'validated'):
                 event['response_mode'] = 'app_help' if step.kind in ('help', 'social') else 'conversation'
+                yield event
+            for event in card.events if card is not None else ():
                 yield event
         else:
             async for event in conversation_response(gate, catalog, step_profile, memory, body, step.kind, step.criterion, step):
@@ -1815,9 +1870,9 @@ def hermes_instructions(package: EvidencePackage, operations: list[tool_executio
     tasks = [{'id': card.id, 'title': card.title} for card in catalog.problem_cards] if catalog else []
     tools = [{'id': tool.id, 'name': tool.name} for tool in catalog.tools if tool.status != 'rejected'] if catalog else []
     features = {topic: help_text(topic, catalog) for topic in ('overview', 'businesses', 'favourites', 'history', 'comparison', 'account')} if catalog else {}
-    return ('penny_hermes_selection_v1\nconversation_state_v2\nconversation_plan_v3\n'
+    return ('penny_hermes_selection_v1\nconversation_state_v2\nconversation_plan_v3\nconversation_reply_v1\n'
             'You interpret a business assistant conversation. Return ONLY the required JSON object. '
-            'Do not invent product/account facts or write prose. The server executes your plan and renders verified data. '
+            'Do not invent product/account facts. Write prose only in step.reply. The server executes your plan and renders verified data. '
             'CURRENT message controls the response. Reuse relevant prior context for follow-ups, but answer a new '
             'topic independently. Cover EACH distinct request in a compound message, in order, with up to six steps. '
             'A hypothetical or quotation must not replace the confirmed owner business.\n'
@@ -1826,7 +1881,7 @@ def hermes_instructions(package: EvidencePackage, operations: list[tool_executio
             'decide intent or justify repeating an old answer. Keep claim_ids=[] and followup_id=null for a plan. '
             'Always set legacy fields routes, trade, trade_text, action, conversation_intent and reply_id to null.\n'
             'Each step requires kind, owner_text, topic, criterion, presentation, tool_ids, exclude_tool_ids, '
-            'problem_ids, context_mode, assumed_business. Copy owner_text exactly from the CURRENT message. '
+            'problem_ids, context_mode, assumed_business, reply. Copy owner_text exactly from the CURRENT message. '
             'Use null for unused nullable fields and [] for unused arrays. context_mode=owner by default.\n'
             'Kinds and meanings: help explains app features with topic=overview|businesses|favourites|history|'
             'comparison|account. favourites_list reads the signed-in account bookmarks. They are not current '
@@ -1845,6 +1900,15 @@ def hermes_instructions(package: EvidencePackage, operations: list[tool_executio
             'assumed_business=the exact hypothetical business noun phrase from the current message. Later scenario '
             'follow-ups may reuse it with assumed_business=null. Confirmed-owner questions use context_mode=owner. '
             'Never save favourites based on a hypothetical scenario.\n'
+            'unsupported is for a real business need that no catalog task covers, for example social media posting, '
+            'SEO, inventory, shipping or delivery. Put the 2-3 closest catalog problem_ids in problem_ids, or [] if none are close.\n'
+            'reply: for clarify, scope, social and unsupported write a short warm reply in plain words, at most three '
+            'sentences. Acknowledge what the owner just said. Never repeat a question already asked in prior_context; '
+            'if the owner already answered, move forward instead. For clarify, put the 2-3 catalog problem_ids that '
+            'best fit the question in problem_ids and ask which one matters most. For unsupported, say honestly that '
+            'no software is listed for that need yet. The reply must not name tools, prices, plans, links, emails, or '
+            'claim anything was saved, booked or sent; the server shows tools and prices from verified data. '
+            'reply=null for every other kind.\n'
             'business_text may contain an exact current-message noun phrase for an explicitly asserted owner '
             'business, even when absent from catalog categories; otherwise null. Never extract it from examples, '
             'conditions, historical businesses, third parties, negations or capability questions. '

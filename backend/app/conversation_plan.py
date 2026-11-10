@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class Step(BaseModel):
     model_config = ConfigDict(extra='forbid')
     kind: Literal['recall', 'forget', 'favourites_list', 'favourites_save', 'favourites_remove',
-                  'help', 'compare', 'clarify', 'scope', 'social', 'recommend']
+                  'help', 'compare', 'clarify', 'scope', 'social', 'recommend', 'unsupported']
     owner_text: str = Field(min_length=1, max_length=500)
     topic: Literal['overview', 'businesses', 'favourites', 'history', 'comparison', 'account',
                    'acquisition', 'workflow', 'greeting', 'thanks', 'wellbeing'] | None = None
@@ -23,6 +23,7 @@ class Step(BaseModel):
     problem_ids: list[str] = Field(default_factory=list, max_length=3)
     context_mode: Literal['owner', 'scenario'] = 'owner'
     assumed_business: str | None = Field(default=None, max_length=100)
+    reply: str | None = Field(default=None, max_length=600)
 
 
 class Plan(BaseModel):
@@ -30,9 +31,17 @@ class Plan(BaseModel):
     steps: list[Step] = Field(min_length=1, max_length=6)
 
 
-def strict_schema():
+REPLY_MARKER = 'conversation_reply_v1'
+REPLY_KINDS = ('clarify', 'scope', 'social', 'unsupported')
+
+
+def strict_schema(reply=False):
     """OpenRouter strict schemas require every property, including nullable/default fields."""
     schema = Plan.model_json_schema()
+    if not reply:
+        step = schema['$defs']['Step']
+        step['properties'].pop('reply')
+        step['properties']['kind']['enum'].remove('unsupported')
     def strict(value):
         if isinstance(value, dict):
             value.pop('default', None)
@@ -303,7 +312,44 @@ def validate_plan(raw, body, catalog):
             raise ValueError('unbound_business_context')
         if step.context_mode == 'scenario' and step.kind.startswith('favourites_'):
             raise ValueError('unbound_conversation_action')
+        if step.reply is not None and step.kind not in REPLY_KINDS:
+            step.reply = None
     return plan
+
+
+_MONEY = re.compile(r'[$€£₹¥]|\b(?:usd|eur|gbp|inr|dollars?|bucks|rupees?|euros?)\b|\b(?:price[sd]?|pricing|cheap(?:er|est)?|'
+                    r'free (?:plan|tier|trial|version|for)|for free|per (?:month|year|user|seat)|a month|/mo\b|subscription fee|discount)',
+                    re.I)
+_CONTACT = re.compile(r'https?://|www\.|\b[\w.-]+@[\w-]+\.\w+|\b[\w-]+\.(?:com|io|net|org|co|ai|app)\b|\]\(|<[a-z/]', re.I)
+_CLAIMED = re.compile(r"\b(?:i(?:'ve| have)?|we(?:'ve| have)?)\s+(?:just\s+|already\s+)?(?:saved|added|removed|deleted|booked|"
+                      r"scheduled|sent|emailed|called|ordered|bought|subscribed|signed you|set up|created|installed|"
+                      r"connected|cancelled|canceled)\b|\b(?:has|have) been (?:saved|added|removed|booked|sent|scheduled|"
+                      r"created|set up)\b", re.I)
+
+
+def repeats(new, old):
+    # Substring, not equality: history can join several replies into one message.
+    norm = lambda value: ' ' + re.sub(r'[^a-z0-9]+', ' ', (value or '').casefold()).strip() + ' '
+    return norm(new).strip() != '' and norm(new) in norm(old)
+
+
+def safe_reply(text, catalog, recent=()):
+    from . import chat_guard
+    if not isinstance(text, str):
+        return None
+    text = ' '.join(text.split())
+    if not 2 <= len(text) <= 600:
+        return None
+    if (mentioned_tools(catalog, text) or _MONEY.search(text) or _CONTACT.search(text) or _CLAIMED.search(text)
+            or chat_guard.reason(text)):
+        return None
+    if any(repeats(text, previous) for previous in recent):
+        return None
+    return text
+
+
+def recent_questions(body, limit=2):
+    return [item.text for item in reversed(body.history) if item.role == 'assistant'][:limit]
 
 
 def help_text(topic, catalog):

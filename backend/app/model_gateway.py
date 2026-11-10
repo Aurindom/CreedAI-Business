@@ -292,10 +292,12 @@ def _pinned(body: dict[str, Any], output_limit: int = MAX_OUTPUT_TOKENS) -> dict
                                    'required': ['kind', 'criterion', 'owner_text']}] }},
                 'required': ['claim_ids', 'followup_id', 'conversation_intent', 'reply_id', 'routes', 'trade', 'trade_text', 'business_text', 'action']}}}
         properties = body['response_format']['json_schema']['schema']['properties']
-        if any(message.get('role') == 'system' and 'conversation_plan_v3' in str(message.get('content', ''))
-               for message in body.get('messages', []) if isinstance(message, dict)):
-            from .conversation_plan import strict_schema
-            properties['plan'] = {'type': 'null'} if registered_reads else strict_schema()
+        system_text = ' '.join(str(message.get('content', '')) for message in body.get('messages', [])
+                               if isinstance(message, dict) and message.get('role') == 'system')
+        if 'conversation_plan_v3' in system_text:
+            from .conversation_plan import REPLY_MARKER, strict_schema
+            # An older app behind this gateway must not receive a reply field it cannot validate.
+            properties['plan'] = {'type': 'null'} if registered_reads else strict_schema(reply=REPLY_MARKER in system_text)
             body['response_format']['json_schema']['schema']['required'].append('plan')
             # V3 conversation must use the complete plan, not the legacy
             # single-action/generic reply escape hatch. Old instances keep V2.

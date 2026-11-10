@@ -171,7 +171,8 @@ def test_unknown_business_goal_and_followup_retained(client, public_reads, herme
     _, state, text = turn(client, message)
     assert state['business_description'] == 'floating sauna rental business'
     assert state['business_goal'] == 'attract customers'
-    assert 'search' in text and 'floating sauna rental business' in text
+    assert 'floating sauna rental business' in text and 'search' not in text
+    assert state['pending_question'] == 'task' and 2 <= len(state['pending_task_ids']) <= 3
 
 
 def test_incomplete_compound_request_does_not_short_circuit(client):
