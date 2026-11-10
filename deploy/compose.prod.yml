@@ -42,6 +42,7 @@ services:
     env_file: [settings.env, "${PENNY_SECRETS:-/srv/penny/secrets}/app.env", "${PENNY_SECRETS:-/srv/penny/secrets}/verification.env"]
     environment:
       CHAT_RUNTIME: hermes
+      CHAT_BUDGET_AUTHORITY: gateway
       CHAT_MAX_INFLIGHT: ${CHAT_MAX_INFLIGHT:-3}
       CHAT_CATALOG_FAST_PATH: "true"
       CHAT_TRUST_PROXY: "1"

@@ -34,7 +34,9 @@ def business_description(message, pending=False):
     if not match:
         match = re.search(r"\b(?:i|we)\s+have\s+(?:an?\s+)?([^,;?!.]+\b(?:business|shop|store|clinic|company|practice|studio))\b", message, re.I)
     if not match:
-        match = re.search(r"\bmy business is\s+(.+)", message, re.I)
+        # Only a statement declares the business. "Remind me what my business is please"
+        # is a question, and its tail must never be stored as the business.
+        match = re.search(r"(?:^|[.!?,;:]\s*|\b(?:actually|now|so|and|well|ok|okay|hi|hello|hey|yes|yeah|no|but|remember|note)\s+)my business is\s+(.+)", message, re.I)
     if not match and pending and re.match(r"(?:what|which|how|why|when|can|could|would|do|does|is|are|i need|we need|help|find|compare|show)\b", message, re.I):
         return None
     value = match.group(1) if match else message if pending else ''

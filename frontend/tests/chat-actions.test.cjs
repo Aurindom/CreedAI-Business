@@ -30,7 +30,7 @@ beforeEach(async () => {
   window.sessionStorage.clear()
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url, body: options.body ? JSON.parse(options.body) : null })
-    if (url === '/api/chat/status') return Response.json({ available: true })
+    if (url === '/api/chat/status') return Response.json(globalThis.chatStatus || { available: true })
     if (url === '/api/chat') {
       const events = replies.shift()
       if (events instanceof Response) return events
@@ -52,7 +52,45 @@ beforeEach(async () => {
   await act(async () => root.render(React.createElement(ChatPanel)))
   await act(async () => document.querySelector('.msc-launcher').click())
 })
-afterEach(async () => { await act(async () => root.unmount()) })
+afterEach(async () => { await act(async () => root.unmount()); globalThis.chatStatus = null })
+
+async function reopen(status) {
+  globalThis.chatStatus = status
+  await act(async () => root.unmount())
+  root = require('react-dom/client').createRoot(document.getElementById('root'))
+  await act(async () => root.render(React.createElement(ChatPanel)))
+  await act(async () => document.querySelector('.msc-launcher').click())
+}
+
+test('a paused model shows Limited, explains what still works, and keeps sending open', async () => {
+  await reopen({ available: true, model_available: false })
+  assert.equal(document.querySelector('.msc-live'), null)
+  assert.equal(document.querySelector('.msc-unavailable').textContent, 'Limited')
+  assert.match(document.querySelector('.penny-unavailable-note').textContent, /AI answers are paused.*saved tools/)
+  replies.push([{ type: 'message_delta', text: 'You told me your business is a bakery.' }, { type: 'done' }])
+  await submit('what business do I have?')
+  assert.match(document.querySelector('.msc-log').textContent, /your business is a bakery/)
+  assert.equal(document.querySelector('.msc-unavailable').textContent, 'Limited')
+})
+
+test('the badge follows the server after a turn, in both directions', async () => {
+  assert.equal(document.querySelector('.msc-live').textContent, 'Ready')
+  globalThis.chatStatus = { available: true, model_available: false }
+  replies.push([{ type: 'error', code: 'ai_budget_reached', message: 'The AI budget is used up.', retryable: false }, { type: 'done' }])
+  await submit('How do I attract customers?')
+  assert.equal(document.querySelector('.msc-unavailable').textContent, 'Limited')
+  globalThis.chatStatus = { available: true, model_available: true }
+  replies.push([{ type: 'message_delta', text: 'Hello again.' }, { type: 'done' }])
+  await submit('hello')
+  assert.equal(document.querySelector('.msc-live').textContent, 'Ready')
+  assert.equal(document.querySelector('.penny-unavailable-note'), null)
+})
+
+test('one failed reply does not change the badge while the server still reports ready', async () => {
+  replies.push([OUTAGE, { type: 'done' }])
+  await submit('Help with scheduling')
+  assert.equal(document.querySelector('.msc-live').textContent, 'Ready')
+})
 after(() => dom.window.close())
 
 async function submit(text) {
@@ -152,4 +190,27 @@ test('an over-long memory from the backend is trimmed so the next message is not
   const sent = requests.filter(request => request.url === '/api/chat/validate').at(-1).body
   assert.equal(sent.memory.pending_task_ids.length, 3)
   assert.equal(requests.filter(request => request.url === '/api/chat').at(-1).body.memory.pending_task_ids.length, 3)
+})
+
+
+test('account history restoration blocks sending until the stored context is ready', async () => {
+  await act(async () => root.unmount())
+  root = require('react-dom/client').createRoot(document.getElementById('root'))
+  let restore
+  const previous = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (url === '/api/chat/history') return new Promise(resolve => { restore = resolve })
+    if (url === '/api/chat/conversations') return Response.json({ conversations: [] })
+    return previous(url, options)
+  }
+  const auth = { configured: true, ready: true, user: { id: 'fixture-owner' }, session: { access_token: 'fixture-token' } }
+  await act(async () => root.render(React.createElement(ChatPanel, { auth })))
+  await act(async () => document.querySelector('.msc-launcher').click())
+  assert.equal(document.querySelector('.msc-send').disabled, true)
+  assert.equal(document.querySelector('.msc-send').textContent, 'Restoring')
+  assert.equal(document.querySelector('textarea').disabled, true)
+  await act(async () => restore(Response.json({ conversationId: 'restored', messages: [], memory: { business_description: 'bakery' } })))
+  assert.equal(document.querySelector('.msc-send').disabled, false)
+  assert.equal(document.querySelector('textarea').disabled, false)
+  globalThis.fetch = previous
 })

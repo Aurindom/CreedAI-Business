@@ -68,14 +68,22 @@ export function createHttpAdapter({ fetcher = (...args) => fetch(...args) } = {}
   return { sendMessage }
 }
 
-export async function checkLiveChat(fetcher = (...args) => fetch(...args)) {
+// `live` means messages can be sent. `modelReady` means the AI model can answer too.
+// A server that reports no model field is treated as one combined state.
+export async function checkChatStatus(fetcher = (...args) => fetch(...args)) {
   try {
     const response = await fetcher('/api/chat/status')
-    if (!response.ok) return false
-    return (await response.json()).available === true
+    if (!response.ok) return { live: false, modelReady: false }
+    const body = await response.json()
+    const live = body.available === true
+    return { live, modelReady: live && body.model_available !== false }
   } catch {
-    return false
+    return { live: false, modelReady: false }
   }
+}
+
+export async function checkLiveChat(fetcher = (...args) => fetch(...args)) {
+  return (await checkChatStatus(fetcher)).live
 }
 
 
@@ -116,5 +124,5 @@ export function createChatAdapter({ fetcher = (...args) => fetch(...args) } = {}
       onEvent({ type: 'done' })
     }
   }
-  return { sendMessage, isLive }
+  return { sendMessage, isLive, status: () => checkChatStatus(fetcher) }
 }

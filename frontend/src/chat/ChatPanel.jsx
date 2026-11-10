@@ -88,6 +88,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
   const [olderBefore, setOlderBefore] = useState(null)
   const [names, setNames] = useState({ tools: {}, trades: {}, urls: {} })
   const [live, setLive] = useState(null)
+  const [modelReady, setModelReady] = useState(true)
   const [speaking, setSpeaking] = useState(false)
   const [input, setInput] = useState('')
   const [typingHint, setTypingHint] = useState('')
@@ -111,7 +112,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
   memoryRef.current = memory
 
   useEffect(() => {
-    adapter.isLive().then(setLive).catch(() => setLive(false))
+    if (adapter.status) adapter.status().then((found) => { setLive(found.live); setModelReady(found.modelReady) }).catch(() => setLive(false))
+    else adapter.isLive().then(setLive).catch(() => setLive(false))
     if (auth?.user?.id) clearSession()
     loadCatalog()
       .then((data) => setNames({
@@ -125,6 +127,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
 
   const userId = auth?.user?.id || null
   const authToken = auth?.session?.access_token || null
+  const restoringAccount = Boolean(auth?.configured && (!auth.ready || (userId && hydratedFor !== userId)))
 
   useEffect(() => {
     if (!auth?.configured || !auth.ready || !userId || !authToken) return undefined
@@ -394,7 +397,11 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
           retry: event.retryable ? { type: 'send', text } : null,
         })
       }
-      if (event.type === 'done') finish(run)
+      if (event.type === 'done') {
+        finish(run)
+        // The badge follows the server's own view after each turn, never one failed reply.
+        adapter.status?.().then((found) => { setLive(found.live); setModelReady(found.modelReady) }).catch(() => {})
+      }
     }
 
     try {
@@ -654,7 +661,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
             <div className="penny-panel-heading">
               <span className="penny-panel-eyebrow">CREED AI / ASSISTANT</span>
               <h2>Arkadio</h2>
-              <span className={live ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : live ? 'Ready' : 'Unavailable'}</span>
+              <span className={live && modelReady ? 'msc-live' : 'msc-unavailable'}>{live === null ? 'Checking connection' : !live ? 'Unavailable' : modelReady ? 'Ready' : 'Limited'}</span>
             </div>
           </div>
           <div className="msc-header-actions">
@@ -663,13 +670,14 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>
               </button>
             )}
-            <button type="button" className="msc-text-button" onClick={startOver} disabled={busy || deletingHistory}>New chat</button>
+            <button type="button" className="msc-text-button" onClick={startOver} disabled={busy || deletingHistory || restoringAccount}>New chat</button>
             <button type="button" className="msc-close" onClick={onClose} aria-label="Close chat">×</button>
           </div>
         </header>
 
         <details className="penny-boundaries"><summary>What Arkadio will not do</summary><p>Arkadio will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. It uses catalog evidence, which means facts we have checked, and tells you which details need confirmation.</p></details>
         {live === false && <p className="penny-unavailable-note" role="status">Arkadio is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
+        {live === true && !modelReady && <p className="penny-unavailable-note" role="status">Arkadio's AI answers are paused right now. Catalog answers, your saved tools and browsing still work.</p>}
         <PennyMemory memory={memory} names={names} onRemove={forget} signedIn={Boolean(auth?.user?.id)} />
         {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
         {userId && conversations.length > 0 && <label className="msc-history-controls">Past conversations<select aria-label="Past conversations" value={conversations.some(item => item.conversationId === conversationId) ? conversationId : ''} onChange={event => openConversation(event.target.value)} disabled={busy || deletingHistory}><option value="">Current conversation</option>{conversations.map(item => <option key={item.conversationId} value={item.conversationId}>{item.title}</option>)}</select></label>}
@@ -767,6 +775,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
           <div className="msc-input-row">
             <textarea
               ref={inputRef}
+              disabled={restoringAccount}
               rows={1}
               value={input}
               maxLength={MAX_LENGTH}
@@ -794,7 +803,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
               }}
               disabled={busy}
             />
-            <button type="submit" className="msc-send" disabled={busy}>{busy ? 'Working' : 'Send'}</button>
+            <button type="submit" className="msc-send" disabled={busy || restoringAccount}>{restoringAccount ? 'Restoring' : busy ? 'Working' : 'Send'}</button>
           </div>
           <p className="penny-composer-note">Arkadio uses checked facts. Confirm prices with the company before you pay.</p>
         </form>

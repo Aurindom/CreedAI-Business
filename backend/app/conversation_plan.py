@@ -109,17 +109,93 @@ def comparison_tools(catalog, text):
     return list(dict.fromkeys(positive)), list(dict.fromkeys(excluded))
 
 
+_LEAD_IN = re.compile(r"^(?:(?:so|and|also|ok|okay|hey|well|then|arkadio|btw|by the way|quick question)[, ]+)+")
+_TRAIL = re.compile(r"(?:[, ]+(?:yet|so far|right now|currently|again|please|now|then|already|at all|at the moment|by the way))+$")
+_BUSINESS = r"(?:business|business type|type of business|kind of business|line of business|shop|company)"
+_ASK = r"(?:do you (?:not )?|don't you |can you |could you |did you |please )?(?:remember|recall|know|tell me|remind me)"
+_SAVED = r"(?:(?:saved |bookmarked |fav(?:ourite|orite)? )+(?:tools?|ones|list)|fav(?:ourite|orite)?s|favs|bookmarks)"
+_MINE = r"(?:my |our )"
+_OWN_BUSINESS = tuple(re.compile(pattern) for pattern in (
+    rf"{_ASK}(?: what| which)? (?:my |our |the )?{_BUSINESS}(?: is| was)?",
+    rf"{_ASK} (?:what|which) (?:kind of |type of |sort of )?{_BUSINESS} (?:i|we) (?:have|run|own|operate|do)",
+    rf"{_ASK} what (?:i|we) (?:run|own|do for (?:a living|work))",
+    rf"(?:what|which) (?:kind of |type of |sort of )?{_BUSINESS} (?:do|did) (?:i|we) (?:have|run|own|operate|do)",
+    rf"(?:what|which) (?:kind of |type of |sort of )?{_BUSINESS} (?:am i|are we) (?:in|running)",
+    rf"what(?:'s| is| was) (?:my|our) {_BUSINESS}",
+    rf"what did (?:i|we) (?:tell you|say) (?:about )?(?:my|our) {_BUSINESS}(?: is| was)?",
+    rf"what (?:do|did) you (?:know|remember|have) about (?:my|our) {_BUSINESS}",
+    rf"what {_BUSINESS} did (?:i|we) (?:tell you|say|mention)(?: (?:i|we) (?:have|run|own))?",
+))
+_OWN_FAVOURITES = tuple(re.compile(pattern) for pattern in (
+    rf"(?:what|which) (?:are|is|were) (?:in |on )?{_MINE}?{_SAVED}",
+    rf"what(?:'s| is| do i have| have i got) (?:in|on|saved in|saved to) {_MINE}{_SAVED}",
+    rf"(?:(?:can|could|would) you )?(?:show|list|tell|give|read)(?: me)? (?:all )?(?:of )?{_MINE}{_SAVED}",
+    rf"(?:do|did|have) (?:i|we) (?:have |got |saved? |bookmark(?:ed)? )?(?:any|some) {_SAVED}",
+    rf"(?:do|did|have) (?:i|we) (?:saved?|bookmark(?:ed)?|added|add) (?:any|some|anything|any tools?|some tools?)(?: (?:as|to|in|on) {_MINE}?{_SAVED})?",
+    rf"(?:are|is) there (?:any|anything|any tools?|some tools?)(?: saved)? (?:in|on|as) {_MINE}{_SAVED}",
+    rf"any {_SAVED}",
+    rf"anything (?:in|on) {_MINE}{_SAVED}",
+    rf"how many (?:{_SAVED}|tools) (?:do|have|did) (?:i|we)(?: have| got| saved?| bookmark(?:ed)?)?(?: (?:as|to|in|on) {_MINE}?{_SAVED})?",
+    rf"(?:what|which) tools (?:are|do i have) (?:in|on|saved in|saved as) {_MINE}?{_SAVED}",
+))
+
+
+def _core(clause):
+    """The question itself, without conversational lead-ins and trailing fillers."""
+    text = ' '.join(clause.casefold().replace('\u2019', "'").split())
+    return _TRAIL.sub('', _LEAD_IN.sub('', text)).strip(' ,')
+
+
+def asks_own_business(clause):
+    """A question about the business this owner already gave, in any common wording."""
+    return not contextual_language(clause) and any(pattern.fullmatch(_core(clause)) for pattern in _OWN_BUSINESS)
+
+
+def asks_own_favourites(clause):
+    """A question about what is on the owner's own list. Never a how-to, a write or a hypothetical."""
+    return not contextual_language(clause) and any(pattern.fullmatch(_core(clause)) for pattern in _OWN_FAVOURITES)
+
+
+def restates_business(clause, memory):
+    """'Remember I have a coffee shop' restates the business already held for this conversation."""
+    from .conversation_state import business_description
+    if contextual_language(clause) or not memory.business_description:
+        return False
+    stated = re.fullmatch(r"\s*(?:(?:do|can|could|will) you |please |you )?(?:remember|recall|note|keep in mind)(?: that)? (.+)", clause, re.I)
+    described = business_description(stated.group(1)) if stated else None
+    return bool(described) and described.casefold() == memory.business_description.casefold()
+
+
+READ_ONLY_KINDS = ('recall', 'favourites_list', 'help')
+
+
 def local_plan(message, memory, catalog):
     """Only a fully covered request can bypass semantic planning.
 
     These rules never classify an arbitrary business question as app help just
     because it contains 'help', 'business', 'saved' or a vendor name.
     """
+    steps, missed = _clause_steps(message, memory, catalog)
+    return Plan(steps=steps) if steps and not missed else None
+
+
+def known_parts(message, memory, catalog):
+    """Read-only steps the app can answer by itself when the model cannot run, plus the rest.
+
+    Writes, comparisons and anything unrecognised stay in the second list, so a
+    degraded turn never changes account data or guesses at a business question."""
+    steps, missed = _clause_steps(message, memory, catalog)
+    safe = [step for step in steps if step.kind in READ_ONLY_KINDS]
+    rest = [step.owner_text for step in steps if step.kind not in READ_ONLY_KINDS] + missed
+    return (Plan(steps=safe), rest) if safe and rest else (None, rest)
+
+
+def _clause_steps(message, memory, catalog):
     from .conversation_state import criterion_for
     clauses = [part.strip(' ,.!?') for part in re.split(r'[?;\n]+|\.(?:\s+|$)|\s+and\s+(?=(?:what|how|do you|can you|show|list|forget|remove)\b)', message, flags=re.I) if part.strip(' ,.!?')]
     if not clauses or len(clauses) > 6:
-        return None
-    steps = []
+        return [], clauses
+    steps, missed = [], []
     for clause in clauses:
         text = clause.casefold().strip()
         criterion_answer = bool(criterion_for(clause) and re.fullmatch(r'(?:by |the |on |required |overall |total |added |monthly |lowest |cheapest |their |price|prices|pricing|cost|plans?|tiers?|features?|fit|suitability|and|\s)+', text))
@@ -137,6 +213,10 @@ def local_plan(message, memory, catalog):
             kind = 'forget'
         elif re.fullmatch(r"(?:do you (?:not )?|can you |please )?(?:remember|recall)(?: what)? (?:my |our |the )?(?:business|business type|shop)(?: is)?", text):
             kind = 'recall'
+        elif asks_own_business(clause) or restates_business(clause, memory):
+            kind = 'recall'
+        elif asks_own_favourites(clause):
+            kind = 'favourites_list'
         elif fav:
             if re.match(r'(?:how|where|can i)\b', text):
                 kind, topic = 'help', 'favourites'
@@ -162,16 +242,16 @@ def local_plan(message, memory, catalog):
             re.fullmatch(r'(?:please |can you |could you )?(?:compare|show|give|make|put|format|present)\b.{0,150}', text)
             and re.search(r'\b(?:compar\w*|versus|vs|table|prices?|plans?|costs?|options|alternatives)\b', text)
             or criterion_answer and (memory.last_tool_ids or memory.pending_question == 'comparison')):
-            if re.search(r'\b(?:favourite|favorite|history|business)\b', text):
-                return None
-            kind = 'compare'
+            if not re.search(r'\b(?:favourite|favorite|history|business)\b', text):
+                kind = 'compare'
         if kind is None:
-            return None
+            missed.append(clause)
+            continue
         positive, excluded = comparison_tools(catalog, clause) if kind == 'compare' else (ids, [])
         steps.append(Step(kind=kind, owner_text=clause, topic=topic, tool_ids=positive,
                           exclude_tool_ids=excluded, criterion=criterion_for(clause) if kind == 'compare' else None,
                           presentation='table' if kind == 'compare' and re.search(r'\btable\b', text) else None))
-    return Plan(steps=steps)
+    return steps, missed
 
 
 def explicit_write(text, kind):

@@ -136,7 +136,10 @@ async def gateway_ready() -> Readiness:
                 or isinstance(committed, bool) or isinstance(cap, bool)
                 or not math.isfinite(committed) or not math.isfinite(cap) or committed < 0 or cap < 0):
             return Readiness(False, "gateway_status_invalid")
-        if attempts >= maximum or committed >= cap:
+        limits = data.get("enforce_lifetime_limits", True)
+        if type(limits) is not bool:
+            return Readiness(False, "gateway_status_invalid")
+        if limits and (attempts >= maximum or committed >= cap):
             return Readiness(False, "gateway_exhausted")
         return Readiness(True)
     except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):

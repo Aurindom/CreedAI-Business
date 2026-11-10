@@ -238,6 +238,7 @@ class ChatRequest(BaseModel):
     _catalog: Any = PrivateAttr(default=None)
     _quota_subject: str = PrivateAttr(default='guest:unknown')
     _daily_admitted: bool = PrivateAttr(default=False)
+    _known_parts: bool = PrivateAttr(default=False)
     conversation_id: str = Field(min_length=1, max_length=100)
     message: str = Field(min_length=1, max_length=500)
     profile: BusinessProfile = Field(default_factory=BusinessProfile)
@@ -284,6 +285,7 @@ class SpendLedger:
             actual = reserved
         with self.lock, self._connect() as conn:
             conn.execute("UPDATE spend SET total_usd = MAX(0, total_usd + ?) WHERE id = 1", (actual - reserved,))
+
 
 
 class DailyLimiter:
@@ -353,8 +355,15 @@ def _hermes_reserve() -> float:
     return _float_env("HERMES_RESERVE_USD", DEFAULT_HERMES_RESERVE_USD)
 
 
+def _gateway_budget() -> bool:
+    return runtime() == "hermes" and os.environ.get("CHAT_BUDGET_AUTHORITY", "app") == "gateway"
+
+
 def runtime_configured() -> bool:
     chosen = runtime()
+    authority = os.environ.get("CHAT_BUDGET_AUTHORITY", "app")
+    if authority not in ("app", "gateway") or (authority == "gateway" and chosen != "hermes"):
+        return False
     if chosen == "hermes":
         return hermes_runtime.hermes_config() is not None
     return chosen == "openrouter" and provider() is not None
@@ -363,7 +372,7 @@ def runtime_configured() -> bool:
 def chat_available() -> bool:
     if not runtime_configured():
         return False
-    return ledger().can_reserve(_hermes_reserve() if runtime() == "hermes" else _reserve_amount())
+    return _gateway_budget() or ledger().can_reserve(_hermes_reserve() if runtime() == "hermes" else _reserve_amount())
 
 
 def _client_id(request: Request) -> str:
@@ -745,6 +754,10 @@ def _busy() -> dict[str, Any]:
     return {"type": "error", "code": "agent_busy", "message": "Arkadio is helping other people right now. Try again in a few seconds.", "retryable": True}
 
 
+def _budget_reached() -> dict[str, Any]:
+    return {"type": "error", "code": "ai_budget_reached", "message": "Arkadio's AI has reached its usage budget for now. Browsing, saved tools and catalog answers still work.", "retryable": False}
+
+
 def _unavailable() -> dict[str, Any]:
     return {"type": "error", "code": "agent_unavailable", "message": "Arkadio's AI is unavailable right now. Browsing still works. Try again in a minute.", "retryable": True}
 
@@ -1079,6 +1092,45 @@ async def conversation_response(gate, catalog, profile, memory, body, kind, crit
     yield {'type': 'done'}
 
 
+MODEL_REFUSALS = ('agent_unavailable', 'ai_budget_reached', 'daily_ai_limit', 'admission_unavailable')
+
+
+async def answer_known_parts(stream, gate, catalog, profile, memory, body, known, rest):
+    """When the model cannot run, the parts the app holds itself are still answered.
+
+    Only read-only steps reach here. The unanswered part is named back to the
+    owner with the real reason, so a memory question is never swallowed by an
+    outage or turned into an unrelated intake question. No model is called."""
+    refusal, answered = None, False
+    try:
+        async for event in stream:
+            if event['type'] in ('message_delta', 'a2ui'):
+                answered = True
+            if event['type'] == 'error' and event.get('code') in MODEL_REFUSALS and not answered:
+                refusal = event
+                break
+            yield event
+    finally:
+        await stream.aclose()
+    if refusal is None:
+        return
+    logger.warning("hermes_degraded %s", refusal['code'])
+    async for event in plan_response(gate, catalog, profile, memory, body, known):
+        if event['type'] == 'error':
+            yield event
+            yield {'type': 'done'}
+            return
+        if event['type'] != 'done':
+            yield event
+    if gate.deliverable():
+        quoted = '; '.join('"' + ' '.join(part.split())[:160] + '"' for part in rest[:3])
+        text = f"I could not answer {'this part' if len(rest) == 1 else 'these parts'} right now: {quoted}. {refusal['message']}"
+        for event in reply_events(text, 'fallback'):
+            event['response_mode'] = 'conversation'
+            yield event
+    yield {'type': 'done'}
+
+
 async def plan_response(gate, catalog, profile, memory, body, plan):
     """Execute all validated steps. Private facts never travel through the model.
 
@@ -1087,7 +1139,7 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
     """
     from . import conversation_plan as planner, favourites
     account_catalog = body._catalog or catalog
-    for step in plan.steps:
+    for step_index, step in enumerate(plan.steps):
         if not gate.deliverable():
             yield _closed('session_ended')
             yield {'type': 'done'}
@@ -1185,7 +1237,7 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
                 yield {'type': 'done'}
                 return
             yield _memory_event(memory)
-            for event in reply_events(text, 'validated'):
+            for event in reply_events(('\n\n' if step_index else '') + text, 'validated'):
                 event['response_mode'] = 'app_help' if step.kind in ('help', 'social') else 'conversation'
                 yield event
         else:
@@ -1359,8 +1411,13 @@ async def _run_turn(catalog: Catalog, body: ChatRequest) -> AsyncIterator[dict[s
             package = _finish('ok', [], [], [], [], {}, [])
         if learned_trade:
             yield _memory_event(memory)
-        async for event in run_hermes(gate, package, body, guard, spend, original_catalog, current, memory,
-                                     recommendation_arguments=alternatives):
+        stream = run_hermes(gate, package, body, guard, spend, original_catalog, current, memory,
+                            recommendation_arguments=alternatives)
+        known, rest = conversation_plan.known_parts(body.message, memory, original_catalog)
+        if known:
+            body._known_parts = True
+            stream = answer_known_parts(stream, gate, original_catalog, current, memory, body, known, rest)
+        async for event in stream:
             yield event
         return
     # A lexical no-match is a routing hint, not the owner's requested answer.
@@ -1710,8 +1767,11 @@ def _ms(start: float | None, end: float | None) -> int | None:
     return None if start is None or end is None else round((end - start) * 1000)
 
 
-def _bail() -> list[dict[str, Any]]:
-    return [_unavailable(), {"type": "done"}]
+def _bail(reason: str) -> list[dict[str, Any]]:
+    """Every refusal logs one fixed reason code, so the generic owner message can be traced."""
+    logger.warning("hermes_bail %s", reason)
+    budget = reason in ("spend_reserve_refused", "gateway_exhausted")
+    return [_budget_reached() if budget else _unavailable(), {"type": "done"}]
 
 
 _inflight = 0
@@ -1744,25 +1804,25 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                      memory: ChatMemory, routing_done: bool = False, recommendation_arguments=None) -> AsyncIterator[dict[str, Any]]:
     """At most two Hermes runs: one intent proposal and, if changed, one factual run.
     No blind retry. Private actions never go to Hermes. Readiness is checked and the
-    reads are registered before any budget is reserved. The app can't see what the run cost, so the full
-    reservation stays counted as spent."""
+    reads are registered before admission. With gateway authority, only the gateway charges actual usage.
+    Legacy app-budget mode retains the full reservation as a conservative charge."""
     began = time.monotonic()
     marks: dict[str, float] = {}
     config = hermes_runtime.hermes_config()
     if config is None:
-        for event in _bail():
+        for event in _bail("runtime_config_missing"):
             yield event
         return
     found = await readiness.check()
     marks["ready"] = time.monotonic()
     if not found.ok:
         logger.warning("Hermes not ready: %s", found.code)
-        if (os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1')
+        if (os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1') and not body._known_parts
                 and not tool_execution.required_tool_ids(package) and not task_ids(catalog, body)):
             async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
                 yield event
             return
-        for event in _bail():
+        for event in _bail(found.code or "not_ready"):
             yield event
         return
     required = tool_execution.required_tool_ids(package)
@@ -1775,21 +1835,28 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
                                                           config.timeout + 30)
         except (ValueError, sqlite3.Error) as exc:
             logger.warning("Public reads not registered: %s", exc if isinstance(exc, ValueError) else type(exc).__name__)
-            for event in _bail():
+            for event in _bail("reads_not_registered"):
                 yield event
             return
+    # Budget is checked before the daily allowance, so a turn refused for budget
+    # does not also use up one of the owner's daily turns.
+    reserved = 0.0 if _gateway_budget() else _hermes_reserve()
+    if reserved and not spend.reserve(reserved):
+        for event in _bail("spend_reserve_refused"):
+            yield event
+        return
     admission = _admit_model_turn(body)
     if admission:
+        if reserved:
+            spend.settle(reserved, 0.0)
+        logger.warning("hermes_bail %s", admission.get('code') or 'admission_refused')
         yield admission
         yield {'type': 'done'}
-        return
-    if not spend.reserve(_hermes_reserve()):
-        for event in _bail():
-            yield event
         return
     instructions = hermes_instructions(package, operations, run_context.build(body, profile, memory, guard), catalog, routing_done,
         list(dict.fromkeys(excerpt for source in [body.message, *(item.text for item in reversed(body.history) if item.role == 'user')][:4]
                            for excerpt in owner_excerpts(source, catalog)))[:24])
+    instructions = "\nGateway turn: " + secrets.token_hex(16) + "\n" + instructions
     if recommendation_arguments:
         instructions = instructions.replace('\ninitial_evidence_package:',
             '\nThe backend already resolved this alternatives follow-up to the active task and scoped '
@@ -1872,7 +1939,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             logger.warning("Hermes run stopped: %s", outcome)
             if revoked is not None:
                 raise revoked
-            if outcome == 'timeout' and not operations and not task_ids(catalog, body):
+            if outcome == 'timeout' and not operations and not task_ids(catalog, body) and not body._known_parts:
                 async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
                     yield event
                 return
@@ -1886,11 +1953,11 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
     if run.terminal != "run.completed":
         logger.warning("Hermes run ended: %s", run.terminal)
         readiness.invalidate()
-        if not tool_execution.required_tool_ids(package) and not task_ids(catalog, body):
+        if not tool_execution.required_tool_ids(package) and not task_ids(catalog, body) and not body._known_parts:
             async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
                 yield event
             return
-        for event in _bail():
+        for event in _bail("run_not_completed"):
             yield event
         return
     try:
@@ -2116,7 +2183,8 @@ async def chat_ready(request: Request) -> JSONResponse:
     chosen = runtime()
     checks = {"provider": await runtime_ready(), "database": _database_ready(request)}
     try:
-        checks["budget"] = ledger().can_reserve(_hermes_reserve() if chosen == "hermes" else _reserve_amount())
+        checks["budget"] = ((await readiness.gateway_ready()).ok if _gateway_budget() else
+                            ledger().can_reserve(_hermes_reserve() if chosen == "hermes" else _reserve_amount()))
     except (OSError, sqlite3.Error):
         checks["budget"] = False
     ready = all(checks.values())

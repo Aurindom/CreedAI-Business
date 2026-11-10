@@ -43,6 +43,9 @@ FRAMING_TOKENS = 4096
 MAX_REQUEST_BYTES = 40_000
 MAX_RESPONSE_BYTES = 512_000
 MAX_STREAM_EVENTS = 4_000
+RECOVERY_OUTPUT_TOKENS = 1600
+MAX_CALLS_PER_TURN = 6
+TURN_MARKER = re.compile(r"\nGateway turn: ([0-9a-f]{32})\n")
 ALLOWED_FIELDS = {"model", "messages", "tools", "tool_choice", "stream", "stream_options", "max_tokens",
                   "max_completion_tokens", "temperature", "top_p", "stop", "parallel_tool_calls", "n",
                   "reasoning_effort", "reasoning", "response_format"}
@@ -68,6 +71,7 @@ class GatewayConfig:
     tools: frozenset[str] = frozenset({"mcp__marketplace__get_tool_details"})
     forbidden: tuple[str, ...] = field(default_factory=tuple)
     timeout: float = MODEL_TIMEOUT_SECONDS
+    enforce_lifetime_limits: bool = True
 
     @classmethod
     def from_env(cls) -> "GatewayConfig":
@@ -90,16 +94,20 @@ class GatewayConfig:
             raise ConfigError("GATEWAY_STATE_PATH is required")
         tools = frozenset(t for t in env.get("GATEWAY_TOOLS", "mcp__marketplace__get_tool_details").split(",") if t)
         forbidden = tuple(v for v in env.get("GATEWAY_FORBIDDEN", "").split(",") if len(v) >= 8)
+        limits = env.get("GATEWAY_ENFORCE_LIFETIME_LIMITS", "true").lower()
+        if limits not in ("true", "false"):
+            raise ConfigError("GATEWAY_ENFORCE_LIFETIME_LIMITS must be true or false")
         return cls(upstream, provider_key, client_key, Path(state), max_requests, cap_usd,
-                   env.get("GATEWAY_MODEL", DEFAULT_MODEL), tools, forbidden)
+                   env.get("GATEWAY_MODEL", DEFAULT_MODEL), tools, forbidden,
+                   enforce_lifetime_limits=limits == "true")
 
 
-def reservation(size: int) -> float:
+def reservation(size: int, output_tokens: int = MAX_OUTPUT_TOKENS) -> float:
     """Conservative text-only reservation under the documented framing/token assumption.
     Provider rate filtering and output limits also apply; this is not an account-level billing guarantee.
     Missing or over-reservation usage holds the charge and trips further admission."""
     tokens_in = (size + FRAMING_TOKENS) * INPUT_MARGIN
-    return (tokens_in * INPUT_USD_PER_MTOK + MAX_OUTPUT_TOKENS * OUTPUT_USD_PER_MTOK) / 1_000_000
+    return (tokens_in * INPUT_USD_PER_MTOK + output_tokens * OUTPUT_USD_PER_MTOK) / 1_000_000
 
 
 class Ledger:
@@ -114,6 +122,11 @@ class Ledger:
                          "state TEXT NOT NULL CHECK (state IN ('reserved', 'settled', 'held')), "
                          "reserved_usd REAL NOT NULL, charged_usd REAL, reason TEXT, "
                          "created REAL NOT NULL, closed REAL)")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(attempt)")}
+            for name in ("turn_id", "finish_reason"):
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE attempt ADD COLUMN {name} TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS attempt_turn ON attempt(turn_id)")
 
     def _tx(self) -> "_Tx":
         return _Tx(self.path)
@@ -127,29 +140,43 @@ class Ledger:
                 conn.execute("UPDATE gateway SET tripped = COALESCE(tripped, 'orphaned')")
         return count
 
-    def admit(self, amount: float, max_requests: int, cap_usd: float) -> tuple[int | None, str | None]:
+    def admit(self, amount: float, max_requests: int, cap_usd: float, *,
+              enforce_limits: bool = True, turn_id: str | None = None) -> tuple[int | None, str | None]:
         with self._tx() as conn:
             tripped = conn.execute("SELECT tripped FROM gateway").fetchone()[0]
             count, committed = conn.execute(
                 "SELECT count(*), COALESCE(SUM(CASE WHEN state = 'reserved' THEN reserved_usd ELSE charged_usd END), 0) "
                 "FROM attempt").fetchone()
-            code = ("usage_unverified" if tripped else "request_cap" if count >= max_requests
-                    else "budget_exhausted" if committed + amount > cap_usd else None)
+            calls, lengths, active = conn.execute(
+                "SELECT count(*), COALESCE(SUM(finish_reason='length'),0), COALESCE(SUM(state='reserved'),0) "
+                "FROM attempt WHERE turn_id = ?", (turn_id,)).fetchone()
+            code = ("usage_unverified" if tripped else
+                    "turn_call_limit" if turn_id and calls >= MAX_CALLS_PER_TURN else
+                    "truncation_retry_exhausted" if turn_id and lengths >= 2 else
+                    "turn_inflight" if turn_id and active else
+                    "request_cap" if enforce_limits and count >= max_requests else
+                    "budget_exhausted" if enforce_limits and committed + amount > cap_usd else None)
             if code:
                 conn.execute("UPDATE gateway SET refused = refused + 1")
                 return None, code
-            cursor = conn.execute("INSERT INTO attempt (state, reserved_usd, created) VALUES ('reserved', ?, ?)",
-                                  (amount, time.time()))
+            cursor = conn.execute("INSERT INTO attempt (state, reserved_usd, created, turn_id) VALUES ('reserved', ?, ?, ?)",
+                                  (amount, time.time(), turn_id))
             return cursor.lastrowid, None
+
+    def output_limit(self, turn_id: str | None) -> int:
+        with self._tx() as conn:
+            truncated = conn.execute("SELECT 1 FROM attempt WHERE turn_id=? AND finish_reason='length' LIMIT 1",
+                                     (turn_id,)).fetchone()
+        return RECOVERY_OUTPUT_TOKENS if truncated else MAX_OUTPUT_TOKENS
 
     def refused(self) -> None:
         with self._tx() as conn:
             conn.execute("UPDATE gateway SET refused = refused + 1")
 
-    def settle(self, number: int, cost: float) -> bool:
+    def settle(self, number: int, cost: float, finish_reason: str | None = None) -> bool:
         with self._tx() as conn:
-            return conn.execute("UPDATE attempt SET state = 'settled', charged_usd = ?, closed = ? "
-                                "WHERE n = ? AND state = 'reserved'", (cost, time.time(), number)).rowcount == 1
+            return conn.execute("UPDATE attempt SET state = 'settled', charged_usd = ?, closed = ?, finish_reason = ? "
+                                "WHERE n = ? AND state = 'reserved'", (cost, time.time(), finish_reason, number)).rowcount == 1
 
     def hold(self, number: int, reason: str, cost: float | None = None) -> None:
         """Keep at least the reservation charged and stop all further calls until reconciled."""
@@ -216,12 +243,11 @@ def _check(body: Any, raw: str, config: GatewayConfig) -> str | None:
     return None
 
 
-def _pinned(body: dict[str, Any]) -> dict[str, Any]:
+def _pinned(body: dict[str, Any], output_limit: int = MAX_OUTPUT_TOKENS) -> dict[str, Any]:
     for key in DROPPED_FIELDS:
         body.pop(key, None)
     requested = body.get("max_tokens")
-    body["max_tokens"] = min(requested, MAX_OUTPUT_TOKENS) if isinstance(requested, int) and requested > 0 \
-        else MAX_OUTPUT_TOKENS
+    body["max_tokens"] = min(requested, output_limit) if type(requested) is int and requested > 0 else output_limit
     body["temperature"] = 0
     body["usage"] = {"include": True}
     body["provider"] = {"max_price": {"prompt": INPUT_USD_PER_MTOK, "completion": OUTPUT_USD_PER_MTOK},
@@ -340,12 +366,12 @@ class Gateway:
         tokens = _completion_tokens(usage)
         if failed is None and cost is None:
             failed = "usage_missing"
-        if failed is None and (cost > reserved or (tokens is not None and tokens > MAX_OUTPUT_TOKENS)):
+        if failed is None and (cost > reserved or (tokens is not None and tokens > entry.get('output_limit', MAX_OUTPUT_TOKENS))):
             failed = "usage_over_bound"
         if failed:
             self.ledger.hold(number, failed, cost)
         else:
-            self.ledger.settle(number, cost)
+            self.ledger.settle(number, cost, entry.get('finish_reason'))
         self.log(dict(entry, result=failed or "ok", cost_usd=cost, completion_tokens=tokens))
 
     async def models(self, request: Request) -> JSONResponse:
@@ -357,7 +383,8 @@ class Gateway:
         if not self.authorized(request):
             return _error("unauthorized", 401)
         return JSONResponse(dict(self.ledger.status(), max_requests=self.config.max_requests,
-                                 cap_usd=self.config.cap_usd, model=self.config.model))
+                                 cap_usd=self.config.cap_usd, model=self.config.model,
+                                 enforce_lifetime_limits=self.config.enforce_lifetime_limits))
 
     async def completions(self, request: Request) -> Any:
         if not self.authorized(request):
@@ -376,17 +403,30 @@ class Gateway:
             self.ledger.refused()
             self.log({"result": "refused", "code": problem})
             return _error(problem, 400)
-        payload = json.dumps(_pinned(body), ensure_ascii=False).encode("utf-8")
+        # Opaque per-run identity comes only from the trusted application's system
+        # instructions. Strip it before forwarding; no user/account identifiers.
+        turns = set()
+        for message in body['messages']:
+            if isinstance(message, dict) and message.get('role') == 'system' and isinstance(message.get('content'), str):
+                turns.update(TURN_MARKER.findall(message['content']))
+                message['content'] = TURN_MARKER.sub('\n', message['content'])
+        if len(turns) > 1:
+            return _error('ambiguous_turn', 400)
+        turn_id = next(iter(turns), None)
+        output_limit = self.ledger.output_limit(turn_id)
+        payload = json.dumps(_pinned(body, output_limit), ensure_ascii=False).encode("utf-8")
         if len(payload) > MAX_REQUEST_BYTES:
             self.ledger.refused()
             return _error("too_large", 413)
-        reserved = reservation(len(payload))
-        number, code = self.ledger.admit(reserved, self.config.max_requests, self.config.cap_usd)
+        reserved = reservation(len(payload), body['max_tokens'])
+        number, code = self.ledger.admit(reserved, self.config.max_requests, self.config.cap_usd,
+                                       enforce_limits=self.config.enforce_lifetime_limits, turn_id=turn_id)
         if number is None:
             self.log({"result": "refused", "code": code})
             return _error(code, 402 if code == "budget_exhausted" else 403)
         stream = bool(body.get("stream"))
         entry = {"n": number, "bytes": len(payload), "reserved_usd": round(reserved, 6), "stream": stream,
+                 "output_limit": body['max_tokens'],
                  "messages": len(body["messages"]), "tools": sorted((t.get("function") or {}).get("name", "?")
                                                                   for t in body.get("tools") or [])}
         client = httpx.AsyncClient(timeout=httpx.Timeout(self.config.timeout, connect=10), transport=self.transport)
@@ -452,7 +492,7 @@ class Relay:
         self.number, self.entry, self.reserved = number, entry, reserved
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        state: dict[str, Any] = {"cost": None, "usage": None, "failed": None, "gone": False, "done": False}
+        state: dict[str, Any] = {"cost": None, "usage": None, "failed": None, "gone": False, "done": False, "closed": False}
 
         async def deliver(message: dict[str, Any]) -> None:
             if state["gone"]:
@@ -478,6 +518,11 @@ class Relay:
                     data = line[5:].strip() if line.startswith("data:") else ""
                     if data == "[DONE]":
                         state["done"] = True
+                        # Commit usage/retry state before Hermes can start its next
+                        # request, not after it has already received the terminal frame.
+                        self.gateway.close(self.number, dict(self.entry, client_gone=state['gone']),
+                                           state['cost'], state['usage'], state['failed'], self.reserved)
+                        state['closed'] = True
                     elif data:
                         try:
                             chunk = json.loads(data)
@@ -518,7 +563,8 @@ class Relay:
                 await self.upstream.aclose()
                 await self.client.aclose()
             entry = dict(self.entry, client_gone=state["gone"])
-            self.gateway.close(self.number, entry, state["cost"], state["usage"], state["failed"], self.reserved)
+            if not state['closed']:
+                self.gateway.close(self.number, entry, state["cost"], state["usage"], state["failed"], self.reserved)
 
 
 def build(config: GatewayConfig | None = None, transport: httpx.AsyncBaseTransport | None = None) -> Starlette:

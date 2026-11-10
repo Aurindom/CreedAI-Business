@@ -93,6 +93,18 @@ test('model readiness cannot veto app help served by the real backend', async ()
   assert.ok(second.some(event => event.text === 'Recovered'))
 })
 
+test('status separates sending from model readiness and stays safe on old or failing servers', async () => {
+  const status = body => createChatAdapter({ fetcher: async () => body instanceof Response ? body : Response.json(body) }).status()
+  assert.deepEqual(await status({ available: true, model_available: true }), { live: true, modelReady: true })
+  assert.deepEqual(await status({ available: true, model_available: false }), { live: true, modelReady: false })
+  assert.deepEqual(await status({ available: true }), { live: true, modelReady: true })
+  assert.deepEqual(await status({ available: false, model_available: true }), { live: false, modelReady: false })
+  assert.deepEqual(await status(new Response('down', { status: 503 })), { live: false, modelReady: false })
+  const broken = createChatAdapter({ fetcher: async () => { throw new Error('offline') } })
+  assert.deepEqual(await broken.status(), { live: false, modelReady: false })
+  assert.equal(await broken.isLive(), false)
+})
+
 test('a busy refusal stays retryable and does not mark Arkadio as down', async () => {
   const busy = { type: 'error', code: 'agent_busy', message: 'Arkadio is helping other people right now. Try again in a few seconds.', retryable: true }
   const events = await run(async url => url.endsWith('/status') ? Response.json({ available: true }) : stream([busy]))
