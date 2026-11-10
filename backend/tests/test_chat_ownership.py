@@ -19,6 +19,13 @@ REPORTED = 'we already use QuickBooks Simple Start, my books are behind'
     ('thinking about Square for Restaurants', []),
     ('our books are behind', []),
     ('We use QuickBooks Platinum', [('quickbooks_online', None)]),
+    ('Can I use Jobber?', []),
+    ('Should we use Jobber?', []),
+    ('I might use Jobber', []),
+    ('I want to use Jobber', []),
+    ('I have a question about Jobber', []),
+    ('We currently use Jobber', [('jobber', None)]),
+    ('Our team has Jobber', [('jobber', None)]),
 ])
 def test_stated_ownership(client, owner_text, expected):
     assert sorted(stated_ownership(client.app.state.catalog, owner_text)) == sorted(expected)

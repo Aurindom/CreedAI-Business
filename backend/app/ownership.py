@@ -40,11 +40,13 @@ def _names(tool: Tool, short_counts: dict[str, int]) -> list[str]:
 
 
 def _owned_at(before: str, after: str) -> bool:
-    if _NEGATION.search(before) or re.search(r'\b(?:favourite|favorite|bookmark|saved|years ago|used to|previously|formerly|no longer|do not subscribe|dont subscribe|not subscribed)\b', after):
+    if (_NEGATION.search(before) or re.search(r'\b(?:can|could|would|should|might|may|will|wish|hope|want to|plan to|planning to|intend to|going to)\b', before)
+            or re.search(r'\b(?:favourite|favorite|bookmark|saved|years ago|used to|previously|formerly|no longer|do not subscribe|dont subscribe|not subscribed)\b', after)):
         return False
     # The grammatical subject must be the owner, not a competitor or quoted user.
     return bool(re.search(r'\b(?:i|we|our team|my team|our business|my business)\b', before)
-                and _OWNS_BEFORE.search(before) or _OWNS_AFTER.search(after))
+                and re.search(r'\b(?:use|using|have|has|pay for|paying for|run|running|subscribe to|subscribed to|on)\s*(?:both\s*)?$', before)
+                or _OWNS_AFTER.search(after))
 
 
 def stated_ownership(catalog: Catalog, text: str) -> list[tuple[str, str | None]]:
