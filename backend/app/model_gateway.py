@@ -269,11 +269,11 @@ def _pinned(body: dict[str, Any]) -> dict[str, Any]:
         if any(message.get('role') == 'system' and 'conversation_plan_v3' in str(message.get('content', ''))
                for message in body.get('messages', []) if isinstance(message, dict)):
             from .conversation_plan import strict_schema
-            properties['plan'] = {'anyOf': [strict_schema(), {'type': 'null'}]}
+            properties['plan'] = {'type': 'null'} if registered_reads else strict_schema()
             body['response_format']['json_schema']['schema']['required'].append('plan')
             # V3 conversation must use the complete plan, not the legacy
             # single-action/generic reply escape hatch. Old instances keep V2.
-            for field in ('action', 'conversation_intent', 'reply_id'):
+            for field in ('action', 'conversation_intent', 'reply_id', 'routes', 'trade', 'trade_text'):
                 properties[field] = {'type': 'null'}
         if not any(message.get('role') == 'system' and 'conversation_state_v2' in str(message.get('content', ''))
                    for message in body.get('messages', []) if isinstance(message, dict)):

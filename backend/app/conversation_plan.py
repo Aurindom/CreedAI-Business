@@ -257,4 +257,3 @@ def forget_business(memory):
     memory.comparison_presentation = 'prose'
     memory.comparison_excluded_ids = []
     memory.background_done = False
-

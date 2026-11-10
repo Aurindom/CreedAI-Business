@@ -223,7 +223,9 @@ def test_v3_gateway_has_plan_without_legacy_single_reply_escape_hatch():
     body = _pinned({'messages': [{'role': 'system', 'content': 'penny_hermes_selection_v1\nconversation_state_v2\nconversation_plan_v3'}]})
     properties = body['response_format']['json_schema']['schema']['properties']
     assert 'plan' in properties
+    assert properties['plan']['type'] == 'object'
     assert properties['action'] == properties['reply_id'] == properties['conversation_intent'] == {'type': 'null'}
+    assert properties['routes'] == properties['trade'] == properties['trade_text'] == {'type': 'null'}
     old = _pinned({'messages': [{'role': 'system', 'content': 'penny_hermes_selection_v1\nconversation_state_v2'}]})
     assert 'plan' not in old['response_format']['json_schema']['schema']['properties']
 
