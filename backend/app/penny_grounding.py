@@ -1,6 +1,7 @@
 """Trusted answer packages for Arkadio; never use owner/history numbers as facts."""
 from .agent.evidence import Claim, Source, _finish, _safe, build_evidence, build_request_evidence
 from .tasks import affirmative_excerpt, owner_excerpts, resolve_task
+import math
 import re
 
 
@@ -60,6 +61,44 @@ def suggested_task_ids(catalog, trade, limit=3):
     return (specific + common)[:limit]
 
 
+_FILLER_WORDS = _GENERIC_WORDS | frozenset('''
+how do does did doing done is are was were be been being have has had it its it's this that these those there
+they them their yet more much many so very really also at by from as if when where why who than then up out
+over all not no got make makes making way ways tip tips idea ideas lot lots
+people person nobody anybody anyone somebody someone everybody everyone thing things stuff
+'''.split())
+
+
+def relevant_task_ids(catalog, texts, trade, limit=3):
+    """Cards worth offering when the AI cannot answer the owner's own words.
+
+    Each card the owner's business can use is scored by the owner's words (stemmed,
+    filler removed) found in its title, plain description or phrases, each word
+    weighted by how few cards share it. Matches come first and the business's usual cards fill the rest, so
+    the card always has enough choices. The flag says whether anything matched,
+    which decides whether the reply may call them the closest match.
+
+    Deliberately not routing: this only orders suggestions. It never picks a
+    task on the owner's behalf, so a loose overlap costs one tap, not a wrong answer.
+    """
+    from .tasks import _words
+    filler = _words(' '.join(_FILLER_WORDS))
+    said = set().union(*(_words(text) for text in texts if text)) - filler
+    usual = suggested_task_ids(catalog, trade, len(catalog.problem_cards))
+    if not said:
+        return usual[:limit], False
+    vocab = {card.id: _words(' '.join([card.title, card.plain_words, *card.phrases])) - filler
+             for card in catalog.problem_cards}
+    # A word on many cards ("customers") says little about which card fits; one on a single card says a lot.
+    spread = {word: sum(word in words for words in vocab.values()) for word in said}
+    weight = {word: math.log((len(vocab) + 1) / count) for word, count in spread.items() if count}
+    scores = {pid: sum(weight.get(word, 0.0) for word in said & vocab[pid]) for pid in usual}
+    matched = [pid for pid in usual if scores[pid]]
+    matched.sort(key=lambda pid: -scores[pid])
+    ranked = matched + [pid for pid in usual if pid not in matched]
+    return ranked[:limit], bool(matched)
+
+
 def plan_already_unknown(body):
     """Recognize explicit uncertainty; an omitted profile field alone is insufficient."""
     text = body.message.casefold().replace('’', "'")
@@ -89,6 +128,11 @@ def task_ids(catalog, body):
     pending = pending_tasks(catalog, body)
     if normalized in {'yes', 'yes please', 'please do', 'sure', 'go ahead'} and len(pending) == 1:
         return pending
+    # A tapped card choice is the card title word for word. Titles like "Past customers do not
+    # come back" read as negated to resolve_task, so they must match here or the tap goes nowhere.
+    titled = [card.id for card in catalog.problem_cards if card.title.casefold().strip(' .!?') == normalized]
+    if len(titled) == 1:
+        return titled
     if re.fullmatch(r'(?:please )?show (?:me )?(?:the )?(?:tools|options|recommendations) for that(?: now)?', normalized):
         active = [pid for pid in body.memory.active_task_ids if pid in known]
         if len(active) == 1:

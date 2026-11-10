@@ -43,7 +43,7 @@ from .agent.prompts import SYSTEM_PROMPT as GROUNDED_PROMPT
 from .penny_selection import PennySelection, SELECTION_PROMPT, selection_schema, submit_selection
 from .penny_conversation import ConversationReply, validate_conversation, reply_choices, app_help_reply, business_intake
 from .penny_grounding import (ActionContextError, action_package, filtered_context, question, request_package, qualify_package,
-                              plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, is_generic_request, ambiguous_choices,
+                              plan_already_unknown, question_repeats, pending_tasks, suggested_task_ids, relevant_task_ids, is_generic_request, ambiguous_choices,
                               recommendation_catalog, recommendation_package, alternatives_note, contextual_alternatives, task_ids)
 
 logger = logging.getLogger(__name__)
@@ -239,6 +239,7 @@ class ChatRequest(BaseModel):
     _quota_subject: str = PrivateAttr(default='guest:unknown')
     _daily_admitted: bool = PrivateAttr(default=False)
     _known_parts: bool = PrivateAttr(default=False)
+    _answered_kinds: set[str] = PrivateAttr(default_factory=set)
     conversation_id: str = Field(min_length=1, max_length=100)
     message: str = Field(min_length=1, max_length=500)
     profile: BusinessProfile = Field(default_factory=BusinessProfile)
@@ -895,13 +896,39 @@ def catalog_reply_events(catalog, profile, memory, reply, guard, shown_tasks, fo
         yield event
 
 
-async def _ask_what_they_need(gate, catalog, profile, memory, body) -> AsyncIterator[dict[str, Any]]:
-    """Answers a request that names no problem with a question and buttons. No model call."""
-    trade = memory.trade or profile.trade
-    if not trade and not memory.business_description and not memory.background_done:
+BUDGET_REASONS = ('gateway_exhausted', 'spend_reserve_refused', 'ai_budget_reached')
+
+
+def _owner_trade(catalog, profile, memory):
+    """The business a card should fit, including one only described in words ("coffee shop")."""
+    return memory.trade or profile.trade or (catalog.resolve_trade(memory.business_description)
+                                            if memory.business_description else None)
+
+
+def _outage_note(reason: str, matched: bool) -> str:
+    """Says plainly that the AI did not answer, so a task card is never mistaken for an answer."""
+    cause = ("Arkadio's AI has reached its usage budget for now" if reason in BUDGET_REASONS
+             else "Arkadio's AI is unavailable for a moment")
+    offer = ('These tasks are the closest match and still work without it.' if matched
+             else 'You can still pick a task below and I will show matching tools.')
+    retry = '' if reason in BUDGET_REASONS else ' You can also ask again in a minute.'
+    return f"{cause}, so I can't answer that in my own words. {offer}{retry}"
+
+
+async def _ask_what_they_need(gate, catalog, profile, memory, body, reason: str | None = None) -> AsyncIterator[dict[str, Any]]:
+    """Answers a request that names no problem with a question and buttons. No model call.
+
+    With a reason, the AI could not run. The card then leads with the owner's own
+    words (their message and goal) and an honest note, instead of generic tasks
+    presented as if nothing were wrong.
+    """
+    trade = _owner_trade(catalog, profile, memory)
+    matched = False
+    if not trade and not memory.business_description and not memory.background_done and not reason:
         arguments: dict[str, Any] = {'question_id': 'business'}
     else:
-        arguments = {'question_id': 'task', 'problem_ids': suggested_task_ids(catalog, trade, 3)}
+        ids, matched = relevant_task_ids(catalog, [body.message, memory.business_goal], trade, 3)
+        arguments = {'question_id': 'task', 'problem_ids': ids}
     result = run_action(catalog, 'ask_owner', arguments, profile, memory)
     yield {"type": "status", "text": "Arkadio is thinking",
            'auth_mode': 'account' if body._principal.authenticated else 'guest',
@@ -917,6 +944,11 @@ async def _ask_what_they_need(gate, catalog, profile, memory, body) -> AsyncIter
     memory.pending_question = arguments['question_id']
     memory.pending_task_ids = arguments.get('problem_ids', [])
     yield _memory_event(memory)
+    if reason:
+        logger.warning("outage_card %s matched=%s", reason, matched)
+        for event in reply_events(_outage_note(reason, matched), 'fallback'):
+            event['response_mode'] = 'conversation'
+            yield event
     for event in result.events:
         yield event
     yield {"type": "done"}
@@ -1085,6 +1117,7 @@ async def conversation_response(gate, catalog, profile, memory, body, kind, crit
     for event in settled:
         yield event
     if ready:
+        body._answered_kinds.add(kind)
         yield _memory_event(memory)
         for event in reply_events(text, 'validated'):
             event['response_mode'] = 'app_help' if kind == 'help' else 'conversation'
@@ -1101,18 +1134,29 @@ async def answer_known_parts(stream, gate, catalog, profile, memory, body, known
     Only read-only steps reach here. The unanswered part is named back to the
     owner with the real reason, so a memory question is never swallowed by an
     outage or turned into an unrelated intake question. No model is called."""
-    refusal, answered = None, False
+    refusal, answered, failed, finished = None, False, False, False
     try:
         async for event in stream:
             if event['type'] in ('message_delta', 'a2ui'):
                 answered = True
-            if event['type'] == 'error' and event.get('code') in MODEL_REFUSALS and not answered:
-                refusal = event
-                break
+            if event['type'] == 'error':
+                if event.get('code') in MODEL_REFUSALS and not answered:
+                    refusal = event
+                    break
+                failed = True
+            if event['type'] == 'done':
+                # Held back so parts the model's plan skipped can still be answered in this turn.
+                finished = True
+                continue
             yield event
     finally:
         await stream.aclose()
     if refusal is None:
+        if finished and not failed and gate.deliverable():
+            async for event in _answer_skipped_parts(gate, catalog, profile, memory, body, known):
+                yield event
+        if finished:
+            yield {'type': 'done'}
         return
     logger.warning("hermes_degraded %s", refusal['code'])
     async for event in plan_response(gate, catalog, profile, memory, body, known):
@@ -1123,12 +1167,61 @@ async def answer_known_parts(stream, gate, catalog, profile, memory, body, known
         if event['type'] != 'done':
             yield event
     if gate.deliverable():
-        quoted = '; '.join('"' + ' '.join(part.split())[:160] + '"' for part in rest[:3])
-        text = f"I could not answer {'this part' if len(rest) == 1 else 'these parts'} right now: {quoted}. {refusal['message']}"
-        for event in reply_events(text, 'fallback'):
+        ids, matched = relevant_task_ids(catalog, [*rest, memory.business_goal], _owner_trade(catalog, profile, memory), 3)
+        card = run_action(catalog, 'ask_owner', {'question_id': 'task', 'problem_ids': ids}, profile, memory) if matched else None
+        if card is not None and card.data.get('error'):
+            card = None
+        if card is not None:
+            memory.pending_question = 'task'
+            memory.pending_task_ids = ids
+            yield _memory_event(memory)
+        for event in reply_events(_unanswered_text(rest, refusal, card is not None), 'fallback'):
             event['response_mode'] = 'conversation'
             yield event
+        for event in card.events if card is not None else ():
+            yield event
     yield {'type': 'done'}
+
+
+def _unanswered_text(rest, refusal, offering_tasks: bool) -> str:
+    """Names the part the AI could not answer and why, in the owner's terms."""
+    quoted = '; '.join('"' + ' '.join(part.split())[:160] + '"' for part in rest[:3])
+    tasks = ' Meanwhile, these tasks are the closest match and still work.' if offering_tasks else ''
+    if refusal['code'] == 'ai_budget_reached':
+        return (f"I couldn't answer {quoted} because Arkadio's AI has reached its usage budget for now. "
+                f"Browsing and saved tools still work.{tasks}")
+    if refusal['code'] == 'agent_unavailable':
+        return (f"I couldn't answer {quoted} just now because Arkadio's AI is unavailable for a moment. "
+                f"Try that part again in a minute.{tasks}")
+    return f"I couldn't answer {quoted} just now. {refusal['message']}{tasks}"
+
+
+async def _answer_skipped_parts(gate, catalog, profile, memory, body, known):
+    """Answers app-held parts (favourites, business recall, help) that the model's reply left out.
+
+    The model plans the whole compound message, and nothing forces its plan to keep
+    every part. These parts never need the model, so each one it skipped is answered
+    here from the same code path. A part it did answer is not repeated.
+
+    Any question the model just asked keeps its follow-up: the pending choices are
+    restored after these read-only answers, which would otherwise clear them.
+    """
+    missing = [step for step in known.steps if step.kind not in body._answered_kinds]
+    if not missing:
+        return
+    logger.warning("known_parts_completed %s", ','.join(step.kind for step in missing))
+    saved = (memory.pending_question, list(memory.pending_task_ids),
+             memory.pending_favourite_action, list(memory.pending_favourite_ids))
+    async for event in plan_response(gate, catalog, profile, memory, body, known.model_copy(update={'steps': missing})):
+        # The model's run already reported its action receipts; settling again must not repeat them.
+        if event['type'] in ('done', 'action'):
+            continue
+        yield event
+        if event['type'] == 'error':
+            return
+    (memory.pending_question, memory.pending_task_ids,
+     memory.pending_favourite_action, memory.pending_favourite_ids) = saved
+    yield _memory_event(memory)
 
 
 async def plan_response(gate, catalog, profile, memory, body, plan):
@@ -1236,6 +1329,7 @@ async def plan_response(gate, catalog, profile, memory, body, plan):
                 yield _closed('session_ended')
                 yield {'type': 'done'}
                 return
+            body._answered_kinds.add(step.kind)
             yield _memory_event(memory)
             for event in reply_events(('\n\n' if step_index else '') + text, 'validated'):
                 event['response_mode'] = 'app_help' if step.kind in ('help', 'social') else 'conversation'
@@ -1819,7 +1913,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
         logger.warning("Hermes not ready: %s", found.code)
         if (os.environ.get('CHAT_CATALOG_FAST_PATH', '').lower() in ('true', '1') and not body._known_parts
                 and not tool_execution.required_tool_ids(package) and not task_ids(catalog, body)):
-            async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
+            async for event in _ask_what_they_need(gate, catalog, profile, memory, body, found.code or 'not_ready'):
                 yield event
             return
         for event in _bail(found.code or "not_ready"):
@@ -1939,8 +2033,8 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
             logger.warning("Hermes run stopped: %s", outcome)
             if revoked is not None:
                 raise revoked
-            if outcome == 'timeout' and not operations and not task_ids(catalog, body) and not body._known_parts:
-                async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
+            if outcome != 'session_ended' and not operations and not task_ids(catalog, body) and not body._known_parts:
+                async for event in _ask_what_they_need(gate, catalog, profile, memory, body, outcome):
                     yield event
                 return
             yield _closed("session_ended") if outcome == "session_ended" else _unavailable()
@@ -1954,7 +2048,7 @@ async def run_hermes(gate: RunGate, package: EvidencePackage, body: ChatRequest,
         logger.warning("Hermes run ended: %s", run.terminal)
         readiness.invalidate()
         if not tool_execution.required_tool_ids(package) and not task_ids(catalog, body) and not body._known_parts:
-            async for event in _ask_what_they_need(gate, catalog, profile, memory, body):
+            async for event in _ask_what_they_need(gate, catalog, profile, memory, body, 'run_not_completed'):
                 yield event
             return
         for event in _bail("run_not_completed"):

@@ -82,8 +82,8 @@ def fast_task_covered(catalog, body):
     from .ownership import stated_ownership
     from .tasks import resolve_task
     normalize = lambda value: ' '.join(value.casefold().split()).strip(' .!?')
-    if any(normalize(body.message) == normalize(card.plain_words) for card in catalog.problem_cards):
-        return True  # Exact app-owned task examples, not arbitrary substring hits.
+    if any(normalize(body.message) in (normalize(card.plain_words), normalize(card.title)) for card in catalog.problem_cards):
+        return True  # Exact app-owned task examples or a tapped card title, not arbitrary substring hits.
     if contextual_language(body.message):
         return False
     parts = [part.strip() for part in re.split(r'[.!?;,\n]+|\band\b', body.message, flags=re.I) if part.strip()]
