@@ -417,11 +417,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     finish(run)
   }
 
-  async function startOver() {
-    if (authToken && historyReady) {
-      try { await flushHistory(); setConversations((await api.listChatConversations(authToken)).conversations) }
-      catch { setNotice('Could not save this conversation. Please retry before starting another.'); return }
-    }
+  function resetConversation() {
     abortRef.current?.abort()
     runRef.current += 1
     busyRef.current = false
@@ -438,6 +434,28 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     setInputError('')
     setNotice('')
     inputRef.current?.focus()
+  }
+
+  async function startOver() {
+    if (busyRef.current || deletingHistory) return
+    if (auth?.configured && (!auth.ready || (userId && hydratedFor !== userId))) {
+      setNotice('Restoring your account conversation. Please wait a moment.')
+      return
+    }
+    // Saving/listing is asynchronous. Reserve the UI before awaiting it so a
+    // new message cannot start on the old conversation and then be cancelled.
+    const run = begin()
+    try {
+      if (authToken && historyReady) {
+        await flushHistory()
+        const data = await api.listChatConversations(authToken)
+        if (run !== runRef.current) return
+        setConversations(data.conversations)
+      }
+      if (run === runRef.current) resetConversation()
+    } catch {
+      if (run === runRef.current) setNotice('Could not save this conversation. Please retry before starting another.')
+    } finally { finish(run) }
   }
 
   async function openConversation(id, older = false) {
@@ -467,7 +485,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
     try {
       await deleteSavedHistory(authToken)
       if (run !== runRef.current) return
-      startOver()
+      resetConversation()
+      setConversations([])
       setNotice('Your saved chat history was deleted. Your favourite tools are unchanged.')
     } catch {
       if (run === runRef.current) setNotice('Could not delete your chat history. Please retry.')

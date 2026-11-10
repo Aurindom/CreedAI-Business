@@ -89,3 +89,20 @@ test('owner can select an archived conversation, page backwards, and continue wi
   assert.equal(sent.memory.business_description, 'Older owner conversation')
   assert.deepEqual(sent.memory.last_tool_ids, ['quickbooks_online'])
 })
+
+test('new chat reserves the UI while archiving so an immediate send cannot race the reset', async () => {
+  await render(owner('alice'))
+  const originalFetch = globalThis.fetch
+  let release
+  globalThis.fetch = async (url, options) => url === '/api/chat/conversations'
+    ? new Promise(resolve => { release = () => resolve(Response.json({ conversations: [] })) })
+    : originalFetch(url, options)
+  await React.act(async () => document.querySelector('.msc-header-actions .msc-text-button').click())
+  assert.equal(document.querySelector('.msc-send').disabled, true)
+  assert.match(document.querySelector('.msc-log').textContent, /Recent business/)
+  await React.act(async () => { release(); await Promise.resolve() })
+  assert.equal(document.querySelector('.msc-send').disabled, false)
+  assert.equal(document.querySelectorAll('.msc-row-user').length, 0)
+  await send('hi')
+  assert.equal(requests.filter(item => item.url === '/api/chat').length, 1)
+})
