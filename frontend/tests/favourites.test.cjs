@@ -78,3 +78,16 @@ test('late save response from a previous account cannot leak into the next accou
   assert.equal(document.querySelector('#choice button').getAttribute('aria-pressed'), 'false')
   await ui.close()
 })
+
+test('chat favourite changes refresh cards from the API', async () => {
+  const ui = setup()
+  let items = []
+  globalThis.fetch = async () => Response.json(items)
+  await ui.render(auth('alice'))
+  assert.equal(document.querySelector('#choice button').getAttribute('aria-pressed'), 'false')
+  items = [entry]
+  await React.act(async () => window.dispatchEvent(new window.Event('arkadio:favourites-changed')))
+  assert.equal(document.querySelector('#choice button').getAttribute('aria-pressed'), 'true')
+  assert.match(document.querySelector('#saved').textContent, /Jobber/)
+  await ui.close()
+})

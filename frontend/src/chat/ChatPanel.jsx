@@ -355,6 +355,8 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
       if (event.type === 'status') setStatus(event.text)
       if (event.type === 'mode') setLive(event.live)
       if (event.type === 'memory') setMemory({ ...EMPTY_MEMORY, ...event.memory })
+      if (event.type === 'favourites_changed') window.dispatchEvent(new Event('arkadio:favourites-changed'))
+      if (event.presentation === 'table_summary') return
       if (event.type === 'message_delta' && !receivedA2UIText) {
         setSpeaking(true)
         clearTimeout(speakTimer.current)
@@ -368,7 +370,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
         }
       }
       if (event.type === 'a2ui') {
-        const surface = ['recommendation', 'text', 'sources'].includes(event.surface) ? event.surface : 'question'
+        const surface = ['recommendation', 'text', 'sources', 'table'].includes(event.surface) ? event.surface : 'question'
         if (surface === 'recommendation') receivedA2UIRecommendation = true
         if (surface === 'question') receivedA2UIQuestion = true
         if (surface === 'text') {
@@ -618,6 +620,9 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
 
   function forget({ field, id }) {
     setMemory((current) => {
+      if (field === 'business' || field === 'trade') return { ...current, trade: null, business_description: null, business_forgotten: true,
+        business_goal: null, scenario_business: null, last_tool_ids: [], active_task_ids: [], pending_task_ids: [], pending_question: null,
+        comparison_criterion: null, comparison_excluded_ids: [], background_done: false }
       if (id && field === 'owned') {
         const plans = { ...(current.plans || {}) }
         delete plans[id]
@@ -665,7 +670,7 @@ function Panel({ profile, auth, open, onClose, onActivityChange, drag, phone, ha
 
         <details className="penny-boundaries"><summary>What Arkadio will not do</summary><p>Arkadio will not buy or connect tools, handle payments, reveal private instructions, or accept phone numbers and email addresses. It uses catalog evidence, which means facts we have checked, and tells you which details need confirmation.</p></details>
         {live === false && <p className="penny-unavailable-note" role="status">Arkadio is currently unavailable. You can still browse or compare tools while the connection is restored.</p>}
-        <PennyMemory memory={memory} names={names} onRemove={forget} />
+        <PennyMemory memory={memory} names={names} onRemove={forget} signedIn={Boolean(auth?.user?.id)} />
         {userId && <div className="msc-history-controls"><span>History kept for up to 30 days</span><button type="button" onClick={deleteHistory} disabled={busy || !historyReady}>{deletingHistory ? 'Deleting…' : 'Delete history'}</button></div>}
         {userId && conversations.length > 0 && <label className="msc-history-controls">Past conversations<select aria-label="Past conversations" value={conversations.some(item => item.conversationId === conversationId) ? conversationId : ''} onChange={event => openConversation(event.target.value)} disabled={busy || deletingHistory}><option value="">Current conversation</option>{conversations.map(item => <option key={item.conversationId} value={item.conversationId}>{item.title}</option>)}</select></label>}
 

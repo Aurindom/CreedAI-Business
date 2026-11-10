@@ -129,7 +129,9 @@ def _valid_simple_surface(item: dict[str, Any], surface: str, component_name: st
 
 
 def _valid_surface(item: dict[str, Any]) -> bool:
+    from .conversation_tables import valid_surface
     return (_valid_question_surface(item) or _valid_recommendation_surface(item)
+            or valid_surface(item)
             or _valid_simple_surface(item, "text", "PennyText")
             or _valid_simple_surface(item, "sources", "PennySources"))
 
@@ -268,13 +270,13 @@ async def load_history(request: Request, conversation_id: str | None = Query(def
                 raise ValueError('cache binding mismatch')
             # Migrate old snapshots without erasing the owner's actual wording.
             from .conversation_state import business_description
-            if not snapshot.memory.business_description:
+            if not snapshot.memory.business_description and not snapshot.memory.business_forgotten:
                 for item in reversed(snapshot.messages):
                     label = business_description(item['text']) if item['kind'] == 'user' else None
                     if label:
                         snapshot.memory.business_description = label
                         break
-            if not snapshot.memory.last_tool_ids:
+            if not snapshot.memory.last_tool_ids and not snapshot.memory.business_forgotten:
                 for item in reversed(snapshot.messages):
                     rec = item.get('recommendation') if item['kind'] == 'result' else None
                     if item['kind'] == 'a2ui' and item.get('surface') == 'recommendation':

@@ -23,9 +23,12 @@ class ConversationAction(BaseModel):
 
 def business_description(message, pending=False):
     """Capture an explicit self-description, not arbitrary owner prose or instructions."""
+    from .conversation_plan import contextual_language
+    if contextual_language(message):
+        return None
     if re.fullmatch(r"(?:hi|hello|hey|thanks|thank you|yes|no|skip.*|how are you.*)", message.strip(' .!?'), re.I):
         return None
-    match = re.search(r"\b(?:i|we)\s+(?:own|run|operate)\s+an?\s+(.+)", message, re.I)
+    match = re.search(r"(?:^|[.!?]\s*|\b(?:actually|now)\s+)(?:i|we)\s+(?:own|run|operate)\s+an?\s+(.+)", message, re.I)
     if not match:
         match = re.search(r"\b(?:i|we)\s+(?:own|run|operate)\s+([^,;?!.]+\b(?:business|shop|store|clinic|company|practice|studio|farm|workshop))\b", message, re.I)
     if not match:
@@ -35,7 +38,7 @@ def business_description(message, pending=False):
     if not match and pending and re.match(r"(?:what|which|how|why|when|can|could|would|do|does|is|are|i need|we need|help|find|compare|show)\b", message, re.I):
         return None
     value = match.group(1) if match else message if pending else ''
-    value = re.split(r"[,;?!.]|\s+(?:and |but )?(?:how|now|please|can you|i need|we need)\b|\s+and\s+(?:(?:i|we)\s+)?(?:need|want|use|have|keep|am|are|cannot|don't)\b", value, maxsplit=1, flags=re.I)[0]
+    value = re.split(r"[,;?!.]|\s+(?:and |but )?(?:how|now|please|can you|i need|we need)\b|\s+and\s+(?:(?:i|we)\s+)?(?:need|want|use|have|keep|am|are|handle|cannot|don't)\b", value, maxsplit=1, flags=re.I)[0]
     value = value.strip(' \"\'')
     if (not 2 <= len(value) <= 100 or not re.search(r'[a-zA-Z]{2}', value)
             or re.search(r'\b(?:not|never|instead of)\b', value, re.I)):
@@ -59,7 +62,7 @@ def criterion_for(message):
 def local_action(message, memory):
     """Conservative fast recognition; unfamiliar wording still has semantic routing."""
     text = message.casefold().strip(' .!?')
-    if re.search(r'\b(?:remember|recall|forgot|forget)\b', text) and re.search(r'\b(?:business|shop|store)\b', text):
+    if re.fullmatch(r'(?:do you (?:not )?|can you |please )?(?:remember|recall)(?: what)? (?:my |our |the )?(?:business|shop|store)(?: is)?', text):
         return 'recall', None
     criterion = criterion_for(message)
     if re.search(r"\b(?:do not|don't|dont|never)\s+compare\b", text):
@@ -120,10 +123,12 @@ def comparison_package(catalog, profile, tasks, tool_ids, criterion):
                 sid = f'{tool_id}:comparison:{index}'
                 sources.append(Source(id=sid, kind=fact.source_type or 'third_party', url=_safe(fact.source_url), checked=str(fact.checked), inferred=fact.inferred))
                 refs.append(sid)
-        text = f'{tool.name}: ' + ' '.join(f'{task.title}: {task.cost_note or task.reason}' for task in fit.tasks)
-        plans = [f'{fact.label}: {fact.value}' for fact in fit.facts if fact.known and fact.checked and _safe(fact.source_url) and re.search(r'plan|tier|price|billing', fact.label, re.I)]
-        if plans:
-            text += ' ' + '; '.join(plans) + '.'
+        details = list(dict.fromkeys(task.cost_note or task.reason for task in fit.tasks))
+        text = f'{tool.name}: ' + ' '.join(details)
+        price = tool.entry_monthly_usd
+        if price and price.known and price.checked and _safe(price.source_url) and isinstance(price.value, (int, float)):
+            text += f' Entry price: USD {price.value:g}/month' + (' (estimate).' if price.inferred else '.')
+        plans = []
         for task in fit.tasks:
             capability = tool.capability(catalog.problem(task.problem_id).capability)
             plan = capability.included_from if capability and capability.level == 'included' else capability.addon_from if capability else None
@@ -131,7 +136,9 @@ def comparison_package(catalog, profile, tasks, tool_ids, criterion):
                 sid = f'{tool_id}:plan:{task.problem_id}'
                 sources.append(Source(id=sid, kind=plan.source_type or 'third_party', url=_safe(plan.source_url), checked=str(plan.checked), inferred=plan.inferred))
                 refs.append(sid)
-                text += f' Listed plan for {task.title}: {plan.value}. '
+                plans.append(str(plan.value) + (' (estimate)' if plan.inferred else ''))
+        if plans:
+            text += ' Required plan: ' + ', '.join(dict.fromkeys(plans)) + '.'
         if not fit.tasks:
             text += 'Task suitability needs confirmation.'
         stack = result.stack

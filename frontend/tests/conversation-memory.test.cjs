@@ -106,3 +106,17 @@ test('new chat reserves the UI while archiving so an immediate send cannot race 
   await send('hi')
   assert.equal(requests.filter(item => item.url === '/api/chat').length, 1)
 })
+
+test('removing freeform business clears effective context and persists a forgetting marker', async () => {
+  await render(owner('alice'))
+  assert.match(document.querySelector('.msc-memory').textContent, /Recent business/)
+  assert.match(document.querySelector('.msc-memory-note').textContent, /30 days/)
+  await React.act(async () => document.querySelector('.msc-memory button[aria-label^="Remove: Business"]').click())
+  guestEvents = [{ type: 'message_delta', text: 'I do not have a business recorded.', validation: 'validated' }]
+  await send('Do you remember my business?')
+  const sent = JSON.parse(requests.findLast(item => item.url === '/api/chat').body)
+  assert.equal(sent.memory.business_description, null)
+  assert.equal(sent.memory.trade, null)
+  assert.equal(sent.memory.business_forgotten, true)
+  assert.deepEqual(sent.memory.last_tool_ids, [])
+})

@@ -19,6 +19,12 @@ export function FavouritesProvider({ auth, children }) {
   const ready = signedIn && saved.userId === userId && saved.ready
 
   useEffect(() => {
+    const refresh = () => setAttempt(value => value + 1)
+    window.addEventListener('arkadio:favourites-changed', refresh)
+    return () => window.removeEventListener('arkadio:favourites-changed', refresh)
+  }, [])
+
+  useEffect(() => {
     const run = ++generation.current
     const controller = new AbortController()
     pendingRef.current = new Set()

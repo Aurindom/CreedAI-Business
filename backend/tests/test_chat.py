@@ -190,7 +190,7 @@ def test_bad_action_arguments_do_not_crash(client, monkeypatch):
 def test_memory_keeps_only_real_ids(client, monkeypatch):
     script(monkeypatch, calls(("update_memory", {"trade": "coffee_shop", "owned_tool_ids": ["jobber", "fake"], "ruled_out_tool_ids": ["toast"], "budget_monthly_usd": 50})), reply("Got it."))
     memory = next(e for e in send(client) if e["type"] == "memory")["memory"]
-    assert memory == {"trade": "coffee_shop", "business_description": None, "last_tool_ids": [], "comparison_criterion": None, "owned": ["jobber"], "ruled_out": ["toast"], "budget_monthly_usd": 50.0, "background_done": False, "active_task_ids": [], "pending_question": None, "pending_task_ids": [], "plans": {}}
+    assert memory == {**chat.ChatMemory().model_dump(), "trade": "coffee_shop", "owned": ["jobber"], "ruled_out": ["toast"], "budget_monthly_usd": 50.0}
 
 
 def test_clarify_ends_the_turn(client, monkeypatch):

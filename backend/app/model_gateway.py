@@ -266,6 +266,15 @@ def _pinned(body: dict[str, Any]) -> dict[str, Any]:
                                    'required': ['kind', 'criterion', 'owner_text']}] }},
                 'required': ['claim_ids', 'followup_id', 'conversation_intent', 'reply_id', 'routes', 'trade', 'trade_text', 'business_text', 'action']}}}
         properties = body['response_format']['json_schema']['schema']['properties']
+        if any(message.get('role') == 'system' and 'conversation_plan_v3' in str(message.get('content', ''))
+               for message in body.get('messages', []) if isinstance(message, dict)):
+            from .conversation_plan import strict_schema
+            properties['plan'] = {'anyOf': [strict_schema(), {'type': 'null'}]}
+            body['response_format']['json_schema']['schema']['required'].append('plan')
+            # V3 conversation must use the complete plan, not the legacy
+            # single-action/generic reply escape hatch. Old instances keep V2.
+            for field in ('action', 'conversation_intent', 'reply_id'):
+                properties[field] = {'type': 'null'}
         if not any(message.get('role') == 'system' and 'conversation_state_v2' in str(message.get('content', ''))
                    for message in body.get('messages', []) if isinstance(message, dict)):
             # Existing app instances keep their old contract during rolling

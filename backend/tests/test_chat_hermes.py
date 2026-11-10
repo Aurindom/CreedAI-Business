@@ -135,7 +135,7 @@ def test_grounded_answer_is_delivered_through_the_real_route(client, hermes):
     assert (method, path) == ('POST', '/v1/runs') and auth_header == f'Bearer {HERMES_KEY}'
     assert set(body) == {'input', 'session_id', 'instructions'} and body['input'] == BODY['message']
     assert body['session_id'].startswith('penny-') and 'hermes' not in body['session_id']
-    assert 'You cannot save or change anything.' in body['instructions']
+    assert 'You cannot directly save or change anything; propose an explicitly requested operation only.' in body['instructions']
     assert HERMES_KEY not in json.dumps(body) and 'test-secret-key' not in json.dumps(body)
     assert ('POST', '/v1/runs/run_abc/stop') not in fake.paths()
     assert fake.operations and [tool_id for tool_id, _ in fake.operations][0] == fake.package.winner_tool_ids[0]

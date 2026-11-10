@@ -149,7 +149,12 @@ def test_context_keeps_constraints_and_recent_turns():
     assert built['constraints'] == {'trade': 'hvac', 'owned_tools': ['ledger'], 'excluded_tools': ['voice'],
                                     'budget_monthly_usd': 40, 'plan_unknown': False, 'active_task_ids': [],
                                     'pending_question': None, 'pending_task_ids': [],
-                                    'business_description': None, 'last_tool_ids': [], 'comparison_criterion': None}
+                                    'business_description': None, 'last_tool_ids': [], 'comparison_criterion': None,
+                                    'business_forgotten': False, 'business_goal': None, 'scenario_business': None,
+                                    'comparison_excluded_ids': [], 'comparison_presentation': 'prose',
+                                    'pending_favourite_action': None,
+                                    'pending_favourite_ids': [],
+                                    'favourites': 'Read from the verified account with favourites_list; not subscriptions or shortlist'}
     turns = built['earlier_turns']
     assert len(turns) <= context.MAX_TURNS and turns[0]['role'] == 'user' and turns[-1]['text'] == 'turn 10'
 

@@ -284,3 +284,11 @@
   .msc-bubble.msc-bubble-compact { bottom: 16px; right: 16px; }
   .msc-bubble .penny-hide { top: -12px; right: 0; }
 }
+.msc-comparison-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--msc-line, #493853); border-radius: 12px; margin: 12px 0; }
+.msc-comparison-table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+.msc-comparison-table caption { padding: 12px; text-align: left; font-weight: 600; }
+.msc-comparison-table th, .msc-comparison-table td { padding: 10px; vertical-align: top; border-top: 1px solid var(--msc-line, #493853); }
+.msc-comparison-table th { font-weight: 600; }
+.msc-comparison-table td { min-width: 100px; }
+.msc-comparison-table details { margin-top: 8px; }
+.msc-comparison-table a { color: inherit; text-decoration: underline; }

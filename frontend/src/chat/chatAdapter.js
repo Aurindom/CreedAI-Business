@@ -1,7 +1,7 @@
 import { api } from '../api.js'
 
 const UNAVAILABLE = 'Arkadio is unavailable right now. You can still browse and compare tools on this page.'
-export const EMPTY_MEMORY = { trade: null, business_description: null, last_tool_ids: [], comparison_criterion: null, owned: [], ruled_out: [], plans: {}, budget_monthly_usd: null, background_done: false, active_task_ids: [], pending_question: null, pending_task_ids: [] }
+export const EMPTY_MEMORY = { trade: null, business_description: null, business_forgotten: false, business_goal: null, scenario_business: null, comparison_excluded_ids: [], comparison_presentation: 'prose', pending_favourite_action: null, last_tool_ids: [], comparison_criterion: null, owned: [], ruled_out: [], plans: {}, budget_monthly_usd: null, background_done: false, active_task_ids: [], pending_question: null, pending_task_ids: [] }
 let catalog = null
 
 export async function loadCatalog() {
@@ -19,7 +19,7 @@ export function createHttpAdapter({ fetcher = (...args) => fetch(...args) } = {}
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
       signal,
-      body: JSON.stringify({ conversation_id: conversationId, message, profile, memory, history }),
+      body: JSON.stringify({ conversation_id: conversationId, message, profile, memory, history, ui_version: 3 }),
     })
     if (!response.ok) {
       const body = await response.json().catch(() => ({}))

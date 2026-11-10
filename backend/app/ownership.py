@@ -9,7 +9,7 @@ import re
 from .schemas import Catalog, Tool
 
 # "we use X", "we already pay for X", "I'm on X", "our team has X"
-_OWNS_BEFORE = re.compile(r"\b(use|uses|using|used|have|has|pay for|paying for|run|runs|running|subscribe to|subscribed to|on)\b")
+_OWNS_BEFORE = re.compile(r"\b(use|using|have|pay for|paying for|run|running|subscribe to|subscribed to|on)\b")
 _OWNS_AFTER = re.compile(r"^(is what we use|is what i use|already)\b")
 _NEGATION = re.compile(r"\b(dont|do not|doesnt|didnt|not|never|no longer|stopped|cancelled|canceled|quit|without|instead of|thinking about|considering|should i|looking at)\b")
 _SPACES = re.compile(r"\s+")
@@ -17,6 +17,7 @@ _GENERIC_WORDS = {"online", "ai", "for", "restaurants", "pro", "profile", "busin
 
 
 def _normalise(text: str) -> str:
+    text = re.sub(r"\bi['’]m\b", 'i am', text, flags=re.I)
     text = text.casefold().replace("'", "").replace("’", "")
     return _SPACES.sub(" ", re.sub(r"[^a-z0-9$]+", " ", text)).strip()
 
@@ -39,13 +40,18 @@ def _names(tool: Tool, short_counts: dict[str, int]) -> list[str]:
 
 
 def _owned_at(before: str, after: str) -> bool:
-    if _NEGATION.search(before):
+    if _NEGATION.search(before) or re.search(r'\b(?:favourite|favorite|bookmark|saved|years ago|used to|previously|formerly|no longer|do not subscribe|dont subscribe|not subscribed)\b', after):
         return False
-    return bool(_OWNS_BEFORE.search(before) or _OWNS_AFTER.search(after))
+    # The grammatical subject must be the owner, not a competitor or quoted user.
+    return bool(re.search(r'\b(?:i|we|our team|my team|our business|my business)\b', before)
+                and _OWNS_BEFORE.search(before) or _OWNS_AFTER.search(after))
 
 
 def stated_ownership(catalog: Catalog, text: str) -> list[tuple[str, str | None]]:
     """Returns (tool_id, plan or None) for each catalog tool the owner says they already use."""
+    from .conversation_plan import contextual_language
+    if contextual_language(text):
+        return []
     said = _normalise(text)
     if not said:
         return []
@@ -62,7 +68,7 @@ def stated_ownership(catalog: Catalog, text: str) -> list[tuple[str, str | None]
             match = re.search(rf"(?<= ){re.escape(name)}(?= )", padded)
             if not match:
                 continue
-            before_words = padded[: match.start()].split()[-5:]
+            before_words = padded[: match.start()].split()[-14:]
             after_text = padded[match.end():].strip()
             if not _owned_at(" ".join(before_words), after_text):
                 break

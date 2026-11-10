@@ -101,3 +101,18 @@ test('cached cards recover the service link from the catalog and reject unsafe U
   assert.equal(document.querySelector('.msc-service-link').href, 'https://example.com/service')
   await React.act(async () => root.unmount())
 })
+
+test('comparison table is accessible, escapes cells, and rejects unsafe links', async () => {
+  const row = { tool_id: 'a', tool: '<script>vendor</script>', plan: 'Core', entry_price: 'USD 49/month (estimate)', added_cost: 'Confirm required plan', notes: 'Check fees.', sources: [{ url: 'https://example.com/pricing', checked: '2026-11-09' }] }
+  const root = await render(protocol('table', 'PennyComparisonTable', { title: 'Compare alternatives', criterion: 'price', rows: [row] }))
+  assert.match(document.querySelector('table caption').textContent, /by price/)
+  assert.equal(document.querySelectorAll('thead th[scope="col"]').length, 5)
+  assert.equal(document.querySelector('tbody th[scope="row"]').textContent, '<script>vendor</script>')
+  assert.equal(document.querySelector('script'), null)
+  assert.equal(document.querySelector('.msc-comparison-table a').href, 'https://example.com/pricing')
+  await React.act(async () => root.unmount())
+  const bad = await render(protocol('table', 'PennyComparisonTable', { title: 'Compare', criterion: 'price', rows: [{ ...row, sources: [{ url: 'javascript:alert(1)', checked: 'today' }] }] }))
+  assert.equal(document.querySelector('table'), null)
+  assert.match(document.body.textContent, /could not show this result/)
+  await React.act(async () => bad.unmount())
+})
