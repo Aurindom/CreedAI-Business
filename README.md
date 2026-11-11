@@ -116,7 +116,7 @@ This started as a hackathon project, but it runs on a real server with real user
 
 The project leans hard on tests because a chat agent is easy to break without noticing.
 
-- **Backend:** about 1,600 pytest tests across 69 test files. They cover the agent turn, grounding, the gateway ledger, auth, favourites, rate limits, chat history, verification and OWASP LLM guardrails. Model calls are faked in tests, so the suite costs nothing to run.
+- **Backend:** 1,616 pytest tests across 65 test files. They cover the agent turn, grounding, the gateway ledger, auth, favourites, rate limits, chat history, verification and OWASP LLM guardrails. Model calls are faked in tests, so the suite costs nothing to run.
 - **Frontend:** 99 unit tests on the Node test runner with jsdom.
 - **Grounding evals:** 30 labelled cases in [backend/evals](backend/evals) that check answers stay faithful to the catalog.
 - **End to end:** Playwright scripts in [frontend/e2e](frontend/e2e) that drive a real browser through sign in, favourites and chat, at desktop and phone widths.
@@ -194,8 +194,6 @@ frontend/
 deploy/             Dockerfiles, Caddyfile, production compose file, config examples
 infra/              Azure Bicep template
 scripts/            Deploy, release gate and canary scripts
-demo/               Demo video script
-PLAN.md             Product plan
 ```
 
 ---
