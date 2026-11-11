@@ -36,7 +36,7 @@ test('save, sign out, second account and sign back in preserve only the correct 
     saved.set(owner, []); return new Response(null, { status: 204 })
   }
   await ui.render(auth(null))
-  assert.equal(document.querySelector('#choice button').disabled, true)
+  assert.equal(document.querySelector('#choice button').disabled, false)
   assert.equal(requests.length, 0)
   await ui.render(auth('alice'))
   await React.act(async () => document.querySelector('#choice button').click())
@@ -76,6 +76,66 @@ test('late save response from a previous account cannot leak into the next accou
   await React.act(async () => resolveSave(Response.json(entry)))
   assert.doesNotMatch(document.querySelector('#saved').textContent, /Jobber/)
   assert.equal(document.querySelector('#choice button').getAttribute('aria-pressed'), 'false')
+  await ui.close()
+})
+
+test('a guest tapping the heart is asked to sign in and comes back to the same page', async () => {
+  const ui = setup(), requests = []
+  globalThis.fetch = async url => { requests.push(url); return Response.json([]) }
+  window.history.replaceState({}, '', '/#compare')
+  await ui.render(auth(null))
+  await React.act(async () => document.querySelector('#choice button').click())
+  const prompt = document.querySelector('.favourites-toast')
+  assert.match(prompt.textContent, /Sign in to save tools/)
+  assert.equal(prompt.querySelector('a').getAttribute('href'), '/signin?next=%2F%23compare')
+  await React.act(async () => prompt.querySelector('a').click())
+  assert.equal(window.location.pathname, '/signin')
+  assert.equal(document.querySelector('.favourites-toast'), null)
+  assert.equal(requests.length, 0)
+  await ui.close()
+})
+
+test('a guest can dismiss the sign-in prompt', async () => {
+  const ui = setup()
+  await ui.render(auth(null))
+  await React.act(async () => document.querySelector('#choice button').click())
+  await React.act(async () => document.querySelector('.favourites-toast button').click())
+  assert.equal(document.querySelector('.favourites-toast'), null)
+  await ui.close()
+})
+
+test('the heart stays locked while sign-in is still restoring', async () => {
+  const ui = setup()
+  await ui.render({ ready: false, user: null, session: null })
+  assert.equal(document.querySelector('#choice button').disabled, true)
+  await ui.close()
+})
+
+test('a failed favourites load says so and retry recovers it', async () => {
+  const ui = setup()
+  let healthy = false
+  globalThis.fetch = async () => healthy ? Response.json([entry]) : Response.json({ detail: 'Outage' }, { status: 503 })
+  await ui.render(auth('alice'))
+  const toast = document.querySelector('.favourites-toast')
+  assert.match(toast.textContent, /Could not load your favourite tools/)
+  assert.equal(document.querySelector('#choice button').disabled, false)
+  healthy = true
+  await React.act(async () => [...toast.querySelectorAll('button')].find(button => button.textContent === 'Retry').click())
+  assert.equal(document.querySelector('.favourites-toast'), null)
+  assert.equal(document.querySelector('#choice button').getAttribute('aria-pressed'), 'true')
+  await ui.close()
+})
+
+test('tapping the heart after a failed load retries instead of saving', async () => {
+  const ui = setup(), methods = []
+  let healthy = false
+  globalThis.fetch = async (url, options = {}) => { methods.push(options.method || 'GET'); return healthy ? Response.json([]) : Response.json({ detail: 'Outage' }, { status: 503 }) }
+  await ui.render(auth('alice'))
+  healthy = true
+  await React.act(async () => document.querySelector('#choice button').click())
+  assert.deepEqual(methods, ['GET', 'GET'])
+  assert.equal(document.querySelector('#choice button').getAttribute('aria-pressed'), 'false')
+  assert.equal(document.querySelector('.favourites-toast'), null)
   await ui.close()
 })
 

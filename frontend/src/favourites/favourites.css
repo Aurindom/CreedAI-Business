@@ -10,3 +10,4 @@
 .favourites-nav { margin-top: 8px; }
 .favourites-toast { position: fixed; z-index: 11000; right: 20px; bottom: 20px; max-width: min(400px, calc(100vw - 40px)); padding: 16px; border: 1px solid #bd9cca; border-radius: 14px; background: #241e2e; color: #f3e9fc; box-shadow: 0 12px 40px #0005; }
 .favourites-toast button { padding: 6px 10px; margin-left: 8px; color: inherit; text-decoration: underline; }
+.favourites-toast a { margin-left: 4px; color: #f3e9fc; font-weight: 600; text-decoration: underline; }

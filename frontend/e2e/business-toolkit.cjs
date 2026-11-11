@@ -17,7 +17,7 @@ const base = process.env.QA_FRONTEND_URL || 'http://127.0.0.1:5173'
       await toolkit.getByRole('link', { name: /QuickBooks Online/ }).waitFor()
       assert.equal(await toolkit.getByRole('link', { name: /^Jobber/ }).count(), 0)
       assert.ok((await toolkit.getByRole('link', { name: /QuickBooks Online/ }).getAttribute('href')).startsWith('https://'))
-      assert.equal(await toolkit.getByRole('button', { name: 'Sign in to save QuickBooks Online as a favourite', exact: true }).isDisabled(), true)
+      assert.equal(await toolkit.getByRole('button', { name: 'Sign in to save QuickBooks Online as a favourite', exact: true }).isDisabled(), false)
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
       await toolkit.scrollIntoViewIfNeeded()
       await toolkit.screenshot({ path: `sandbox/business-toolkit-${width}.png` })

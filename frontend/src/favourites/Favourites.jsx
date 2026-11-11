@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { here, navigate, signInHref } from '../auth/route'
 import './favourites.css'
 
-const FavouritesContext = createContext({ items: [], ready: false, signedIn: false, pending: new Set(), toggle: () => {} })
+const FavouritesContext = createContext({ items: [], ready: false, signedIn: false, guest: false, loadFailed: false, pending: new Set(), toggle: () => {} })
 export const useFavourites = () => useContext(FavouritesContext)
 
 export function FavouritesProvider({ auth, children }) {
@@ -12,9 +13,12 @@ export function FavouritesProvider({ auth, children }) {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(new Set())
   const [attempt, setAttempt] = useState(0)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [askSignIn, setAskSignIn] = useState(false)
   const generation = useRef(0)
   const pendingRef = useRef(new Set())
   const signedIn = Boolean(userId && token && auth?.ready)
+  const guest = Boolean(auth?.ready) && !signedIn
   const items = saved.userId === userId ? saved.items : []
   const ready = signedIn && saved.userId === userId && saved.ready
 
@@ -28,19 +32,23 @@ export function FavouritesProvider({ auth, children }) {
     const run = ++generation.current
     const controller = new AbortController()
     pendingRef.current = new Set()
-    setPending(new Set()); setError('')
+    setPending(new Set()); setError(''); setLoadFailed(false); setAskSignIn(false)
     setSaved({ userId, items: [], ready: false })
     if (signedIn) api.favourites(token, controller.signal).then(items => {
       if (run === generation.current) setSaved({ userId, items, ready: true })
     }).catch(error => {
-      if (run === generation.current && error.name !== 'AbortError') setError('Could not load your favourite tools. Please retry.')
+      if (run === generation.current && error.name !== 'AbortError') { setLoadFailed(true); setError('Could not load your favourite tools. Please retry.') }
     })
     return () => { generation.current += 1; controller.abort() }
   // A token refresh keeps the same owner and must not race a pending mutation
   // against a new list request. Mutations use the latest rendered token.
   }, [userId, signedIn, attempt])
 
+  const retry = () => setAttempt(value => value + 1)
+
   async function toggle(id) {
+    if (guest) { setAskSignIn(true); return }
+    if (loadFailed) { retry(); return }
     if (!ready || pendingRef.current.has(id)) return
     const run = generation.current
     const exists = items.some(item => item.tool_id === id)
@@ -56,15 +64,22 @@ export function FavouritesProvider({ auth, children }) {
     }
   }
 
-  return <FavouritesContext.Provider value={{ items, ready, signedIn, pending, toggle, error, retry: () => setAttempt(value => value + 1) }}>{children}{signedIn && ready && error && <div className="favourites-toast" role="alert">{error}<button type="button" onClick={() => setError('')}>Dismiss</button></div>}</FavouritesContext.Provider>
+  const signIn = event => { event.preventDefault(); setAskSignIn(false); navigate(signInHref(here())) }
+
+  return <FavouritesContext.Provider value={{ items, ready, signedIn, guest, loadFailed, pending, toggle, error, retry }}>
+    {children}
+    {guest && askSignIn && <div className="favourites-toast" role="status">Sign in to save tools to your favourites. <a href={signInHref(here())} onClick={signIn}>Sign in</a><button type="button" onClick={() => setAskSignIn(false)}>Not now</button></div>}
+    {signedIn && error && <div className="favourites-toast" role="alert">{error}{loadFailed && <button type="button" onClick={retry}>Retry</button>}<button type="button" onClick={() => setError('')}>Dismiss</button></div>}
+  </FavouritesContext.Provider>
 }
 
 export function FavouriteButton({ toolId, name }) {
   const favourites = useFavourites()
   const selected = favourites.items.some(item => item.tool_id === toolId)
   const saving = favourites.pending.has(toolId)
-  const label = !favourites.signedIn ? `Sign in to save ${name} as a favourite` : `${selected ? 'Remove' : 'Save'} ${name} ${selected ? 'from' : 'to'} favourites`
-  return <button type="button" className={`favourite-button${selected ? ' is-favourite' : ''}`} aria-label={label} title={label} aria-pressed={selected} aria-busy={saving} disabled={!favourites.ready || saving} onClick={() => favourites.toggle(toolId)}>
+  const label = !favourites.signedIn ? `Sign in to save ${name} as a favourite` : favourites.loadFailed ? 'Favourites did not load. Tap to retry' : `${selected ? 'Remove' : 'Save'} ${name} ${selected ? 'from' : 'to'} favourites`
+  const usable = favourites.ready || favourites.guest || favourites.loadFailed
+  return <button type="button" className={`favourite-button${selected ? ' is-favourite' : ''}`} aria-label={label} title={label} aria-pressed={selected} aria-busy={saving} disabled={!usable || saving} onClick={() => favourites.toggle(toolId)}>
     <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" /></svg>
   </button>
 }
